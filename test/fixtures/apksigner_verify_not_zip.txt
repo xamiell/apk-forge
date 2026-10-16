@@ -1,0 +1,10 @@
+Exception in thread "main" com.android.apksig.apk.ApkFormatException: Malformed APK: not a ZIP archive
+	at com.android.apksig.ApkVerifier.verify(ApkVerifier.java:191)
+	at com.android.apksig.ApkVerifier.verify(ApkVerifier.java:164)
+	at com.android.apksigner.ApkSignerTool.verify(ApkSignerTool.java:610)
+	at com.android.apksigner.ApkSignerTool.main(ApkSignerTool.java:97)
+Caused by: com.android.apksig.zip.ZipFormatException: ZIP End of Central Directory record not found
+	at com.android.apksig.apk.ApkUtilsLite.findZipSections(ApkUtilsLite.java:49)
+	at com.android.apksig.apk.ApkUtils.findZipSections(ApkUtils.java:60)
+	at com.android.apksig.ApkVerifier.verify(ApkVerifier.java:189)
+	... 3 more

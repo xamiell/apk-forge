@@ -1,0 +1,72 @@
+Keystore type: JKS
+Keystore provider: SUN
+
+Your keystore contains 2 entries
+
+Alias name: forge-test
+Creation date: Oct 16, 2026
+Entry type: PrivateKeyEntry
+Certificate chain length: 1
+Certificate[1]:
+Owner: CN=APK Forge Test, O=Example, C=US
+Issuer: CN=APK Forge Test, O=Example, C=US
+Serial number: 994876e9ab456aab
+Valid from: Fri Oct 16 07:57:32 AST 2026 until: Tue Mar 03 07:57:32 AST 2054
+Certificate fingerprints:
+	 SHA1: AF:21:A6:EC:6F:16:52:A5:21:87:AD:3D:62:B8:47:A6:55:EE:5C:B6
+	 SHA256: B3:4C:94:45:C5:E4:11:B0:45:88:4F:49:90:34:B5:59:2A:B1:09:EC:5C:D1:CA:9C:B5:84:E5:4F:58:2D:CF:A8
+Signature algorithm name: SHA384withRSA
+Subject Public Key Algorithm: 2048-bit RSA key
+Version: 3
+
+Extensions: 
+
+#1: ObjectId: 2.5.29.14 Criticality=false
+SubjectKeyIdentifier [
+KeyIdentifier [
+0000: 88 41 AC 4B 46 ED E5 56   10 8C 0B 3D 57 75 E2 C4  .A.KF..V...=Wu..
+0010: 9B 4F E2 59                                        .O.Y
+]
+]
+
+
+
+*******************************************
+*******************************************
+
+
+Alias name: second-key
+Creation date: Oct 16, 2026
+Entry type: PrivateKeyEntry
+Certificate chain length: 1
+Certificate[1]:
+Owner: CN=Second Key, O=Example, C=US
+Issuer: CN=Second Key, O=Example, C=US
+Serial number: 5214d3a849eaba0
+Valid from: Fri Oct 16 07:57:33 AST 2026 until: Sat Oct 16 07:57:33 AST 2027
+Certificate fingerprints:
+	 SHA1: C1:92:D0:67:4F:6C:25:93:9E:50:1A:C3:B8:6A:B6:E8:83:24:7D:C4
+	 SHA256: C2:AF:6E:88:74:33:9E:5F:6A:87:08:E4:F8:7F:9C:84:53:E2:25:6F:FE:42:F4:E9:EB:56:88:91:61:BD:73:1C
+Signature algorithm name: SHA384withECDSA
+Subject Public Key Algorithm: 256-bit EC (secp256r1) key
+Version: 3
+
+Extensions: 
+
+#1: ObjectId: 2.5.29.14 Criticality=false
+SubjectKeyIdentifier [
+KeyIdentifier [
+0000: ED 12 86 BC B4 48 8C 3C   DB 22 58 B9 C2 9D 6E 7D  .....H.<."X...n.
+0010: 65 80 4C 94                                        e.L.
+]
+]
+
+
+
+*******************************************
+*******************************************
+
+
+
+Warning:
+The JKS keystore uses a proprietary format. It is recommended to migrate to PKCS12 which is an industry standard format using "keytool -importkeystore -srckeystore test-release.jks -destkeystore test-release.jks -deststoretype pkcs12".

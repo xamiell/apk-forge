@@ -1,0 +1,113 @@
+import '../../core/format/format.dart';
+
+/// One key in a keystore, as `keytool -list -v` describes it.
+class KeystoreEntry {
+  const KeystoreEntry({
+    required this.alias,
+    required this.entryType,
+    this.owner,
+    this.sha256,
+    this.validUntil,
+    this.keyAlgorithm,
+  });
+
+  final String alias;
+
+  /// `PrivateKeyEntry` can sign; a `trustedCertEntry` can't.
+  final String entryType;
+  final String? owner;
+
+  /// Normalized with [normalizeDigest], ready to compare with apksigner's.
+  final String? sha256;
+  final String? validUntil;
+
+  /// For example `2048-bit RSA key`.
+  final String? keyAlgorithm;
+
+  bool get canSign => entryType == 'PrivateKeyEntry';
+}
+
+final _field = RegExp(r'^\s*([A-Za-z0-9 \[\]]+?):\s*(.*)$');
+final _validity = RegExp(r'until:\s*(.+)$');
+
+/// Reads the entries of `keytool -list -v` output.
+///
+/// keytool translates its labels to the system language, so it must run
+/// with `-J-Duser.language=en` (see `keytoolListArguments`); this parser
+/// only knows the English ones.
+List<KeystoreEntry> parseKeytoolList(Iterable<String> lines) {
+  final entries = <KeystoreEntry>[];
+  String? alias;
+  var entryType = '';
+  String? owner;
+  String? sha256;
+  String? validUntil;
+  String? keyAlgorithm;
+  var inFirstCertificate = false;
+
+  void flush() {
+    if (alias != null) {
+      entries.add(
+        KeystoreEntry(
+          alias: alias!,
+          entryType: entryType,
+          owner: owner,
+          sha256: sha256,
+          validUntil: validUntil,
+          keyAlgorithm: keyAlgorithm,
+        ),
+      );
+    }
+    alias = null;
+    entryType = '';
+    owner = sha256 = validUntil = keyAlgorithm = null;
+    inFirstCertificate = false;
+  }
+
+  for (final line in lines) {
+    final match = _field.firstMatch(line);
+    if (match == null) continue;
+    final key = match.group(1)!.trim();
+    final value = match.group(2)!.trim();
+
+    switch (key) {
+      case 'Alias name':
+        flush();
+        alias = value;
+      case 'Entry type':
+        entryType = value;
+        inFirstCertificate = true;
+      // A chain lists several certificates; the signer is the first one.
+      case 'Certificate[2]':
+        inFirstCertificate = false;
+      case 'Owner' when inFirstCertificate && owner == null:
+        owner = value;
+      case 'Valid from' when inFirstCertificate && validUntil == null:
+        validUntil = _validity.firstMatch(value)?.group(1)?.trim();
+      case 'SHA256' when inFirstCertificate && sha256 == null:
+        sha256 = normalizeDigest(value);
+      case 'Subject Public Key Algorithm'
+          when inFirstCertificate && keyAlgorithm == null:
+        keyAlgorithm = value;
+    }
+  }
+  flush();
+  return entries;
+}
+
+/// The keystore environment variables. Passwords go through the
+/// environment, never the command line.
+const keystorePasswordVariable = 'APK_FORGE_KS_PASS';
+const keyPasswordVariable = 'APK_FORGE_KEY_PASS';
+
+List<String> keytoolListArguments(String keystorePath) => [
+  // English labels, whatever the system language: the parser reads them.
+  '-J-Duser.language=en',
+  '-J-Duser.country=US',
+  '-list',
+  '-v',
+  '-keystore',
+  keystorePath,
+  '-storepass:env',
+  keystorePasswordVariable,
+];

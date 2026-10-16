@@ -1,0 +1,12 @@
+Running Gradle task 'assembleRelease'...                        
+Font asset "MaterialIcons-Regular.otf" was tree-shaken, reducing it from 1645184 to 1368 bytes (99.9% reduction). Tree-shaking can be disabled by providing the --no-tree-shake-icons flag when building your app.
+Warning: The generated ELF library contains unobfuscated DWARF debugging information.
+         To avoid this, use --strip to remove it.
+Warning: The generated ELF library contains unobfuscated DWARF debugging information.
+         To avoid this, use --strip to remove it.
+Warning: The generated ELF library contains unobfuscated DWARF debugging information.
+         To avoid this, use --strip to remove it.
+Running Gradle task 'assembleRelease'...                           88.9s
+✓ Built build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk (12.1MB)
+✓ Built build/app/outputs/flutter-apk/app-arm64-v8a-release.apk (15.0MB)
+✓ Built build/app/outputs/flutter-apk/app-x86_64-release.apk (16.4MB)

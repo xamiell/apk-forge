@@ -1,0 +1,88 @@
+import 'dart:convert';
+
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import '../core/process/process_runner.dart';
+import '../core/system/host.dart';
+import '../services/adb_service.dart';
+import '../services/apk_analyzer.dart';
+import '../services/flutter_build_service.dart';
+import '../services/signing_service.dart';
+
+/// The environment programs start with: the login shell's, loaded once in
+/// `main`. Overridden there.
+final environmentProvider = Provider<Map<String, String>>(
+  (ref) => throw UnimplementedError('Overridden in main().'),
+);
+
+/// Overridden in `main` with the preferences, and in tests with memory.
+final settingsStoreProvider = Provider<SettingsStore>(
+  (ref) => throw UnimplementedError('Overridden in main().'),
+);
+
+final hostProvider = Provider<Host>(
+  (ref) => Host.current(ref.watch(environmentProvider)),
+);
+
+final fileProbeProvider = Provider<FileProbe>((ref) => const IoFileProbe());
+
+final processRunnerProvider = Provider<ProcessRunner>(
+  (ref) => IoProcessRunner(ref.watch(environmentProvider)),
+);
+
+final clockProvider = Provider<DateTime Function()>((ref) => DateTime.now);
+
+final flutterBuildServiceProvider = Provider(
+  (ref) => FlutterBuildService(host: ref.watch(hostProvider)),
+);
+final keystoreServiceProvider = Provider((ref) => const KeystoreService());
+final signingServiceProvider = Provider(
+  (ref) => ApkSigningService(host: ref.watch(hostProvider)),
+);
+final apkAnalyzerProvider = Provider((ref) => const ApkAnalyzer());
+final adbServiceProvider = Provider((ref) => const AdbService());
+
+/// Remembers the forms between launches. Passwords never come here.
+abstract interface class SettingsStore {
+  Map<String, Object?>? read(String key);
+  void write(String key, Map<String, Object?> value);
+}
+
+class PreferencesSettingsStore implements SettingsStore {
+  const PreferencesSettingsStore(this._preferences);
+
+  final SharedPreferences _preferences;
+
+  static const _prefix = 'apk_forge.';
+
+  @override
+  Map<String, Object?>? read(String key) {
+    final raw = _preferences.getString('$_prefix$key');
+    if (raw == null) return null;
+    try {
+      final decoded = jsonDecode(raw);
+      return decoded is Map<String, Object?> ? decoded : null;
+    } on FormatException {
+      return null;
+    }
+  }
+
+  @override
+  void write(String key, Map<String, Object?> value) {
+    _preferences.setString('$_prefix$key', jsonEncode(value));
+  }
+}
+
+class MemorySettingsStore implements SettingsStore {
+  MemorySettingsStore([Map<String, Map<String, Object?>>? initial])
+    : values = {...?initial};
+
+  final Map<String, Map<String, Object?>> values;
+
+  @override
+  Map<String, Object?>? read(String key) => values[key];
+
+  @override
+  void write(String key, Map<String, Object?> value) => values[key] = value;
+}
