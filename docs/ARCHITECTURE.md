@@ -10,7 +10,7 @@ and that the code which actually starts the tools is thin.
 
 ```
 lib/
-  core/       Process running, the host OS, ZIP reading, formatting, log types.
+  core/       Process running, the host OS, ZIP reading and copying, formatting, log types.
   domain/     Models, command builders, output parsers, findings. Pure.
   services/   One class per tool job; runs commands through a ProcessRunner.
   state/      Riverpod notifiers: forms, the current task, actions, the log.
@@ -116,6 +116,25 @@ A test covers each of these. Keep it that way when a new tool takes a secret.
    an earlier signed APK stays as it was.
 
 The input is never modified or overwritten (`signedApkPath`).
+
+### Splitting a universal APK per ABI
+
+`ApkSplitService.withSplits` needs no tool, only the ZIP itself:
+
+1. `planAbiSplit` (`domain/signing/abi_split.dart`) picks one APK per
+   `lib/<abi>/` folder, leaving out a Flutter app's ABIs that have no engine.
+2. `copyZipEntries` (`core/zip`) writes each split to a temporary folder,
+   keeping the entries `keepsEntryForAbi` accepts: everything but the other
+   ABIs and the v1 signature files. Kept entries are copied as stored,
+   never recompressed, so uncompressed `.so` files stay uncompressed. The
+   APK Signing Block isn't copied.
+3. Each split is signed as above. `zipalign` realigns it, because removing
+   entries moves the others. The signed APK goes next to the universal one
+   (`SigningRequest.withDefaultOutputDir`), and the temporary folder is
+   deleted even when signing fails.
+
+The splits keep the universal APK's manifest, `versionCode` included:
+changing it would mean rewriting the binary manifest.
 
 ## 8. Tests
 

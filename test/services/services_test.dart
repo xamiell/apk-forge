@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:apk_forge/core/process/command.dart';
 import 'package:apk_forge/core/process/process_runner.dart';
+import 'package:apk_forge/core/zip/zip_directory.dart';
 import 'package:apk_forge/domain/build/build_options.dart';
 import 'package:apk_forge/domain/devices/device_info.dart';
 import 'package:apk_forge/domain/failure.dart';
@@ -10,6 +11,7 @@ import 'package:apk_forge/domain/signing/signing.dart';
 import 'package:apk_forge/domain/tools/toolchain.dart';
 import 'package:apk_forge/services/adb_service.dart';
 import 'package:apk_forge/services/apk_analyzer.dart';
+import 'package:apk_forge/services/apk_split_service.dart';
 import 'package:apk_forge/services/flutter_build_service.dart';
 import 'package:apk_forge/services/signing_service.dart';
 import 'package:apk_forge/services/tool_executor.dart';
@@ -540,6 +542,165 @@ void main() {
         '-d',
         '/a.apk',
       ]);
+    });
+  });
+
+  group('ApkSplitService', () {
+    ApkSplitService service() =>
+        ApkSplitService(host: macHost, temporaryDirectory: () => temp);
+
+    String apk(String name, List<String> entries) {
+      final archive = Archive();
+      for (final entry in entries) {
+        archive.add(
+          ArchiveFile.string(entry, 'content of $entry')
+            ..compression = entry.endsWith('.so')
+                ? CompressionType.none
+                : CompressionType.deflate,
+        );
+      }
+      final path = p.join(temp.path, name);
+      File(path).writeAsBytesSync(ZipEncoder().encode(archive));
+      return path;
+    }
+
+    const shared = [
+      'AndroidManifest.xml',
+      'classes.dex',
+      'resources.arsc',
+      'META-INF/services/l0',
+    ];
+    const flutterAbis = ['arm64-v8a', 'armeabi-v7a', 'x86_64'];
+    List<String> universal() => [
+      for (final abi in flutterAbis) ...[
+        'lib/$abi/libapp.so',
+        'lib/$abi/libflutter.so',
+      ],
+      ...shared,
+      // Left by an earlier v1 signing; the splits must not carry them.
+      'META-INF/MANIFEST.MF',
+      'META-INF/CERT.SF',
+      'META-INF/CERT.RSA',
+    ];
+
+    Iterable<String> splitDirectories() => temp
+        .listSync()
+        .map((entity) => p.basename(entity.path))
+        .where((name) => name.startsWith('apk_forge_split_'));
+
+    test(
+      'writes one APK per ABI with only its native code, then deletes them',
+      () async {
+        final input = apk('app-release.apk', universal());
+        final seen = <String, List<String>>{};
+
+        final splits = await service().withSplits(
+          executor,
+          input: input,
+          use: (splits) async {
+            for (final split in splits) {
+              seen[p.basename(split.path)] = [
+                for (final entry in await readZipDirectory(split.path))
+                  entry.name,
+              ];
+            }
+            return splits;
+          },
+        );
+
+        expect(splits.map((s) => s.abi), flutterAbis);
+        expect(seen.keys, [
+          'app-release-arm64-v8a.apk',
+          'app-release-armeabi-v7a.apk',
+          'app-release-x86_64.apk',
+        ]);
+        expect(seen['app-release-x86_64.apk'], [
+          'lib/x86_64/libapp.so',
+          'lib/x86_64/libflutter.so',
+          ...shared,
+        ]);
+        expect(runner.calls, isEmpty);
+        expect(splitDirectories(), isEmpty);
+        expect(
+          log.lines,
+          contains(
+            startsWith('info: Split arm64-v8a: app-release-arm64-v8a.apk'),
+          ),
+        );
+      },
+    );
+
+    test('one ABI is nothing to split', () async {
+      final input = apk('app.apk', [
+        'lib/arm64-v8a/libflutter.so',
+        'lib/arm64-v8a/libapp.so',
+        ...shared,
+      ]);
+
+      final splits = await service().withSplits(
+        executor,
+        input: input,
+        use: (splits) async => splits,
+      );
+
+      expect(splits, isEmpty);
+      expect(
+        log.lines,
+        contains('info: app.apk only has arm64-v8a: nothing to split.'),
+      );
+      expect(splitDirectories(), isEmpty);
+    });
+
+    test(
+      'an ABI without the Flutter engine is left out, with a warning',
+      () async {
+        final input = apk('app.apk', [...universal(), 'lib/x86/libplugin.so']);
+
+        final splits = await service().withSplits(
+          executor,
+          input: input,
+          use: (splits) async => splits,
+        );
+
+        expect(splits.map((s) => s.abi), flutterAbis);
+        expect(log.lines, contains(startsWith('warning: Left out x86')));
+      },
+    );
+
+    test('the splits are deleted when using them fails', () async {
+      final input = apk('app.apk', universal());
+
+      await expectLater(
+        service().withSplits(
+          executor,
+          input: input,
+          use: (_) async => throw const ToolFailure('Signing failed'),
+        ),
+        throwsA(isA<ToolFailure>()),
+      );
+      expect(splitDirectories(), isEmpty);
+    });
+
+    test('a file that is not an APK fails with the reason', () async {
+      final input = p.join(temp.path, 'junk.apk');
+      File(input).writeAsBytesSync(List.filled(100, 7));
+
+      await expectLater(
+        service().withSplits(
+          executor,
+          input: input,
+          use: (splits) async => splits,
+        ),
+        throwsA(
+          isA<ToolFailure>()
+              .having((f) => f.title, 'title', 'Cannot read junk.apk')
+              .having(
+                (f) => f.details.single,
+                'reason',
+                startsWith('Not a ZIP'),
+              ),
+        ),
+      );
     });
   });
 

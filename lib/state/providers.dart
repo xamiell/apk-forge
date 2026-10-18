@@ -7,6 +7,7 @@ import '../core/process/process_runner.dart';
 import '../core/system/host.dart';
 import '../services/adb_service.dart';
 import '../services/apk_analyzer.dart';
+import '../services/apk_split_service.dart';
 import '../services/flutter_build_service.dart';
 import '../services/signing_service.dart';
 
@@ -39,6 +40,9 @@ final flutterBuildServiceProvider = Provider(
 final keystoreServiceProvider = Provider((ref) => const KeystoreService());
 final signingServiceProvider = Provider(
   (ref) => ApkSigningService(host: ref.watch(hostProvider)),
+);
+final apkSplitServiceProvider = Provider(
+  (ref) => ApkSplitService(host: ref.watch(hostProvider)),
 );
 final apkAnalyzerProvider = Provider((ref) => const ApkAnalyzer());
 final adbServiceProvider = Provider((ref) => const AdbService());

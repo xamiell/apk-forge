@@ -46,6 +46,20 @@ class SigningRequest {
   /// `null` writes the signed APK next to the original.
   final String? outputDir;
 
+  /// This request, writing to [directory] unless it has an output folder of
+  /// its own. A split is signed from a temporary folder; its signed APK
+  /// goes next to the APK it was split from.
+  SigningRequest withDefaultOutputDir(String directory) => outputDir != null
+      ? this
+      : SigningRequest(
+          keystorePath: keystorePath,
+          storePassword: storePassword,
+          alias: alias,
+          keyPassword: keyPassword,
+          schemes: schemes,
+          outputDir: directory,
+        );
+
   List<String> get secrets => [storePassword, ?keyPassword];
 
   Map<String, String> get environment => {

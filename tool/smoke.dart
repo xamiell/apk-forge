@@ -1,7 +1,7 @@
 // Runs the app's services against the real tools, end to end: read the
 // keystore, build a Flutter project split per ABI with obfuscation, sign
-// every APK, analyze each one, and check that a wrong password fails
-// cleanly. The unit tests use recorded output; this proves the tools still
+// every APK, analyze each one, split a universal build per ABI and sign the
+// splits, and check that a wrong password fails cleanly. The unit tests use recorded output; this proves the tools still
 // print what the parsers expect.
 //
 // Usage (the password comes from the environment, never the command line):
@@ -17,12 +17,15 @@ import 'package:apk_forge/core/process/command.dart';
 import 'package:apk_forge/core/process/process_runner.dart';
 import 'package:apk_forge/core/system/host.dart';
 import 'package:apk_forge/core/system/shell_environment.dart';
+import 'package:apk_forge/core/zip/zip_directory.dart';
 import 'package:apk_forge/domain/analysis/findings.dart';
 import 'package:apk_forge/domain/build/build_options.dart';
 import 'package:apk_forge/domain/failure.dart';
+import 'package:apk_forge/domain/signing/abi_split.dart';
 import 'package:apk_forge/domain/signing/signing.dart';
 import 'package:apk_forge/domain/tools/toolchain.dart';
 import 'package:apk_forge/services/apk_analyzer.dart';
+import 'package:apk_forge/services/apk_split_service.dart';
 import 'package:apk_forge/services/flutter_build_service.dart';
 import 'package:apk_forge/services/signing_service.dart';
 import 'package:apk_forge/services/tool_executor.dart';
@@ -146,6 +149,94 @@ Future<void> main(List<String> args) async {
     ).map((f) => '${f.level.name}: ${f.title}');
     stdout.writeln('        findings: ${titles.join(' | ')}');
   }
+
+  stdout.writeln('\n== Split a universal APK per ABI, then sign');
+  final universal = (await FlutterBuildService(host: host).build(
+    executor,
+    flutter: toolchain.flutter!,
+    options: BuildOptions(projectDir: project),
+  )).single;
+  final universalReport = await const ApkAnalyzer().analyze(
+    executor,
+    toolchain: toolchain,
+    path: universal,
+  );
+  final universalEntries = await readZipDirectory(universal);
+  await ApkSplitService(host: host).withSplits(
+    executor,
+    input: universal,
+    use: (splits) async {
+      check(
+        splits.map((split) => split.abi).join(',') ==
+            'arm64-v8a,armeabi-v7a,x86_64',
+        'one split per ABI: ${splits.map((split) => split.abi).join(', ')}',
+      );
+      for (final split in splits) {
+        final signed = await ApkSigningService(host: host).sign(
+          executor,
+          toolchain: toolchain,
+          input: split.path,
+          request: request,
+          expectedSha256: key.sha256,
+        );
+        final report = await const ApkAnalyzer().analyze(
+          executor,
+          toolchain: toolchain,
+          path: signed.path,
+        );
+        check(
+          report.signature?.verifies ?? false,
+          '${host.path.basename(signed.path)} verifies, '
+          '${formatBytes(report.sizeBytes)} of '
+          '${formatBytes(universalReport.sizeBytes)}',
+        );
+        check(
+          report.signature?.signers.single.sha256 == key.sha256,
+          '  signed with "$alias"',
+        );
+        check(
+          report.contents.nativeLibraries.keys.join(',') == split.abi &&
+              report.contents.abisWithoutFlutterEngine.isEmpty,
+          '  only ${split.abi} native code, with the Flutter engine',
+        );
+        check(
+          report.badging?.nativeCode.join(',') == split.abi,
+          '  aapt2 reads native-code: ${report.badging?.nativeCode.join(', ')}',
+        );
+        check(
+          report.badging?.versionCode != null &&
+              report.badging?.versionCode ==
+                  universalReport.badging?.versionCode,
+          '  same versionCode as the universal APK '
+          '(${report.badging?.versionCode})',
+        );
+        final names = [
+          for (final entry in await readZipDirectory(signed.path))
+            if (!isJarSignatureFile(entry.name)) entry.name,
+        ];
+        final expected = [
+          for (final entry in universalEntries)
+            if (keepsEntryForAbi(entry.name, split.abi)) entry.name,
+        ];
+        check(
+          names.join('\n') == expected.join('\n'),
+          '  every other file of the universal APK is there '
+          '(${names.length} files)',
+        );
+        final align = await executor.run(
+          Command(
+            toolchain.zipalign!,
+            zipalignArguments(
+              signed.path,
+              supportsPageSize: toolchain.zipalignSupportsPageSize,
+            ),
+          ),
+          echoOutput: false,
+        );
+        check(align.succeeded, '  zipalign -c accepts the signed APK');
+      }
+    },
+  );
 
   stdout.writeln('\n== Wrong password');
   final earlier = File(signedApkPath(apks.first, outputDir, host));
