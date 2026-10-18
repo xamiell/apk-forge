@@ -3,6 +3,7 @@ import 'package:apk_forge/domain/analysis/apk_report.dart';
 import 'package:apk_forge/domain/analysis/badging.dart';
 import 'package:apk_forge/domain/analysis/findings.dart';
 import 'package:apk_forge/domain/analysis/signature.dart';
+import 'package:apk_forge/domain/signing/abi_split.dart';
 import 'package:apk_forge/domain/signing/keystore.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -204,6 +205,101 @@ void main() {
       expect(
         findings.map((f) => f.title),
         containsAll(['Signature not checked', 'Build type unknown']),
+      );
+    });
+  });
+
+  group('splitting per ABI', () {
+    test('one APK per ABI with native code, in the order of the folders', () {
+      final plan = planAbiSplit(
+        _contents([
+          'lib/x86_64/libflutter.so',
+          'lib/x86_64/libapp.so',
+          'lib/arm64-v8a/libflutter.so',
+          'lib/arm64-v8a/libapp.so',
+          'lib/armeabi-v7a/libflutter.so',
+          'lib/armeabi-v7a/libapp.so',
+          'classes.dex',
+        ]),
+      );
+
+      expect(plan.abis, ['arm64-v8a', 'armeabi-v7a', 'x86_64']);
+      expect(plan.withoutEngine, isEmpty);
+      expect(plan.canSplit, isTrue);
+    });
+
+    test('a Flutter ABI without the engine gets no APK', () {
+      final plan = planAbiSplit(
+        _contents([
+          'lib/arm64-v8a/libflutter.so',
+          'lib/arm64-v8a/libapp.so',
+          'lib/x86_64/libflutter.so',
+          'lib/x86_64/libapp.so',
+          'lib/x86/libplugin.so',
+        ]),
+      );
+
+      expect(plan.abis, ['arm64-v8a', 'x86_64']);
+      expect(plan.withoutEngine, ['x86']);
+    });
+
+    test('a non-Flutter app splits by whatever ABIs it has', () {
+      final plan = planAbiSplit(
+        _contents(['lib/x86/libnative.so', 'lib/arm64-v8a/libnative.so']),
+      );
+
+      expect(plan.abis, ['arm64-v8a', 'x86']);
+    });
+
+    test('one ABI or none: nothing to split', () {
+      expect(
+        planAbiSplit(_contents(['lib/arm64-v8a/libflutter.so'])).canSplit,
+        isFalse,
+      );
+      expect(planAbiSplit(_contents(['classes.dex'])).abis, isEmpty);
+    });
+
+    test('each split keeps everything but the other ABIs and the v1 files', () {
+      bool keeps(String name) => keepsEntryForAbi(name, 'arm64-v8a');
+
+      expect(keeps('lib/arm64-v8a/libflutter.so'), isTrue);
+      expect(keeps('lib/arm64-v8a/'), isTrue);
+      expect(keeps('lib/x86_64/libflutter.so'), isFalse);
+      expect(keeps('lib/armeabi-v7a/'), isFalse);
+      expect(keeps('classes.dex'), isTrue);
+      expect(keeps('resources.arsc'), isTrue);
+      expect(keeps('assets/flutter_assets/AssetManifest.bin'), isTrue);
+      expect(keeps('META-INF/MANIFEST.MF'), isFalse);
+      expect(keeps('META-INF/CERT.RSA'), isFalse);
+      expect(keeps('META-INF/services/l0'), isTrue);
+    });
+
+    test('isJarSignatureFile: the v1 signature files only', () {
+      for (final name in [
+        'META-INF/MANIFEST.MF',
+        'META-INF/CERT.SF',
+        'META-INF/CERT.RSA',
+        'META-INF/upload.ec',
+        'META-INF/KEY.DSA',
+        'META-INF/SIG-ANDROID',
+      ]) {
+        expect(isJarSignatureFile(name), isTrue, reason: name);
+      }
+      for (final name in [
+        'META-INF/androidx.core_core.version',
+        'META-INF/services/l0',
+        'META-INF/com/android/build/gradle/app-metadata.properties',
+        'META-INF/version-control-info.textproto',
+        'assets/CERT.RSA',
+      ]) {
+        expect(isJarSignatureFile(name), isFalse, reason: name);
+      }
+    });
+
+    test('the split is named after the APK and its ABI', () {
+      expect(
+        abiSplitFileName('/ci/app-release.apk', 'arm64-v8a', macHost),
+        'app-release-arm64-v8a.apk',
       );
     });
   });

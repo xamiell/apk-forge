@@ -261,6 +261,19 @@ void main() {
       );
     });
 
+    test('withDefaultOutputDir fills the folder only when none was chosen', () {
+      expect(request.withDefaultOutputDir('/ci').outputDir, '/ci');
+      expect(request.withDefaultOutputDir('/ci').secrets, request.secrets);
+
+      const chosen = SigningRequest(
+        keystorePath: '/k.jks',
+        storePassword: 'p',
+        alias: 'a',
+        outputDir: '/signed',
+      );
+      expect(chosen.withDefaultOutputDir('/ci').outputDir, '/signed');
+    });
+
     test('zipalign aligns to 16 KB pages when build-tools can', () {
       expect(zipalignArguments('/a.apk', supportsPageSize: true), [
         '-c',

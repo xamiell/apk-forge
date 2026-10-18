@@ -34,6 +34,12 @@ class SigningCard extends ConsumerWidget {
       if (form.canLoadKeys && !busy) actions.loadKeys();
     }
 
+    final canSign = problems.isEmpty && !busy;
+    Future<void> pickApks(Future<void> Function(List<String>) action) async {
+      final files = await openFiles(acceptedTypeGroups: const [apkTypes]);
+      if (files.isNotEmpty) await action([for (final f in files) f.path]);
+    }
+
     return SectionCard(
       title: 'Sign',
       icon: Icons.verified_user_outlined,
@@ -172,18 +178,24 @@ class SigningCard extends ConsumerWidget {
           ProblemText(problems),
           const SizedBox(height: 6),
           FilledButton.icon(
-            onPressed: problems.isEmpty && !busy
-                ? () async {
-                    final files = await openFiles(
-                      acceptedTypeGroups: const [apkTypes],
-                    );
-                    if (files.isNotEmpty) {
-                      await actions.signFiles([for (final f in files) f.path]);
-                    }
-                  }
-                : null,
+            onPressed: canSign ? () => pickApks(actions.signFiles) : null,
             icon: const Icon(Icons.draw_outlined),
             label: const Text('Sign APK files…'),
+          ),
+          const SizedBox(height: 8),
+          Tooltip(
+            message:
+                'From a universal APK, one signed APK per ABI: '
+                '<name>-<abi>-signed.apk. They keep its versionCode, which is '
+                'fine to install or share; Google Play needs a different one '
+                'per APK.',
+            child: OutlinedButton.icon(
+              onPressed: canSign
+                  ? () => pickApks(actions.splitAndSignFiles)
+                  : null,
+              icon: const Icon(Icons.call_split),
+              label: const Text('Split per ABI and sign…'),
+            ),
           ),
         ],
       ),

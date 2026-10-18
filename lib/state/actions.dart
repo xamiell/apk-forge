@@ -102,6 +102,42 @@ class ForgeActions {
     });
   }
 
+  /// Splits each APK (a universal one, from CI) into one APK per ABI and
+  /// signs each split, next to the original as `<name>-<abi>-signed.apk`
+  /// unless the Sign panel has an output folder. An APK with nothing to
+  /// split is signed as it is.
+  Future<void> splitAndSignFiles(List<String> paths) async {
+    if (paths.isEmpty) return;
+    final signing = _ref.read(signingFormProvider);
+    final host = _ref.read(hostProvider);
+    final label = paths.length == 1
+        ? 'Split and sign ${host.path.basename(paths.single)}'
+        : 'Split and sign ${paths.length} APKs';
+    await _task.run(label, (executor) async {
+      if (!signing.isReady) {
+        throw ToolFailure('Signing is not ready', details: [signing.problem!]);
+      }
+      final toolchain = await _toolchain();
+      final request = signing.toRequest();
+      for (final path in paths) {
+        if (executor.isCancelled) return;
+        await _ref
+            .read(apkSplitServiceProvider)
+            .withSplits(
+              executor,
+              input: path,
+              use: (splits) => _signAll(
+                executor,
+                toolchain,
+                splits.isEmpty ? [path] : [for (final s in splits) s.path],
+                request.withDefaultOutputDir(host.path.dirname(path)),
+                signing.selectedEntry?.sha256,
+              ),
+            );
+      }
+    });
+  }
+
   Future<void> _signAll(
     ToolExecutor executor,
     Toolchain toolchain,

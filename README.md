@@ -16,7 +16,7 @@ the tool's own reason, not a generic error.
 | Panel | What it does |
 |---|---|
 | **Build** | Runs `flutter build apk` on any Flutter project. Choose release or debug, any mix of `armeabi-v7a`, `arm64-v8a` and `x86_64`, and one universal APK or one APK per ABI (`--split-per-abi`, offered when two or more ABIs are selected). Optional Dart obfuscation keeps the symbols you need to read crash traces. The command is previewed before you run it. |
-| **Sign** | Signs the APKs a build just produced, or any APK you pick (from CI, another machine, a store), with your `.jks`, `.keystore` or `.p12`. It checks the alignment first and fixes it if needed, writes `<name>-signed.apk` without touching the original, and verifies that the result carries exactly the key you chose. |
+| **Sign** | Signs the APKs a build just produced, or any APK you pick (from CI, another machine, a store), with your `.jks`, `.keystore` or `.p12`. It checks the alignment first and fixes it if needed, writes `<name>-signed.apk` without touching the original, and verifies that the result carries exactly the key you chose. **Split per ABI and sign** turns a universal APK (one from CI, say) into one signed APK per ABI. |
 | **Analyze APK** | For any APK: whether the signature verifies; the schemes it carries (v1 to v4); the signer certificate (DN, SHA-256, SHA-1), and whether it is **your key** or the Android debug key; release or debug (`debuggable`); package, version and SDK levels; native code per ABI, flagging an ABI with no Flutter engine; size, MD5 and SHA-256. |
 | **Analyze device** | For the device on USB: maker, brand, model and codename; Android version, API level, security patch, build and build type; chip, ABIs, memory page size (16 KB pages are flagged), RAM, storage and screen; battery, locale and time zone. With an APK selected, it tells you which ABI the APK would run as, which version is installed, and whether installing would be a fresh install, an upgrade, a reinstall or a downgrade. One click copies it all as text. |
 | **Install** | Installs the selected APK with `adb install -r` (optionally `-d` to allow a downgrade). It warns first when the APK has no native code for the device, and explains the common install failures. |
@@ -96,6 +96,23 @@ Load a key in **Sign**, press **Sign APK files…** and pick one or more APKs.
 Each one is written next to the original as `<name>-signed.apk`, or to the
 output folder if you set one.
 
+### Split a universal APK per ABI
+
+When CI hands you one universal APK, press **Split per ABI and sign…** in
+**Sign** and pick it. It writes one signed APK per ABI the APK has native
+code for, `<name>-<abi>-signed.apk`, next to the original or to the output
+folder. Each one keeps everything but the other ABIs' `lib/` folders: for a
+`flutter create` sample, the 42.1 MB universal APK gives 14.8 MB for
+`arm64-v8a`, 12.1 MB for `armeabi-v7a` and 16.1 MB for `x86_64`.
+
+- An ABI with native code but no Flutter engine gets no APK: it would crash
+  at launch. The log says so.
+- An APK with native code for one ABI or none is signed as it is.
+- The splits keep the universal APK's `versionCode`. That's fine to install
+  or to share directly. Google Play needs a different `versionCode` per APK:
+  publish an App Bundle there, or build with **Split per ABI** in **Build**,
+  which adds an offset per ABI.
+
 ### Check an APK
 
 Press **Open APK…** in **Analyze APK**. The checks at the top of the report
@@ -166,7 +183,8 @@ output captured from `apksigner`, `aapt2`, `keytool`, `adb` and
 
 `tool/smoke.dart` runs the real tools end to end against a throwaway
 project and keystore: reading the keys, a split and obfuscated build,
-signing, analysis, and a wrong password.
+signing, analysis, splitting a universal build per ABI and signing the
+splits, and a wrong password.
 
 ```bash
 APK_FORGE_SMOKE_PASS=… dart run tool/smoke.dart <flutter project> <keystore> <alias> <output dir>
@@ -176,7 +194,7 @@ APK_FORGE_SMOKE_PASS=… dart run tool/smoke.dart <flutter project> <keystore> <
 
 ```
 lib/
-  core/       process running, host OS, ZIP reading, formatting, log types
+  core/       process running, host OS, ZIP reading and copying, formatting, log types
   domain/     models, command builders, output parsers, checks (pure Dart)
   services/   one class per tool job, through a ProcessRunner
   state/      Riverpod notifiers: forms, the current task, actions, the log

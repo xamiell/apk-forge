@@ -13,6 +13,7 @@ import 'package:apk_forge/state/log_notifier.dart';
 import 'package:apk_forge/state/providers.dart';
 import 'package:apk_forge/state/task_notifier.dart';
 import 'package:apk_forge/state/toolchain_notifier.dart';
+import 'package:archive/archive.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
@@ -99,6 +100,78 @@ void main() {
     expect(list.items.where((i) => i.origin == ApkOrigin.signed), hasLength(3));
     expect(list.items.where((i) => i.origin == ApkOrigin.built), hasLength(3));
     expect(p.basename(list.selectedPath!), 'app-x86_64-release-signed.apk');
+  });
+
+  String writeApk(String path, List<String> abis) {
+    final archive = Archive()
+      ..add(ArchiveFile.string('AndroidManifest.xml', 'manifest'));
+    for (final abi in abis) {
+      archive
+        ..add(ArchiveFile.string('lib/$abi/libflutter.so', 'engine'))
+        ..add(ArchiveFile.string('lib/$abi/libapp.so', 'app'));
+    }
+    File(path)
+      ..parent.createSync(recursive: true)
+      ..writeAsBytesSync(ZipEncoder().encode(archive));
+    return path;
+  }
+
+  test(
+    'split and sign: one signed APK per ABI, next to the original',
+    () async {
+      runner.whenFirstArg(
+        'verify',
+        ok(fixture('apksigner_verify_test_key.txt')),
+      );
+      final ci = p.join(temp.path, 'ci');
+      final universal = writeApk(p.join(ci, 'app-release.apk'), [
+        'arm64-v8a',
+        'armeabi-v7a',
+        'x86_64',
+      ]);
+      loadTestKey();
+
+      await container.read(actionsProvider).splitAndSignFiles([universal]);
+
+      expect(container.read(taskProvider).failure, isNull);
+      final signs = runner.callsWithFirstArg('sign').toList();
+      expect(signs.map((c) => p.basename(c.arguments.last)), [
+        'app-release-arm64-v8a.apk',
+        'app-release-armeabi-v7a.apk',
+        'app-release-x86_64.apk',
+      ]);
+      expect(
+        p.dirname(
+          signs.first.arguments[signs.first.arguments.indexOf('--out') + 1],
+        ),
+        ci,
+      );
+      final list = container.read(apkListProvider);
+      expect(list.items.map((i) => p.basename(i.path)), [
+        'app-release-x86_64-signed.apk',
+        'app-release-armeabi-v7a-signed.apk',
+        'app-release-arm64-v8a-signed.apk',
+      ]);
+      expect(list.items.every((i) => i.origin == ApkOrigin.signed), isTrue);
+      expect(p.dirname(list.selectedPath!), ci);
+      expect(File(universal).existsSync(), isTrue);
+    },
+  );
+
+  test('split and sign: an APK with one ABI is signed as it is', () async {
+    runner.whenFirstArg('verify', ok(fixture('apksigner_verify_test_key.txt')));
+    final apk = writeApk(p.join(temp.path, 'app-arm64-v8a-release.apk'), [
+      'arm64-v8a',
+    ]);
+    loadTestKey();
+
+    await container.read(actionsProvider).splitAndSignFiles([apk]);
+
+    expect(runner.callsWithFirstArg('sign').single.arguments.last, apk);
+    expect(
+      p.basename(container.read(apkListProvider).selectedPath!),
+      'app-arm64-v8a-release-signed.apk',
+    );
   });
 
   test(
