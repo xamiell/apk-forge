@@ -32,7 +32,7 @@ final hostProvider = Provider<Host>(
 final fileProbeProvider = Provider<FileProbe>((ref) => const IoFileProbe());
 
 final processRunnerProvider = Provider<ProcessRunner>(
-  (ref) => IoProcessRunner(ref.watch(environmentProvider)),
+  (ref) => IoProcessRunner(ref.watch(hostProvider)),
 );
 
 final clockProvider = Provider<DateTime Function()>((ref) => DateTime.now);

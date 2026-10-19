@@ -1,7 +1,10 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'core/system/host.dart';
 import 'core/system/shell_environment.dart';
 import 'state/forms.dart';
 import 'state/providers.dart';
@@ -10,7 +13,9 @@ import 'ui/theme.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  final environment = await loadShellEnvironment();
+  final environment = await loadShellEnvironment(
+    Host.current(Platform.environment),
+  );
   final settings = PreferencesSettingsStore(
     await SharedPreferences.getInstance(),
   );

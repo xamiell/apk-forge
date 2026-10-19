@@ -752,14 +752,14 @@ class _KeyCell extends ConsumerWidget {
   }
 }
 
-class _FileNameStep extends StatelessWidget {
+class _FileNameStep extends ConsumerWidget {
   const _FileNameStep({required this.profile, required this.onChanged});
 
   final SigningProfile profile;
   final ValueChanged<SigningProfile> onChanged;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final example = profile.targets.isEmpty ? null : profile.targets.first;
     final problems = fileNamePatternProblems(profile.fileNamePattern);
     return ConstrainedBox(
@@ -795,7 +795,7 @@ class _FileNameStep extends StatelessWidget {
             ProblemText(problems)
           else
             Text(
-              'For app-release.apk 1.0.0: ${profileFileName(profile.fileNamePattern, name: 'app-release', target: example?.name ?? 'Phone', abi: example?.abiName ?? ProfileTarget.universalAbiName, versionName: '1.0.0', versionCode: '1', date: DateTime.now())}',
+              'For app-release.apk 1.0.0: ${profileFileName(profile.fileNamePattern, name: 'app-release', target: example?.name ?? 'Phone', abi: example?.abiName ?? ProfileTarget.universalAbiName, versionName: '1.0.0', versionCode: '1', date: ref.watch(clockProvider)())}',
               style: TextStyle(fontSize: 12.5, color: context.status.muted),
             ),
         ],
