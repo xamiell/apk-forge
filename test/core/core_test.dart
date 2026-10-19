@@ -308,6 +308,13 @@ void main() {
   });
 
   group('format', () {
+    test('formatDateTime shows the moment to the minute', () {
+      expect(
+        formatDateTime(DateTime(2026, 3, 7, 9, 5, 59)),
+        '2026-03-07 09:05',
+      );
+    });
+
     test('shortPath keeps the file and its folder', () {
       expect(
         shortPath('/a/long/way/out/phone/app.apk', macHost),

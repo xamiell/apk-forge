@@ -43,3 +43,10 @@ String shortDigest(String digest) {
   if (colon.length <= 23) return colon;
   return '${colon.substring(0, 11)}…${colon.substring(colon.length - 11)}';
 }
+
+/// `2026-10-19 09:05`: a moment to the minute, as the history shows it.
+String formatDateTime(DateTime time) {
+  String two(int value) => value.toString().padLeft(2, '0');
+  return '${time.year}-${two(time.month)}-${two(time.day)} '
+      '${two(time.hour)}:${two(time.minute)}';
+}
