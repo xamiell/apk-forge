@@ -3,12 +3,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../domain/build/flutter_build.dart';
 import '../domain/devices/devices.dart';
 import '../domain/failure.dart';
+import '../domain/profiles/profile.dart';
+import '../domain/profiles/profile_run.dart';
 import '../domain/signing/signing.dart';
 import '../domain/tools/toolchain.dart';
 import '../services/tool_executor.dart';
 import 'apks.dart';
 import 'devices.dart';
 import 'forms.dart';
+import 'profiles.dart';
 import 'providers.dart';
 import 'task_notifier.dart';
 import 'toolchain_notifier.dart';
@@ -159,6 +162,72 @@ class ForgeActions {
           );
       list.add(signed.path, ApkOrigin.signed);
     }
+  }
+
+  /// Runs [profile] as [check] planned it, with the keys it opened: the
+  /// progress goes to [profileRunProvider], the record to the history, and
+  /// each signed APK to the list.
+  Future<ProfileRunRecord?> runProfile(
+    SigningProfile profile,
+    ProfileRunCheck check,
+  ) async {
+    if (!check.canRun || _ref.read(taskProvider).isRunning) return null;
+    final host = _ref.read(hostProvider);
+    final progress = _ref.read(profileRunProvider.notifier)
+      ..start(profile.id, check.plan, host);
+    final startedAt = _ref.read(clockProvider)();
+
+    return _task.run('Run profile ${profile.name}', (executor) async {
+      final results = await _ref
+          .read(profileRunnerProvider)
+          .run(
+            executor,
+            toolchain: await _toolchain(),
+            plan: check.plan,
+            keys: check.keys!,
+            onProgress: progress.update,
+          );
+      final record = ProfileRunRecord(
+        profileId: profile.id,
+        profileName: profile.name,
+        startedAt: startedAt,
+        finishedAt: _ref.read(clockProvider)(),
+        inputs: [
+          for (final input in check.inputs)
+            RunInput(
+              name: host.path.basename(input.path),
+              sha256: input.sha256,
+              packageName: input.badging?.packageName,
+              versionName: input.badging?.versionName,
+              versionCode: input.badging?.versionCode,
+            ),
+        ],
+        results: results,
+        cancelled: executor.isCancelled,
+      );
+      _ref.read(profileHistoryProvider.notifier).add(record);
+      progress.finish(record);
+
+      final list = _ref.read(apkListProvider.notifier);
+      final signed = [
+        for (final result in results)
+          if (result.status == TargetStatus.signed) result.outputPath!,
+      ];
+      for (final path in signed) {
+        list.add(path, ApkOrigin.signed, select: false);
+      }
+      executor.log.success('${profile.name}: ${record.summary}.');
+      if (profile.afterRun == AfterRun.openFolders) {
+        // One window per folder, with its APK selected.
+        final byFolder = {
+          for (final path in signed) host.path.dirname(path): path,
+        };
+        for (final path in byFolder.values) {
+          await _ref.read(fileRevealerProvider)(path, host);
+        }
+      }
+      return record;
+    });
   }
 
   /// Reads the keys of the Sign panel's keystore.

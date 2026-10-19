@@ -146,6 +146,32 @@ void main() {
       expect(parseKeyProperties('').missing, hasLength(4));
     });
 
+    test('the editor\'s summary: where, which alias, what is missing', () {
+      final summary = summarizeKeyProperties(
+        '/keys/vendor/key.properties',
+        'storeFile=vendor.jks\nkeyAlias=vendor\nstorePassword=s3cret\n',
+        macHost,
+        (path) => path == '/keys/vendor/vendor.jks',
+      );
+
+      expect(summary.keystorePath, '/keys/vendor/vendor.jks');
+      expect(summary.keystoreExists, isTrue);
+      expect(summary.alias, 'vendor');
+      expect(summary.hasStorePassword, isTrue);
+      expect(summary.hasKeyPassword, isFalse);
+      expect(summary.problems, ['It has no keyPassword.']);
+
+      final noKeystore = summarizeKeyProperties(
+        '/keys/key.properties',
+        'storeFile=gone.jks\nkeyAlias=a\nstorePassword=s\nkeyPassword=k\n',
+        macHost,
+        (_) => false,
+      );
+      expect(noKeystore.problems, [
+        'The keystore /keys/gone.jks does not exist.',
+      ]);
+    });
+
     test('a relative storeFile resolves as Gradle resolves it', () {
       // Inside a Flutter project's android/: from android/app/.
       expect(
@@ -211,6 +237,26 @@ void main() {
       expect(back.targets.last.schemes.isAutomatic, isTrue);
       expect(back.input.packageName, 'com.example.app');
       expect(back.keyFiles, ['/keys/vendor/key.properties']);
+    });
+
+    test('exported, imported, and what to pick again on another machine', () {
+      final profile = SigningProfile(
+        id: 'p1',
+        name: 'Release',
+        targets: [_target('Phone'), _target('Tablet')],
+      );
+
+      final text = exportProfile(profile);
+      final back = importProfile(text);
+
+      expect(back.toJson(), profile.toJson());
+      expect(text, contains('"format": "apk-forge-profile"'));
+      expect(
+        missingProfilePaths(back, FakeFileProbe(directories: {'/out/phone'})),
+        ['/keys/vendor/key.properties', '/out/tablet'],
+      );
+      expect(() => importProfile('not json'), throwsFormatException);
+      expect(() => importProfile('{"format": "other"}'), throwsFormatException);
     });
 
     test('a blank package name takes any package', () {

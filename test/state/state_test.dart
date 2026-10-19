@@ -5,6 +5,8 @@ import 'package:apk_forge/core/process/process_runner.dart';
 import 'package:apk_forge/core/system/host.dart';
 import 'package:apk_forge/domain/analysis/comparison.dart';
 import 'package:apk_forge/domain/build/build_options.dart';
+import 'package:apk_forge/domain/profiles/profile.dart';
+import 'package:apk_forge/domain/profiles/profile_run.dart';
 import 'package:apk_forge/domain/signing/keystore.dart';
 import 'package:apk_forge/domain/tools/toolchain.dart';
 import 'package:apk_forge/state/actions.dart';
@@ -12,6 +14,7 @@ import 'package:apk_forge/state/apks.dart';
 import 'package:apk_forge/state/devices.dart';
 import 'package:apk_forge/state/forms.dart';
 import 'package:apk_forge/state/log_notifier.dart';
+import 'package:apk_forge/state/profiles.dart';
 import 'package:apk_forge/state/providers.dart';
 import 'package:apk_forge/state/task_notifier.dart';
 import 'package:apk_forge/state/toolchain_notifier.dart';
@@ -41,10 +44,12 @@ void main() {
   late MemorySettingsStore store;
   late Directory temp;
   late ProviderContainer container;
+  late List<String> revealed;
 
   setUp(() {
     runner = FakeProcessRunner();
     store = MemorySettingsStore();
+    revealed = [];
     temp = Directory.systemTemp.createTempSync('apk_forge_state_');
     final project = p.join(temp.path, 'app');
     Directory(p.join(project, 'android')).createSync(recursive: true);
@@ -60,6 +65,9 @@ void main() {
         processRunnerProvider.overrideWithValue(runner),
         settingsStoreProvider.overrideWithValue(store),
         toolchainProvider.overrideWith(_FixedToolchain.new),
+        fileRevealerProvider.overrideWithValue(
+          (path, host) async => revealed.add(path),
+        ),
       ],
     );
   });
@@ -592,6 +600,265 @@ void main() {
 
       expect(warning, isNull);
       expect(runner.calls.where(isPmPath), isEmpty);
+    });
+  });
+
+  group('profiles', () {
+    test(
+      'created, edited, duplicated and deleted, and back after a restart',
+      () {
+        final profiles = container.read(profilesProvider.notifier);
+        final id = profiles.create();
+        profiles.update(
+          container
+              .read(profilesProvider)
+              .byId(id)!
+              .copyWith(
+                name: 'Release',
+                targets: const [
+                  ProfileTarget(
+                    id: 't1',
+                    name: 'Phone',
+                    abi: AndroidAbi.arm64V8a,
+                    keyProperties: '/keys/key.properties',
+                    outputDir: '/out/phone',
+                  ),
+                ],
+              ),
+        );
+        final copy = profiles.duplicate(id);
+
+        expect(container.read(profilesProvider).selectedId, copy);
+        expect(container.read(profilesProvider).profiles.map((p) => p.name), [
+          'Release',
+          'Release copy',
+        ]);
+
+        // A restart reads them back from the settings.
+        final restarted = ProviderContainer.test(
+          overrides: [settingsStoreProvider.overrideWithValue(store)],
+        );
+        final back = restarted.read(profilesProvider);
+        expect(back.profiles.map((p) => p.name), ['Release', 'Release copy']);
+        expect(
+          back.selected!.targets.single.keyProperties,
+          '/keys/key.properties',
+        );
+
+        profiles.delete(copy);
+        expect(container.read(profilesProvider).profiles.single.id, id);
+        expect(container.read(profilesProvider).selectedId, id);
+      },
+    );
+
+    test('the history keeps each profile\'s runs, newest first', () {
+      ProfileRunRecord run(String profile, int minute) => ProfileRunRecord(
+        profileId: profile,
+        profileName: profile,
+        startedAt: DateTime(2026, 10, 18, 11, minute),
+        finishedAt: DateTime(2026, 10, 18, 11, minute, 9),
+        inputs: const [],
+        results: const [],
+      );
+      final history = container.read(profileHistoryProvider.notifier)
+        ..add(run('a', 1))
+        ..add(run('b', 2))
+        ..add(run('a', 3));
+
+      expect(history.of('a').map((r) => r.startedAt.minute), [3, 1]);
+      history.clear('a');
+      expect(container.read(profileHistoryProvider).single.profileId, 'b');
+      expect(
+        ProviderContainer.test(
+          overrides: [settingsStoreProvider.overrideWithValue(store)],
+        ).read(profileHistoryProvider).single.profileId,
+        'b',
+      );
+    });
+
+    group('a run', () {
+      const storePassword = 'st0re pass';
+      const keyPassword = 'k3y pass';
+      late String input;
+      late String profileId;
+
+      setUp(() {
+        final keys = Directory(p.join(temp.path, 'keys'))..createSync();
+        File(p.join(keys.path, 'release.jks')).writeAsStringSync('keystore');
+        File(p.join(keys.path, 'key.properties')).writeAsStringSync(
+          'storePassword=$storePassword\nkeyPassword=$keyPassword\n'
+          'keyAlias=forge-test\nstoreFile=release.jks\n',
+        );
+        input = writeApk(p.join(temp.path, 'ci', 'app-release.apk'), [
+          'arm64-v8a',
+          'armeabi-v7a',
+        ]);
+        ProfileTarget target(String name, AndroidAbi abi) => ProfileTarget(
+          id: name,
+          name: name,
+          abi: abi,
+          keyProperties: p.join(keys.path, 'key.properties'),
+          outputDir: p.join(temp.path, 'out', name.toLowerCase()),
+        );
+        final profiles = container.read(profilesProvider.notifier);
+        profileId = profiles.create();
+        profiles.update(
+          container
+              .read(profilesProvider)
+              .byId(profileId)!
+              .copyWith(
+                name: 'Release',
+                input: const InputChecks(
+                  packageName: 'io.example.sample_app',
+                  mustBeUnsigned: true,
+                ),
+                targets: [
+                  target('Phone', AndroidAbi.arm64V8a),
+                  target('Kiosk', AndroidAbi.armeabiV7a),
+                  target('Emulator', AndroidAbi.x8664),
+                ],
+              ),
+        );
+
+        runner
+          ..when(
+            (c) => c.arguments.first == 'dump',
+            (_) => ok(fixture('aapt2_badging_release.txt')),
+          )
+          ..when(
+            (c) => c.arguments.first == 'verify',
+            (c) => ok(
+              fixture(
+                c.arguments.last == input
+                    ? 'apksigner_verify_unsigned.txt'
+                    : 'apksigner_verify_test_key.txt',
+              ),
+            ),
+          )
+          ..when((c) => c.arguments.first == 'sign', (c) {
+            final out = c.arguments[c.arguments.indexOf('--out') + 1];
+            File(out).writeAsStringSync('signed');
+            return ok();
+          })
+          ..when(
+            (c) => c.arguments.contains('-list'),
+            (_) => ok(fixture('keytool_list.txt')),
+          );
+      });
+
+      Future<ProfileRunCheck> check() async {
+        final provider = profileRunCheckProvider((
+          profileId: profileId,
+          inputs: input,
+        ));
+        container.listen(provider, (_, _) {});
+        return container.read(provider.future);
+      }
+
+      test('checked, then run: one APK per target, recorded, and no password '
+          'kept anywhere', () async {
+        runner.when(
+          (c) => c.arguments.contains('-certreq'),
+          (_) => ok(fixture('keytool_certreq_ok.txt')),
+        );
+
+        final checked = await check();
+        expect(checked.canRun, isTrue);
+        expect(checked.plan.skipped.single.reason, 'No native code for x86_64');
+
+        final profile = container.read(profilesProvider).byId(profileId)!;
+        final record = await container
+            .read(actionsProvider)
+            .runProfile(profile, checked);
+
+        expect(record!.summary, '2 signed · 1 skipped');
+        expect(
+          record.results
+              .where((r) => r.status == TargetStatus.signed)
+              .map((r) => p.relative(r.outputPath!, from: temp.path)),
+          [
+            'out/phone/app-release-Phone.apk',
+            'out/kiosk/app-release-Kiosk.apk',
+          ],
+        );
+        expect(
+          container.read(profileHistoryProvider).single.profileId,
+          profileId,
+        );
+        final run = container.read(profileRunProvider)!;
+        expect(run.running, isFalse);
+        expect(run.finished, 3);
+        final list = container.read(apkListProvider);
+        expect(
+          list.items.map((i) => p.basename(i.path)),
+          containsAll(['app-release-Phone.apk', 'app-release-Kiosk.apk']),
+        );
+        // The list had nothing selected: the panel needs one selected once
+        // it has APKs.
+        expect(list.selectedPath, isNotNull);
+        // The profile opens its output folders.
+        expect(revealed.map(p.basename), [
+          'app-release-Phone.apk',
+          'app-release-Kiosk.apk',
+        ]);
+        // The settings (profiles and history) and the log never saw a
+        // password.
+        final saved = store.values.toString();
+        final log = container
+            .read(logProvider)
+            .entries
+            .map((e) => e.text)
+            .join('\n');
+        for (final secret in [storePassword, keyPassword]) {
+          expect(saved, isNot(contains(secret)));
+          expect(log, isNot(contains(secret)));
+        }
+      });
+
+      test('a key that does not open: nothing is signed', () async {
+        runner.when(
+          (c) => c.arguments.contains('-certreq'),
+          (_) => failed(
+            1,
+            stdout: fixture('keytool_certreq_wrong_key_password.txt'),
+          ),
+        );
+
+        final checked = await check();
+
+        expect(checked.canRun, isFalse);
+        expect(
+          checked.keyFailure!.details.first,
+          'The key password (keyPassword) is wrong.',
+        );
+        final profile = container.read(profilesProvider).byId(profileId)!;
+        expect(
+          await container.read(actionsProvider).runProfile(profile, checked),
+          isNull,
+        );
+        expect(runner.callsWithFirstArg('sign'), isEmpty);
+      });
+
+      test('an input that fails the checks opens no key', () async {
+        final profiles = container.read(profilesProvider.notifier);
+        profiles.update(
+          container
+              .read(profilesProvider)
+              .byId(profileId)!
+              .copyWith(
+                input: const InputChecks(packageName: 'com.example.other'),
+              ),
+        );
+
+        final checked = await check();
+
+        expect(checked.canRun, isFalse);
+        expect(checked.plan.problems.single, contains('not com.example.other'));
+        expect(
+          runner.calls.where((c) => c.arguments.contains('-list')),
+          isEmpty,
+        );
+      });
     });
   });
 

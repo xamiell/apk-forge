@@ -8,8 +8,10 @@ import '../core/system/host.dart';
 import '../services/adb_service.dart';
 import '../services/apk_analyzer.dart';
 import '../services/apk_split_service.dart';
+import '../services/desktop_shell.dart';
 import '../services/flutter_build_service.dart';
 import '../services/installed_apk_service.dart';
+import '../services/profile_runner.dart';
 import '../services/signing_service.dart';
 
 /// The environment programs start with: the login shell's, loaded once in
@@ -35,6 +37,12 @@ final processRunnerProvider = Provider<ProcessRunner>(
 
 final clockProvider = Provider<DateTime Function()>((ref) => DateTime.now);
 
+/// Shows a file in the OS file manager. Overridden in tests, so they open
+/// no window.
+final fileRevealerProvider = Provider<Future<void> Function(String, Host)>(
+  (ref) => revealInFileManager,
+);
+
 final flutterBuildServiceProvider = Provider(
   (ref) => FlutterBuildService(host: ref.watch(hostProvider)),
 );
@@ -47,6 +55,15 @@ final apkSplitServiceProvider = Provider(
 );
 final apkAnalyzerProvider = Provider((ref) => const ApkAnalyzer());
 final adbServiceProvider = Provider((ref) => const AdbService());
+final profileKeyServiceProvider = Provider(
+  (ref) => ProfileKeyService(host: ref.watch(hostProvider)),
+);
+final profileRunnerProvider = Provider(
+  (ref) => ProfileRunner(
+    host: ref.watch(hostProvider),
+    signing: ref.watch(signingServiceProvider),
+  ),
+);
 final installedApkServiceProvider = Provider(
   (ref) => InstalledApkService(
     host: ref.watch(hostProvider),

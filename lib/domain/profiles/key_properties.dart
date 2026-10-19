@@ -133,6 +133,70 @@ String _unescape(String text) {
   return out.toString();
 }
 
+/// What the target editor shows about a `key.properties`: where its
+/// keystore is, its alias, and whether the passwords are there. It never
+/// holds the passwords themselves.
+class KeyFileSummary {
+  const KeyFileSummary({
+    required this.path,
+    this.error,
+    this.storeFile,
+    this.keystorePath,
+    this.keystoreExists = false,
+    this.alias,
+    this.missing = const [],
+  });
+
+  final String path;
+
+  /// Why the file couldn't be read at all.
+  final String? error;
+
+  /// As written in the file.
+  final String? storeFile;
+
+  /// [storeFile] resolved as Gradle does.
+  final String? keystorePath;
+  final bool keystoreExists;
+  final String? alias;
+
+  /// The fields the file lacks (`keyPassword`…).
+  final List<String> missing;
+
+  bool get hasStorePassword => !missing.contains('storePassword');
+  bool get hasKeyPassword => !missing.contains('keyPassword');
+
+  /// Why a run with this file won't start yet.
+  List<String> get problems => [
+    ?error,
+    if (missing.isNotEmpty) 'It has no ${missing.join(', ')}.',
+    if (keystorePath != null && !keystoreExists)
+      'The keystore $keystorePath does not exist.',
+  ];
+}
+
+/// [content], the `key.properties` at [path], summed up for the editor.
+KeyFileSummary summarizeKeyProperties(
+  String path,
+  String content,
+  Host host,
+  bool Function(String path) fileExists,
+) {
+  final keys = parseKeyProperties(content);
+  final storeFile = keys.storeFile?.trim();
+  final keystore = storeFile == null || storeFile.isEmpty
+      ? null
+      : resolveStoreFile(path, storeFile, host);
+  return KeyFileSummary(
+    path: path,
+    storeFile: storeFile,
+    keystorePath: keystore,
+    keystoreExists: keystore != null && fileExists(keystore),
+    alias: keys.keyAlias?.trim(),
+    missing: keys.missing,
+  );
+}
+
 /// Where Gradle finds [storeFile] for the `key.properties` at
 /// [propertiesPath].
 ///

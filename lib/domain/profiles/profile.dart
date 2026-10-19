@@ -1,3 +1,6 @@
+import 'dart:convert';
+
+import '../../core/system/host.dart';
 import '../build/build_options.dart';
 import '../signing/signing.dart';
 
@@ -218,6 +221,42 @@ String profileFileName(
   final safe = filled.replaceAll(RegExp(r'[\\/:*?"<>|\x00-\x1f]'), '_').trim();
   return safe.toLowerCase().endsWith('.apk') ? safe : '$safe.apk';
 }
+
+const _exportFormat = 'apk-forge-profile';
+
+/// [profile] as a file to share: its paths and choices, never a password.
+String exportProfile(SigningProfile profile) => const JsonEncoder.withIndent(
+  '  ',
+).convert({'format': _exportFormat, 'version': 1, 'profile': profile.toJson()});
+
+/// The profile in a file [exportProfile] wrote. Throws a [FormatException]
+/// for anything else.
+SigningProfile importProfile(String text) {
+  final Object? json;
+  try {
+    json = jsonDecode(text);
+  } on FormatException {
+    throw const FormatException('It is not an APK Forge profile: not JSON.');
+  }
+  if (json is! Map<String, Object?> ||
+      json['format'] != _exportFormat ||
+      json['profile'] is! Map<String, Object?>) {
+    throw const FormatException('It is not an APK Forge profile.');
+  }
+  return SigningProfile.fromJson(json['profile'] as Map<String, Object?>);
+}
+
+/// The `key.properties` files and output folders of [profile] that don't
+/// exist here: after an import from another machine, to pick again.
+List<String> missingProfilePaths(SigningProfile profile, FileProbe probe) => [
+  for (final file in profile.keyFiles)
+    if (!probe.fileExists(file)) file,
+  for (final folder in <String>{
+    for (final target in profile.targets)
+      if (target.outputDir.trim().isNotEmpty) target.outputDir.trim(),
+  })
+    if (!probe.directoryExists(folder)) folder,
+];
 
 /// What's wrong with a file name pattern: empty, or an unknown `{token}`.
 List<String> fileNamePatternProblems(String pattern) {

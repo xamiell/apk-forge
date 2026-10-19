@@ -66,6 +66,25 @@ class ProfileKeyService {
   final Host host;
   final KeystoreService keystores;
 
+  /// What the editor shows about the `key.properties` at [path]. No keytool
+  /// runs, and the passwords aren't kept.
+  Future<KeyFileSummary> summarize(String path) async {
+    final file = File(path);
+    if (!await file.exists()) {
+      return KeyFileSummary(path: path, error: 'The file does not exist.');
+    }
+    try {
+      return summarizeKeyProperties(
+        path,
+        await file.readAsString(),
+        host,
+        (path) => File(path).existsSync(),
+      );
+    } on FileSystemException catch (error) {
+      return KeyFileSummary(path: path, error: error.message);
+    }
+  }
+
   /// Reads each file, finds its keystore, and opens its key with both
   /// passwords. Fails at the first one that doesn't open, naming the file
   /// and the reason: a run must not sign with some keys and not others.
