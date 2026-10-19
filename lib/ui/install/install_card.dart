@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../domain/devices/devices.dart';
-import '../../state/actions.dart';
+import '../../state/actions/install_action.dart';
 import '../../state/apks.dart';
 import '../../state/devices.dart';
 import '../../state/forms.dart';
@@ -147,7 +147,7 @@ class InstallCard extends ConsumerWidget {
           const SizedBox(height: 6),
           FilledButton.icon(
             onPressed: problems.isEmpty && !busy
-                ? () => ref.read(actionsProvider).install()
+                ? () => ref.read(installActionProvider).run()
                 : null,
             icon: const Icon(Icons.download_rounded),
             label: const Text('Install'),

@@ -32,14 +32,16 @@ final hostProvider = Provider<Host>(
 final fileProbeProvider = Provider<FileProbe>((ref) => const IoFileProbe());
 
 final processRunnerProvider = Provider<ProcessRunner>(
-  (ref) => IoProcessRunner(ref.watch(environmentProvider)),
+  (ref) => IoProcessRunner(ref.watch(hostProvider)),
 );
 
 final clockProvider = Provider<DateTime Function()>((ref) => DateTime.now);
 
-/// Shows a file in the OS file manager. Overridden in tests, so they open
-/// no window.
-final fileRevealerProvider = Provider<Future<void> Function(String, Host)>(
+/// Shows the file at [path] in the OS file manager.
+typedef FileRevealer = Future<void> Function(String path, Host host);
+
+/// Overridden in tests, so they open no window.
+final fileRevealerProvider = Provider<FileRevealer>(
   (ref) => revealInFileManager,
 );
 
@@ -71,10 +73,26 @@ final installedApkServiceProvider = Provider(
   ),
 );
 
+/// What the app saves between launches, one entry each.
+///
+/// [storageName] is where it's stored: changing one loses what was saved
+/// under the old name.
+enum SettingsKey {
+  defaults('defaults'),
+  build('build'),
+  signing('signing'),
+  tools('tools'),
+  profiles('profiles'),
+  profileHistory('profile_history');
+
+  const SettingsKey(this.storageName);
+  final String storageName;
+}
+
 /// Remembers the forms between launches. Passwords never come here.
 abstract interface class SettingsStore {
-  Map<String, Object?>? read(String key);
-  void write(String key, Map<String, Object?> value);
+  Map<String, Object?>? read(SettingsKey key);
+  void write(SettingsKey key, Map<String, Object?> value);
 }
 
 class PreferencesSettingsStore implements SettingsStore {
@@ -85,8 +103,8 @@ class PreferencesSettingsStore implements SettingsStore {
   static const _prefix = 'apk_forge.';
 
   @override
-  Map<String, Object?>? read(String key) {
-    final raw = _preferences.getString('$_prefix$key');
+  Map<String, Object?>? read(SettingsKey key) {
+    final raw = _preferences.getString('$_prefix${key.storageName}');
     if (raw == null) return null;
     try {
       final decoded = jsonDecode(raw);
@@ -97,20 +115,21 @@ class PreferencesSettingsStore implements SettingsStore {
   }
 
   @override
-  void write(String key, Map<String, Object?> value) {
-    _preferences.setString('$_prefix$key', jsonEncode(value));
+  void write(SettingsKey key, Map<String, Object?> value) {
+    _preferences.setString('$_prefix${key.storageName}', jsonEncode(value));
   }
 }
 
 class MemorySettingsStore implements SettingsStore {
-  MemorySettingsStore([Map<String, Map<String, Object?>>? initial])
+  MemorySettingsStore([Map<SettingsKey, Map<String, Object?>>? initial])
     : values = {...?initial};
 
-  final Map<String, Map<String, Object?>> values;
+  final Map<SettingsKey, Map<String, Object?>> values;
 
   @override
-  Map<String, Object?>? read(String key) => values[key];
+  Map<String, Object?>? read(SettingsKey key) => values[key];
 
   @override
-  void write(String key, Map<String, Object?> value) => values[key] = value;
+  void write(SettingsKey key, Map<String, Object?> value) =>
+      values[key] = value;
 }

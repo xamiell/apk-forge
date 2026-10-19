@@ -57,8 +57,18 @@ class Toolchain {
 class ToolOverrides {
   const ToolOverrides({this.flutterSdk, this.androidSdk});
 
+  factory ToolOverrides.fromJson(Map<String, Object?> json) => ToolOverrides(
+    flutterSdk: json['flutterSdk'] as String?,
+    androidSdk: json['androidSdk'] as String?,
+  );
+
   final String? flutterSdk;
   final String? androidSdk;
+
+  Map<String, Object?> toJson() => {
+    'flutterSdk': flutterSdk,
+    'androidSdk': androidSdk,
+  };
 }
 
 /// Finds the tools the way a developer's terminal would.

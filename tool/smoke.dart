@@ -44,14 +44,16 @@ Future<void> main(List<String> args) async {
     exit(64);
   }
 
-  final environment = await loadShellEnvironment();
+  final environment = await loadShellEnvironment(
+    Host.current(Platform.environment),
+  );
   final host = Host.current(environment);
   final toolchain = ToolchainLocator(
     host: host,
     probe: const IoFileProbe(),
   ).locate(const ToolOverrides());
   final log = _PrintLog([password]);
-  final executor = ToolExecutor(IoProcessRunner(environment), log);
+  final executor = ToolExecutor(IoProcessRunner(host), log);
   var failures = 0;
 
   void check(bool condition, String what) {

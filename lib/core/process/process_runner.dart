@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import '../system/host.dart';
 import 'command.dart';
 
 enum OutputStream { stdout, stderr }
@@ -79,12 +80,12 @@ abstract interface class ProcessRunner {
 const int startFailureExitCode = 127;
 
 class IoProcessRunner implements ProcessRunner {
-  IoProcessRunner(this._environment);
+  IoProcessRunner(this._host);
 
-  /// The full environment programs start with, usually the login shell's
-  /// (see `loadShellEnvironment`): an app opened from Finder only gets a
-  /// bare `PATH`, without `flutter`, `java` or the Android SDK.
-  final Map<String, String> _environment;
+  /// Its environment is the one programs start with, usually the login
+  /// shell's (see `loadShellEnvironment`): an app opened from Finder only
+  /// gets a bare `PATH`, without `flutter`, `java` or the Android SDK.
+  final Host _host;
 
   @override
   Future<CommandResult> run(
@@ -102,10 +103,9 @@ class IoProcessRunner implements ProcessRunner {
         command.executable,
         command.arguments,
         workingDirectory: command.workingDirectory,
-        environment: {..._environment, ...command.environment},
+        environment: {..._host.environment, ...command.environment},
         includeParentEnvironment: false,
-        // A `.bat` (flutter.bat, apksigner.bat) only runs through cmd.exe.
-        runInShell: Platform.isWindows && _isBatchFile(command.executable),
+        runInShell: startsThroughShell(_host, command.executable),
       );
     } on ProcessException catch (error) {
       final reason = 'Could not start ${command.executable}: ${error.message}';
@@ -157,9 +157,11 @@ class IoProcessRunner implements ProcessRunner {
       cancelled: cancelled,
     );
   }
+}
 
-  static bool _isBatchFile(String executable) {
-    final lower = executable.toLowerCase();
-    return lower.endsWith('.bat') || lower.endsWith('.cmd');
-  }
+/// Whether [executable] has to start through the shell: on Windows, a
+/// `.bat` or `.cmd` (flutter.bat, apksigner.bat) only runs through cmd.exe.
+bool startsThroughShell(Host host, String executable) {
+  final lower = executable.toLowerCase();
+  return host.isWindows && (lower.endsWith('.bat') || lower.endsWith('.cmd'));
 }

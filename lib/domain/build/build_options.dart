@@ -57,6 +57,26 @@ class BuildOptions {
     this.signAfterBuild = true,
   });
 
+  /// What [toJson] saved, with [abis] from the Workbench's Defaults.
+  factory BuildOptions.fromJson(
+    Map<String, Object?> json, {
+    required Set<AndroidAbi> abis,
+  }) {
+    const defaults = BuildOptions();
+    return BuildOptions(
+      projectDir: json['projectDir'] as String? ?? '',
+      mode: BuildMode.values.asNameMap()[json['mode']] ?? defaults.mode,
+      abis: abis,
+      packaging:
+          ApkPackaging.values.asNameMap()[json['packaging']] ??
+          defaults.packaging,
+      obfuscate: json['obfuscate'] as bool? ?? false,
+      symbolsDir: json['symbolsDir'] as String? ?? '',
+      signAfterBuild:
+          json['signAfterBuild'] as bool? ?? defaults.signAfterBuild,
+    );
+  }
+
   final String projectDir;
   final BuildMode mode;
   final Set<AndroidAbi> abis;
@@ -87,6 +107,22 @@ class BuildOptions {
   ApkPackaging get effectivePackaging =>
       canSplit ? packaging : ApkPackaging.universal;
 
+  /// What the build writes, in a line for the Build panel.
+  String get outputSummary {
+    final count = abis.length;
+    if (count == 0) return 'Choose an architecture in Defaults.';
+    if (effectivePackaging == ApkPackaging.splitPerAbi) {
+      return 'One APK per architecture: $count APKs.';
+    }
+    if (count == 1) {
+      return 'One APK for ${abis.single.abiName}. Split needs two or more '
+          'architectures.';
+    }
+    return count == AndroidAbi.values.length
+        ? 'One APK with every architecture.'
+        : 'One APK with the $count architectures in Defaults.';
+  }
+
   BuildOptions copyWith({
     String? projectDir,
     BuildMode? mode,
@@ -104,4 +140,14 @@ class BuildOptions {
     symbolsDir: symbolsDir ?? this.symbolsDir,
     signAfterBuild: signAfterBuild ?? this.signAfterBuild,
   );
+
+  /// Everything but [abis], which the Workbench's Defaults keeps.
+  Map<String, Object?> toJson() => {
+    'projectDir': projectDir,
+    'mode': mode.name,
+    'packaging': packaging.name,
+    'obfuscate': obfuscate,
+    'symbolsDir': symbolsDir,
+    'signAfterBuild': signAfterBuild,
+  };
 }

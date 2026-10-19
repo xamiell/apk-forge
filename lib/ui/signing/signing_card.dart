@@ -4,7 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/format/format.dart';
 import '../../domain/signing/abi_split.dart';
-import '../../state/actions.dart';
+import '../../state/actions/load_keys_action.dart';
+import '../../state/actions/sign_actions.dart';
 import '../../state/apks.dart';
 import '../../state/forms.dart';
 import '../../state/providers.dart';
@@ -25,18 +26,13 @@ class SigningCard extends ConsumerWidget {
     final notifier = ref.read(signingFormProvider.notifier);
     final busy = ref.watch(taskProvider.select((task) => task.isRunning));
     final toolchain = ref.watch(toolchainProvider).value;
-    final actions = ref.read(actionsProvider);
     final entry = form.selectedEntry;
 
     final schemes = ref.watch(defaultsProvider.select((d) => d.schemes));
-    final problems = [
-      if (toolchain != null && !toolchain.canSign)
-        'apksigner was not found (Android SDK build-tools).',
-      ?ref.watch(signingProblemProvider),
-    ];
+    final problems = ref.watch(signProblemsProvider);
 
     void loadKeys() {
-      if (form.canLoadKeys && !busy) actions.loadKeys();
+      if (form.canLoadKeys && !busy) ref.read(loadKeysActionProvider).run();
     }
 
     return SectionCard(
@@ -201,11 +197,15 @@ class _SignActions extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final actions = ref.read(actionsProvider);
+    final sign = ref.read(signActionProvider);
+    final split = ref.read(splitAndSignActionProvider);
     final selected = ref.watch(apkListProvider.select((list) => list.selected));
-    final defaults = ref.watch(defaultsProvider);
+    final availability = ref.watch(splitAvailabilityProvider);
+    final cannotSplit = switch (availability) {
+      CannotSplit(:final reason) => reason,
+      CanSplit() => null,
+    };
     final muted = TextStyle(fontSize: 12, color: context.status.muted);
-    final fewAbis = defaults.abis.length < 2;
 
     Future<void> pick(Future<void> Function(List<String>) action) async {
       final files = await openFiles(acceptedTypeGroups: const [apkTypes]);
@@ -217,18 +217,16 @@ class _SignActions extends ConsumerWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           FilledButton.icon(
-            onPressed: canSign ? () => pick(actions.signFiles) : null,
+            onPressed: canSign ? () => pick(sign.run) : null,
             icon: const Icon(Icons.draw_outlined),
             label: const Text('Sign APK files…'),
           ),
           const SizedBox(height: 8),
           Tooltip(
-            message: fewAbis
-                ? 'Needs two or more architectures in Defaults.'
-                : _splitTooltip,
+            message: cannotSplit ?? _splitTooltip,
             child: OutlinedButton.icon(
-              onPressed: canSign && !fewAbis
-                  ? () => pick(actions.splitAndSignFiles)
+              onPressed: canSign && cannotSplit == null
+                  ? () => pick(split.run)
                   : null,
               icon: const Icon(Icons.call_split),
               label: const Text('Split per ABI and sign…'),
@@ -244,26 +242,6 @@ class _SignActions extends ConsumerWidget {
     }
 
     final name = ref.watch(hostProvider).path.basename(selected.path);
-    final contents = ref
-        .watch(apkReportProvider(selected.path))
-        .value
-        ?.contents;
-    final plan = contents == null
-        ? null
-        : planAbiSplit(contents, only: defaults.abiNames);
-    final String? cannotSplit;
-    if (fewAbis) {
-      cannotSplit = 'Needs two or more architectures in Defaults.';
-    } else if (plan == null || plan.canSplit) {
-      cannotSplit = null;
-    } else if (plan.noneChosen) {
-      cannotSplit = 'It has none of the architectures in Defaults.';
-    } else {
-      cannotSplit = plan.abis.isEmpty
-          ? 'It has no native code: nothing to split.'
-          : 'It only has ${plan.abis.single}: nothing to split.';
-    }
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -271,9 +249,7 @@ class _SignActions extends ConsumerWidget {
         Tooltip(
           message: selected.path,
           child: FilledButton.icon(
-            onPressed: canSign
-                ? () => actions.signFiles([selected.path])
-                : null,
+            onPressed: canSign ? () => sign.run([selected.path]) : null,
             icon: const Icon(Icons.draw_outlined),
             label: Text('Sign $name', overflow: TextOverflow.ellipsis),
           ),
@@ -283,7 +259,7 @@ class _SignActions extends ConsumerWidget {
           message: cannotSplit ?? _splitTooltip,
           child: OutlinedButton.icon(
             onPressed: canSign && cannotSplit == null
-                ? () => actions.splitAndSignFiles([selected.path])
+                ? () => split.run([selected.path])
                 : null,
             icon: const Icon(Icons.call_split),
             label: Text(
@@ -295,32 +271,21 @@ class _SignActions extends ConsumerWidget {
           ),
         ),
         const SizedBox(height: 6),
-        Text(cannotSplit ?? _splitSummary(plan, defaults), style: muted),
+        Text(switch (availability) {
+          CanSplit(:final summary) => summary,
+          CannotSplit(:final reason) => reason,
+        }, style: muted),
         const SizedBox(height: 4),
         Align(
           alignment: Alignment.centerLeft,
           child: TextButton.icon(
-            onPressed: canSign ? () => pick(actions.signFiles) : null,
+            onPressed: canSign ? () => pick(sign.run) : null,
             icon: const Icon(Icons.folder_open_rounded, size: 18),
             label: const Text('Sign other APK files…'),
           ),
         ),
       ],
     );
-  }
-
-  /// "Writes 3 signed APKs, one per architecture in Defaults: …".
-  static String _splitSummary(AbiSplitPlan? plan, WorkbenchDefaults defaults) {
-    final abis = plan?.abis ?? defaults.abiNames.toList();
-    final count = abis.length;
-    final writes = count == 1
-        ? 'Writes 1 signed APK, for ${abis.single}.'
-        : 'Writes $count signed APKs, one per architecture in Defaults: '
-              '${abis.join(', ')}.';
-    final missing = plan?.missing ?? const [];
-    return missing.isEmpty
-        ? writes
-        : '$writes It has no ${missing.join(', ')}.';
   }
 }
 

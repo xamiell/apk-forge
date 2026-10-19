@@ -5,11 +5,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/process/command.dart';
 import '../../domain/build/build_options.dart';
 import '../../domain/build/flutter_build.dart';
-import '../../state/actions.dart';
+import '../../state/actions/build_action.dart';
 import '../../state/forms.dart';
 import '../../state/providers.dart';
 import '../../state/task_notifier.dart';
-import '../../state/toolchain_notifier.dart';
 import '../common/widgets.dart';
 import '../theme.dart';
 
@@ -21,18 +20,8 @@ class BuildCard extends ConsumerWidget {
     final options = ref.watch(buildOptionsProvider);
     final notifier = ref.read(buildOptionsProvider.notifier);
     final host = ref.watch(hostProvider);
-    final signingProblem = ref.watch(signingProblemProvider);
     final busy = ref.watch(taskProvider.select((task) => task.isRunning));
-    final canBuild = ref.watch(
-      toolchainProvider.select((t) => t.value?.canBuild ?? false),
-    );
-
-    final problems = [
-      if (!canBuild) 'flutter was not found. Set it in Tools.',
-      ...buildProblems(options, host, ref.watch(fileProbeProvider)),
-      if (options.signAfterBuild && signingProblem != null)
-        'Signing: $signingProblem',
-    ];
+    final problems = ref.watch(buildProblemsProvider);
     final release = options.mode == BuildMode.release;
 
     return SectionCard(
@@ -106,7 +95,7 @@ class BuildCard extends ConsumerWidget {
           ),
           const SizedBox(height: 6),
           Text(
-            _outputSummary(options),
+            options.outputSummary,
             style: TextStyle(fontSize: 12, color: context.status.muted),
           ),
           const SizedBox(height: 8),
@@ -164,7 +153,7 @@ class BuildCard extends ConsumerWidget {
           const SizedBox(height: 6),
           FilledButton.icon(
             onPressed: problems.isEmpty && !busy
-                ? () => ref.read(actionsProvider).build()
+                ? () => ref.read(buildActionProvider).run()
                 : null,
             icon: const Icon(Icons.play_arrow_rounded),
             label: Text(options.signAfterBuild ? 'Build and sign' : 'Build'),
@@ -173,21 +162,6 @@ class BuildCard extends ConsumerWidget {
       ),
     );
   }
-}
-
-String _outputSummary(BuildOptions options) {
-  final count = options.abis.length;
-  if (count == 0) return 'Choose an architecture in Defaults.';
-  if (options.effectivePackaging == ApkPackaging.splitPerAbi) {
-    return 'One APK per architecture: $count APKs.';
-  }
-  if (count == 1) {
-    return 'One APK for ${options.abis.single.abiName}. Split needs two or '
-        'more architectures.';
-  }
-  return count == AndroidAbi.values.length
-      ? 'One APK with every architecture.'
-      : 'One APK with the $count architectures in Defaults.';
 }
 
 /// The exact command the button runs, so nothing happens behind the user's

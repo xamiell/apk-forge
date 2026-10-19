@@ -287,6 +287,76 @@ void main() {
       expect(none.canSplit, isFalse);
     });
 
+    group('splitAvailability', () {
+      final universal = _contents([
+        for (final abi in ['arm64-v8a', 'armeabi-v7a', 'x86_64']) ...[
+          'lib/$abi/libflutter.so',
+          'lib/$abi/libapp.so',
+        ],
+      ]);
+      String note(SplitAvailability availability) => switch (availability) {
+        CanSplit(:final summary) => 'can: $summary',
+        CannotSplit(:final reason) => 'cannot: $reason',
+      };
+
+      test('fewer than two ABIs in Defaults: never', () {
+        expect(
+          note(splitAvailability({'arm64-v8a'}, contents: universal)),
+          'cannot: Needs two or more architectures in Defaults.',
+        );
+        expect(
+          note(splitAvailability({})),
+          'cannot: Needs two or more architectures in Defaults.',
+        );
+      });
+
+      test('no APK read yet: one per ABI in Defaults', () {
+        expect(
+          note(splitAvailability({'arm64-v8a', 'x86_64'})),
+          'can: Writes 2 signed APKs, one per architecture in Defaults: '
+          'arm64-v8a, x86_64.',
+        );
+      });
+
+      test('an APK: one per ABI it has, and the ones it lacks', () {
+        expect(
+          note(
+            splitAvailability({
+              'arm64-v8a',
+              'armeabi-v7a',
+              'riscv64',
+            }, contents: universal),
+          ),
+          'can: Writes 2 signed APKs, one per architecture in Defaults: '
+          'arm64-v8a, armeabi-v7a. It has no riscv64.',
+        );
+        expect(
+          note(splitAvailability({'riscv64', 'x86'}, contents: universal)),
+          'cannot: It has none of the architectures in Defaults.',
+        );
+      });
+
+      test('an APK with one ABI, or none: nothing to split', () {
+        final one = _contents([
+          'lib/arm64-v8a/libflutter.so',
+          'lib/arm64-v8a/libapp.so',
+        ]);
+        expect(
+          note(splitAvailability({'arm64-v8a', 'x86_64'}, contents: one)),
+          'cannot: It only has arm64-v8a: nothing to split.',
+        );
+        expect(
+          note(
+            splitAvailability({
+              'arm64-v8a',
+              'x86_64',
+            }, contents: _contents(['classes.dex'])),
+          ),
+          'cannot: It has no native code: nothing to split.',
+        );
+      });
+    });
+
     test('one ABI is nothing to split, whatever was chosen', () {
       final plan = planAbiSplit(
         _contents(['lib/arm64-v8a/libflutter.so', 'lib/arm64-v8a/libapp.so']),

@@ -1,8 +1,14 @@
 # CLAUDE.md
 
-- Read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) before a change. Its
-  dependency rule (`ui → state → services → domain → core`) and its secrets
-  rules (§3) are not optional.
+- Read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and
+  [docs/TESTING.md](docs/TESTING.md) before a change. The dependency rule
+  (`ui → state → services → domain → core`) and the secrets rules (§3) are
+  not optional.
+- Check every change against ARCHITECTURE's "Every change" list (§11). A
+  rule the code can't follow yet goes under its Known deviations (§13), with
+  the reason.
+- Plain classes take their dependencies in the constructor, never `ref`;
+  rules live in `domain/` or `state/`, never in a widget.
 - Everything is in English: UI, code, comments, docs, commits.
 - A new external command goes through `ProcessRunner` via `ToolExecutor`,
   and its arguments come from a pure builder in `domain/` with a test.

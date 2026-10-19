@@ -13,7 +13,8 @@ lib/
   core/       Process running, the host OS, ZIP reading and copying, formatting, log types.
   domain/     Models, command builders, output parsers, findings. Pure.
   services/   One class per tool job; runs commands through a ProcessRunner.
-  state/      Riverpod notifiers: forms, the current task, actions, the log.
+  state/      Riverpod notifiers (forms, the current task, the log) and the
+              actions the buttons run (state/actions/).
   ui/         The screen and its panels.
   main.dart   Loads the shell environment and settings, starts the app.
 tool/
@@ -28,9 +29,9 @@ tool/
 
 A layer folder is split by area (`build/`, `signing/`, `analysis/`,
 `devices/`, `tools/`), not the other way round: the app is small and its
-steps are tightly sequenced (build → sign → analyze → install), so one
-`state/actions.dart` composing the services reads better than four features
-calling each other.
+steps are tightly sequenced (build → sign → analyze → install), so the
+actions in `state/actions/` composing the services read better than four
+features calling each other.
 
 ## 2. The process boundary
 
@@ -49,7 +50,8 @@ calling each other.
 
 ## 3. Secrets
 
-- Passwords live only in `SigningForm` (memory) and in `Command.environment`.
+- Passwords live only in memory: in `SigningForm`, in the `SigningRequest`
+  built from it for a task (`ReadyToSign`), and in `Command.environment`.
 - They are passed to tools through environment variables, never arguments:
   `apksigner --ks-pass env:APK_FORGE_KS_PASS`, `keytool -storepass:env …`.
 - `Command.secrets` lists them; the log and `ToolFailure.fromResult` mask
@@ -76,6 +78,12 @@ A test covers each of these. Keep it that way when a new tool takes a secret.
   holds the cancel token, and turns a `ToolFailure` into the error banner.
   Builds, signings, key loading and installs go through it. Listing devices,
   analyzing an APK and reading an installed app don't: they change nothing.
+- **Actions** (`state/actions/`) are plain classes, one per job: build, sign,
+  split and sign, run a profile, load keys, install. Each takes what it uses
+  in its constructor: the services, a `TaskRunner`, an `ApkSink` for the
+  APKs it writes, and functions that read the forms when the button is
+  pressed (`SigningSetup` says what Sign signs with, or why it can't). Their
+  providers are where that's wired; no action receives `ref`.
 - **Forms** (`state/forms.dart`) persist their non-secret fields through
   `SettingsStore` on every change. What Build and Sign share, the
   architectures and the signature schemes, lives once in `defaultsProvider`:
@@ -179,13 +187,64 @@ only when there is one.
 
 ## 9. Tests
 
-- `test/domain` and `test/core`: parsers against the real output in
-  `test/fixtures` (see its README), command builders, findings, locator.
-- `test/services`: each service with `FakeProcessRunner`, which answers from
-  a script and records the calls.
-- `test/state`: the actions through a `ProviderContainer` with the runner,
-  host, settings and toolchain overridden.
-- Widgets aren't unit-tested; the screen is checked by hand on macOS.
-- Real-tool behavior is checked with `tool/smoke.dart`. When a tool's output
-  changes, capture the new output into `test/fixtures` and fix the parser
-  against it.
+What is tested and how, the fake for each boundary, and the rules every
+test follows are in [TESTING.md](TESTING.md).
+
+## 10. Patterns
+
+| Pattern | Where | What it's for |
+|---|---|---|
+| Composition root | The providers: `state/providers.dart` for the boundaries and services, each action's provider for its wiring. `main()` overrides the environment and the settings. | The one place that builds things and hands them to whoever uses them. Tests override the boundary providers, or skip them and build the class directly. |
+| Adapter behind an app-owned interface | `ProcessRunner` (`IoProcessRunner`), `FileProbe` (`IoFileProbe`), `SettingsStore` (`PreferencesSettingsStore`), `TaskLog` (`LogNotifier`); `Host` for the OS | Every boundary is an interface shaped by what the app needs. Tests fake the interface, never the tool or the OS. |
+| Pure builder and parser | `domain/`: the `…Arguments` builders and the `parse…` functions | What to run and what its output means, tested without the tools (§2, `test/fixtures`). |
+| Service per tool job | `services/` | Runs one job's commands through a `ToolExecutor`, and throws `ToolFailure`. |
+| Action per job | `state/actions/` | What a button does: read the forms, run the services as one task, put the results in the state (§5). |
+| Function as a dependency | `clockProvider`, `FileRevealer`, `ToolchainSource`, the actions' readers (`BuildOptions Function()`…) | A dependency with one call is a function type. One with two or more is an interface (`TaskRunner`, `ApkSink`, `ProfileRunProgress`). |
+| Closed set | `SettingsKey`; the sealed `SigningSetup` and `SplitAvailability`; enums such as `TargetStatus` | A new case doesn't compile until every `switch` handles it. |
+| Model owns its JSON | `fromJson`/`toJson` next to each other on each saved model | One place per field name. `settings_test` pins what this version saves. |
+| Observer | Riverpod notifiers and providers | The UI rebuilds from the state; it shows rules, it doesn't hold them. |
+
+## 11. Every change
+
+Check a change against this list before it's done, and say in the pull
+request which point it fails, if any:
+
+- [ ] Each piece is in its layer (§1), and no import points up.
+- [ ] Dependencies come in through the constructor. A plain class never
+      receives `ref`, and there's no new global or singleton.
+- [ ] Every boundary (a process, the file system, the settings, the clock,
+      the OS) is behind an interface or a provider that a test can replace.
+      No `DateTime.now()` or `Platform.is…` outside `core/system` and the
+      composition root.
+- [ ] No rule in a widget: it's in `domain/` or `state/`, with a test.
+- [ ] No rule, message, settings key or field name written twice.
+- [ ] A new external command goes through `ProcessRunner` via
+      `ToolExecutor`, with its arguments from a pure builder in `domain/` and
+      a test.
+- [ ] A new tool output has a real captured fixture in `test/fixtures`
+      (listed in its README) and a parser test against it.
+- [ ] Passwords never go in arguments, logs, settings, errors or the
+      history (§3).
+- [ ] New behavior has tests, and a bug fix has a test that failed before
+      the fix ([TESTING.md](TESTING.md)).
+- [ ] `dart format .`, `dart analyze lib test tool` (no issues) and
+      `flutter test` pass.
+- [ ] A change to the screen was checked by hand on macOS, or the pull
+      request says what wasn't checked.
+- [ ] The docs that describe the change (README, this file, TESTING.md)
+      changed with it.
+
+## 12. Changing the architecture
+
+A change to the rules in this document is decided in an issue and approved
+by the owner. It lands with this document updated in the same pull
+request. Until then, code that can't follow a rule is listed under Known
+deviations, with the reason.
+
+## 13. Known deviations
+
+| Since | Rule | Where | Why, and until when |
+|---|---|---|---|
+| 2026-10-19 (#11) | Feature-first folders, the default of the owner's mobile-app-architecture rules | `lib/` is layer-first (§1) | The app is small and its steps run in sequence. Layers split by area read better than features calling each other. Moving to features was left out of #11; it needs its own decision (§12). |
+| 2026-10-19 (#11) | No boundary or rule in a widget | `ui/profiles/targets_step.dart` (`_FolderCell`, `_KeyCell`) and the import dialog in `ui/profiles/profiles_view.dart` read the `FileProbe` or a key file's summary themselves | The checks they call are in `domain/` and tested. #13 gathers a target's problems in one domain function that every screen uses. |
+| 2026-10-19 (#11) | No boundary or rule in a widget | `ui/profiles/profile_history.dart` (`_RunResults`) asks the `FileProbe` whether a signed APK is still there | #14 reworks the history. |

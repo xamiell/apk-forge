@@ -55,6 +55,61 @@ AbiSplitPlan planAbiSplit(ApkContents contents, {Set<String>? only}) {
   );
 }
 
+/// Whether "Split per ABI and sign" can run, and what Sign says under it.
+sealed class SplitAvailability {
+  const SplitAvailability();
+}
+
+/// It writes one signed APK per ABI in [abis].
+final class CanSplit extends SplitAvailability {
+  const CanSplit(this.abis, {this.missing = const []});
+
+  final List<String> abis;
+
+  /// ABIs in Defaults the APK has no native code for.
+  final List<String> missing;
+
+  /// "Writes 3 signed APKs, one per architecture in Defaults: …".
+  String get summary {
+    final writes = abis.length == 1
+        ? 'Writes 1 signed APK, for ${abis.single}.'
+        : 'Writes ${abis.length} signed APKs, one per architecture in '
+              'Defaults: ${abis.join(', ')}.';
+    return missing.isEmpty
+        ? writes
+        : '$writes It has no ${missing.join(', ')}.';
+  }
+}
+
+final class CannotSplit extends SplitAvailability {
+  const CannotSplit(this.reason);
+
+  final String reason;
+}
+
+/// Whether splitting with [chosen], the ABIs in Defaults, can run on an APK
+/// with [contents]. Without [contents] (no APK selected, or not read yet)
+/// only the ABIs chosen decide.
+SplitAvailability splitAvailability(
+  Set<String> chosen, {
+  ApkContents? contents,
+}) {
+  if (chosen.length < 2) {
+    return const CannotSplit('Needs two or more architectures in Defaults.');
+  }
+  if (contents == null) return CanSplit(chosen.toList());
+  final plan = planAbiSplit(contents, only: chosen);
+  if (plan.canSplit) return CanSplit(plan.abis, missing: plan.missing);
+  if (plan.noneChosen) {
+    return const CannotSplit('It has none of the architectures in Defaults.');
+  }
+  return CannotSplit(
+    plan.abis.isEmpty
+        ? 'It has no native code: nothing to split.'
+        : 'It only has ${plan.abis.single}: nothing to split.',
+  );
+}
+
 /// Whether the APK for [abi] keeps [entryName]: everything but the other
 /// ABIs' `lib/` folders and the v1 signature files, which no longer match.
 ///

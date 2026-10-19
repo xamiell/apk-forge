@@ -212,6 +212,34 @@ void main() {
     expect(parseEnvOutput('no markers'), isEmpty);
   });
 
+  test(
+    'on Windows the app keeps its own environment: no shell to ask',
+    () async {
+      const host = Host(
+        os: HostOs.windows,
+        environment: {'Path': r'C:\Windows', 'USERPROFILE': r'C:\Users\dev'},
+      );
+
+      expect(await loadShellEnvironment(host), host.environment);
+    },
+  );
+
+  test('only a .bat or .cmd on Windows starts through the shell', () {
+    const windows = Host(os: HostOs.windows, environment: {});
+    const mac = Host(os: HostOs.macos, environment: {});
+
+    expect(startsThroughShell(windows, r'C:\flutter\bin\flutter.bat'), isTrue);
+    expect(
+      startsThroughShell(windows, r'C:\sdk\build-tools\36.0.0\apksigner.CMD'),
+      isTrue,
+    );
+    expect(
+      startsThroughShell(windows, r'C:\sdk\platform-tools\adb.exe'),
+      isFalse,
+    );
+    expect(startsThroughShell(mac, '/opt/tools/flutter.bat'), isFalse);
+  });
+
   group('errorDetails', () {
     test('takes Gradle\'s "What went wrong" block without the advice', () {
       const result = CommandResult(
@@ -280,6 +308,13 @@ void main() {
   });
 
   group('format', () {
+    test('formatDateTime shows the moment to the minute', () {
+      expect(
+        formatDateTime(DateTime(2026, 3, 7, 9, 5, 59)),
+        '2026-03-07 09:05',
+      );
+    });
+
     test('shortPath keeps the file and its folder', () {
       expect(
         shortPath('/a/long/way/out/phone/app.apk', macHost),

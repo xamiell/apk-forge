@@ -4,6 +4,11 @@ import 'package:apk_forge/core/logging/log_entry.dart';
 import 'package:apk_forge/core/process/command.dart';
 import 'package:apk_forge/core/process/process_runner.dart';
 import 'package:apk_forge/core/system/host.dart';
+import 'package:apk_forge/domain/failure.dart';
+import 'package:apk_forge/services/tool_executor.dart';
+import 'package:apk_forge/state/apks.dart';
+import 'package:apk_forge/state/task_notifier.dart';
+import 'package:archive/archive.dart' show Archive, ArchiveFile, ZipEncoder;
 import 'package:path/path.dart' as p;
 
 /// Real tool output captured from build-tools 36.0.0, Flutter 3.47.5 and a
@@ -131,3 +136,65 @@ const macHost = Host(
   os: HostOs.macos,
   environment: {'HOME': '/Users/dev', 'PATH': '/usr/bin:/bin'},
 );
+
+/// Runs each task's body at once, over [runner], and keeps the failure that
+/// TaskNotifier would show.
+class FakeTaskRunner implements TaskRunner {
+  FakeTaskRunner(this.runner);
+
+  final ProcessRunner runner;
+  final log = RecordingLog();
+  final cancelToken = CancelToken();
+
+  /// The tasks that ran, in order.
+  final labels = <String>[];
+  ToolFailure? failure;
+
+  /// Set it to pretend another task is running.
+  @override
+  bool isRunning = false;
+
+  @override
+  Future<T?> run<T>(
+    String label,
+    Future<T> Function(ToolExecutor executor) body,
+  ) async {
+    if (isRunning) return null;
+    labels.add(label);
+    try {
+      return await body(ToolExecutor(runner, log, cancelToken: cancelToken));
+    } on ToolFailure catch (failure) {
+      this.failure = failure;
+      return null;
+    }
+  }
+}
+
+/// Records what the actions list and select, in order.
+class RecordingApkSink implements ApkSink {
+  final added = <({String path, ApkOrigin origin, bool select})>[];
+  final selected = <String>[];
+
+  @override
+  void add(String path, ApkOrigin origin, {bool select = true}) =>
+      added.add((path: path, origin: origin, select: select));
+
+  @override
+  void select(String path) => selected.add(path);
+}
+
+/// Writes an APK at [path] with a Flutter engine and app for each of
+/// [abis], and returns [path].
+String writeApk(String path, List<String> abis) {
+  final archive = Archive()
+    ..add(ArchiveFile.string('AndroidManifest.xml', 'manifest'));
+  for (final abi in abis) {
+    archive
+      ..add(ArchiveFile.string('lib/$abi/libflutter.so', 'engine'))
+      ..add(ArchiveFile.string('lib/$abi/libapp.so', 'app'));
+  }
+  File(path)
+    ..parent.createSync(recursive: true)
+    ..writeAsBytesSync(ZipEncoder().encode(archive));
+  return path;
+}
