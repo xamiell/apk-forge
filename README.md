@@ -17,9 +17,9 @@ the tool's own reason, not a generic error.
 |---|---|
 | **Build** | Runs `flutter build apk` on any Flutter project. Choose release or debug, any mix of `armeabi-v7a`, `arm64-v8a` and `x86_64`, and one universal APK or one APK per ABI (`--split-per-abi`, offered when two or more ABIs are selected). Optional Dart obfuscation keeps the symbols you need to read crash traces. The command is previewed before you run it. |
 | **Sign** | Signs the APKs a build just produced, or any APK you pick (from CI, another machine, a store), with your `.jks`, `.keystore` or `.p12`. It checks the alignment first and fixes it if needed, writes `<name>-signed.apk` without touching the original, and verifies that the result carries exactly the key you chose. **Split per ABI and sign** turns a universal APK (one from CI, say) into one signed APK per ABI. |
-| **Analyze APK** | For any APK: whether the signature verifies; the schemes it carries (v1 to v4); the signer certificate (DN, SHA-256, SHA-1), and whether it is **your key** or the Android debug key; release or debug (`debuggable`); package, version and SDK levels; native code per ABI, flagging an ABI with no Flutter engine; size, MD5 and SHA-256. |
-| **Analyze device** | For the device on USB: maker, brand, model and codename; Android version, API level, security patch, build and build type; chip, ABIs, memory page size (16 KB pages are flagged), RAM, storage and screen; battery, locale and time zone. With an APK selected, it tells you which ABI the APK would run as, which version is installed, and whether installing would be a fresh install, an upgrade, a reinstall or a downgrade. One click copies it all as text. |
-| **Install** | Installs the selected APK with `adb install -r` (optionally `-d` to allow a downgrade). It warns first when the APK has no native code for the device, and explains the common install failures. |
+| **Analyze APK** | For any APK: whether the signature verifies; the schemes it carries (v1 to v4); the signer certificate (DN, SHA-256, SHA-1), a rotated key's lineage, and whether it is **your key** or the Android debug key; release or debug (`debuggable`); package, version and SDK levels; native code per ABI, flagging an ABI with no Flutter engine; size, MD5 and SHA-256. **Compare with…** puts it next to another APK (a previous release, another build) or the app installed on the device, and lists every difference, worst first: another signer, a lower versionCode, a debug build, lost ABIs, new permissions. |
+| **Analyze device** | For the device on USB: maker, brand, model and codename; Android version, API level, security patch, build and build type; chip, ABIs, memory page size (16 KB pages are flagged), RAM, storage and screen; battery, locale and time zone. With an APK selected, it tells you which ABI the APK would run as, which version is installed, and whether installing would be a fresh install, an upgrade, a reinstall or a downgrade, or would be refused for another key. **Compare with the installed app** compares the two side by side. One click copies it all as text. |
+| **Install** | Installs the selected APK with `adb install -r` (optionally `-d` to allow a downgrade). It warns first when the APK has no native code for the device, or is signed with another key than the installed app, and explains the common install failures. |
 | **Log** | Every command and its output, live, with errors and warnings colored. A failed step also shows its reason in a banner above the log, Gradle's "What went wrong" included. **Cancel** stops the running step. |
 
 ## Requirements
@@ -28,7 +28,7 @@ the tool's own reason, not a generic error.
 |---|---|---|
 | Flutter SDK | Build | [flutter.dev](https://docs.flutter.dev/get-started/install), on your `PATH` or set in Tools |
 | Android SDK build-tools: `apksigner`, `zipalign`, `aapt2` | Sign, Analyze APK | Android Studio → SDK Manager |
-| Android SDK platform-tools: `adb` | Analyze device, Install | Android Studio → SDK Manager |
+| Android SDK platform-tools: `adb` | Analyze device, Install, comparing with the installed app | Android Studio → SDK Manager |
 | A JDK: `keytool`, and Java for `apksigner` | Sign | Android Studio's bundled JDK works |
 
 You don't configure paths by hand. At startup the app reads your login
@@ -126,12 +126,42 @@ say what matters:
 With a key loaded in **Sign**, the report also says whether that keystore
 signed the APK.
 
+### Compare two APKs
+
+Select an APK in **Analyze APK** and press **Compare with…**. Pick the
+reference: another APK of the session, a file (a previous release), or the
+app installed on the selected device. The selected APK is compared as an
+update over the reference:
+
+- **The signer.** It is the same signer, a **rotated key** (APK Signature
+  Scheme v3: Android still accepts the update), or a different signer, with
+  both SHA-256 digests.
+- **Whether it installs as an update.** If it doesn't, the comparison says
+  why: another package, another signer, a lower versionCode, or a signature
+  that doesn't verify.
+- **Every difference, worst first,** each with why it matters: the
+  signature, the manifest (versions, SDK levels, debuggable, permissions
+  added and removed), the native code per ABI and the Flutter build, and the
+  file. The values that are the same are folded.
+
+A part that couldn't be read in either APK (a missing tool, a file that
+isn't an APK) is listed as not compared, never as a difference. **Swap**
+turns the comparison around.
+
 ### Inspect a device and install
 
 Connect a device by USB with USB debugging on, and press refresh. The first
 ready device is selected; with several connected, pick one in **Analyze
 device**. With an APK selected, **Analyze device** says what installing it
 would do. **Install** installs it.
+
+When the APK's app is already installed, **Install** warns before an
+install Android would refuse because the APK is signed with another key.
+**Compare with the installed app** shows everything that differs. For that,
+the installed APK is copied to a temporary folder, read and deleted. An app
+installed from Play comes as a `base.apk` plus splits; the base and the ABI
+splits are compared, and the density and language splits stay on the
+device.
 
 ## Security
 
@@ -144,8 +174,10 @@ would do. **Install** installs it.
 - **The app saves only paths and choices** (project folder, keystore path,
   key alias, architectures…), in the OS's standard app preferences.
 - **Reading a device changes nothing on it.** It runs `getprop`, `wm size`,
-  `dumpsys battery` and similar read-only commands. A package name taken from
-  an APK is validated before it goes into a device shell command.
+  `dumpsys battery`, `pm path` and similar read-only commands. A package name
+  taken from an APK is validated before it goes into a device shell command.
+  To compare with an installed app, `adb pull` copies its APK files to a
+  temporary folder, which is deleted once they are read.
 
 ## Things worth knowing
 
@@ -153,6 +185,12 @@ would do. **Install** installs it.
   verify` reports `v1: false` even when a v1 signature is there, because
   Android 7+ ignores it. Analyze APK reads the APK's files too, and shows
   "v1 present".
+- **A rotated signing key.** With APK Signature Scheme v3 an app can move
+  to a new key and still update over installs signed with the old one.
+  `apksigner verify` shows only the new key, so on its own a rotated key
+  looks like another key. Analyze APK also runs `apksigner lineage` for a v3
+  signature, and Compare calls it "Key rotated". With v3.1 (API 33+), the
+  report lists one signer per API range.
 - **v4 signatures** go in a separate `<apk>.idsig` file next to the APK.
   apksigner writes it on its own when its defaults call for it. You only need
   it for `adb install --incremental`.
