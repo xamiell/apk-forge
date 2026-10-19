@@ -13,6 +13,7 @@ import 'package:apk_forge/services/adb_service.dart';
 import 'package:apk_forge/services/apk_analyzer.dart';
 import 'package:apk_forge/services/apk_split_service.dart';
 import 'package:apk_forge/services/flutter_build_service.dart';
+import 'package:apk_forge/services/installed_apk_service.dart';
 import 'package:apk_forge/services/signing_service.dart';
 import 'package:apk_forge/services/tool_executor.dart';
 import 'package:archive/archive.dart';
@@ -701,6 +702,172 @@ void main() {
               ),
         ),
       );
+    });
+  });
+
+  group('InstalledApkService', () {
+    InstalledApkService service() =>
+        InstalledApkService(host: macHost, temporaryDirectory: () => temp);
+
+    List<int> zip(List<String> entries) {
+      final archive = Archive();
+      for (final entry in entries) {
+        archive.add(ArchiveFile.string(entry, 'content of $entry'));
+      }
+      return ZipEncoder().encode(archive);
+    }
+
+    bool isPmPath(Command c) =>
+        c.arguments.contains('pm') && c.arguments.contains('path');
+    bool isPull(Command c) =>
+        c.arguments.length > 2 && c.arguments[2] == 'pull';
+
+    /// adb pull writes each file from [files] (by name) where it's asked to;
+    /// a name in [failing] fails as adb does for a missing file.
+    void answerPulls(
+      Map<String, List<String>> files, {
+      Set<String> failing = const {},
+    }) => runner.when(isPull, (c) {
+      final remote = c.arguments[3];
+      final name = p.posix.basename(remote);
+      if (failing.contains(name)) {
+        return failed(
+          1,
+          stderr: [
+            "adb: error: failed to stat remote object '$remote': "
+                'No such file or directory',
+          ],
+        );
+      }
+      File(c.arguments[4]).writeAsBytesSync(zip(files[name]!));
+      return ok();
+    });
+
+    Iterable<String> copies() => temp
+        .listSync()
+        .map((entity) => p.basename(entity.path))
+        .where((name) => name.startsWith('apk_forge_installed_'));
+
+    Future<InstalledApk?> read(String package) => service().read(
+      executor,
+      toolchain: _toolchain,
+      serial: 'SER1',
+      package: package,
+    );
+
+    test('a single-APK install is copied, read, then deleted', () async {
+      runner.when(isPmPath, (_) => ok(fixture('adb_pm_path_single.txt')));
+      answerPulls({
+        'base.apk': ['AndroidManifest.xml', 'classes.dex'],
+      });
+
+      final installed = await read('com.google.android.apps.meetings');
+
+      final pulls = runner.calls.where(isPull).toList();
+      expect(pulls, hasLength(1));
+      expect(pulls.single.arguments.take(3), ['-s', 'SER1', 'pull']);
+      expect(pulls.single.arguments[3], endsWith('/base.apk'));
+      expect(installed!.files.isSplit, isFalse);
+      expect(installed.report.contents.nativeLibraries, isEmpty);
+      // The report was read from the copy, before it was deleted.
+      expect(runner.callsWithFirstArg('dump'), hasLength(1));
+      expect(copies(), isEmpty);
+    });
+
+    test('an App Bundle install: the native code of its ABI split, and the '
+        'density split left on the device', () async {
+      runner.when(isPmPath, (_) => ok(fixture('adb_pm_path_bundle.txt')));
+      answerPulls({
+        'base.apk': ['AndroidManifest.xml', 'classes.dex'],
+        'split_config.arm64_v8a.apk': [
+          'AndroidManifest.xml',
+          'lib/arm64-v8a/libapp.so',
+          'lib/arm64-v8a/libflutter.so',
+        ],
+      });
+
+      final installed = await read('com.github.android');
+
+      expect(
+        runner.calls.where(isPull).map((c) => p.posix.basename(c.arguments[3])),
+        ['base.apk', 'split_config.arm64_v8a.apk'],
+      );
+      final report = installed!.report;
+      expect(installed.files.isSplit, isTrue);
+      expect(installed.files.notPulledNames, 'split_config.xhdpi.apk');
+      expect(report.contents.nativeLibraries, {
+        'arm64-v8a': ['libapp.so', 'libflutter.so'],
+      });
+      expect(report.contentsError, isNull);
+      expect(
+        report.sizeBytes,
+        zip(['AndroidManifest.xml', 'classes.dex']).length +
+            zip([
+              'AndroidManifest.xml',
+              'lib/arm64-v8a/libapp.so',
+              'lib/arm64-v8a/libflutter.so',
+            ]).length,
+      );
+      expect(copies(), isEmpty);
+    });
+
+    test('a package that is not installed: null, and nothing copied', () async {
+      runner.when(isPmPath, (_) => failed(1));
+
+      expect(await read('com.example.app'), isNull);
+      expect(runner.calls.where(isPull), isEmpty);
+      expect(copies(), isEmpty);
+    });
+
+    test('a base that cannot be copied fails, and nothing is left', () async {
+      runner.when(isPmPath, (_) => ok(fixture('adb_pm_path_single.txt')));
+      answerPulls(const {}, failing: {'base.apk'});
+
+      await expectLater(
+        read('com.google.android.apps.meetings'),
+        throwsA(
+          isA<ToolFailure>()
+              .having(
+                (f) => f.title,
+                'title',
+                'Could not copy com.google.android.apps.meetings from the '
+                    'device',
+              )
+              .having(
+                (f) => f.details.join('\n'),
+                'details',
+                contains('failed to stat remote object'),
+              ),
+        ),
+      );
+      expect(copies(), isEmpty);
+    });
+
+    test(
+      'an ABI split that cannot be copied leaves the native code unread',
+      () async {
+        runner.when(isPmPath, (_) => ok(fixture('adb_pm_path_bundle.txt')));
+        answerPulls(
+          {
+            'base.apk': ['AndroidManifest.xml', 'classes.dex'],
+          },
+          failing: {'split_config.arm64_v8a.apk'},
+        );
+
+        final installed = await read('com.github.android');
+
+        expect(
+          installed!.report.contentsError,
+          startsWith('Could not copy split_config.arm64_v8a.apk: '),
+        );
+        expect(installed.report.contentsError, contains('No such file'));
+        expect(copies(), isEmpty);
+      },
+    );
+
+    test('a package name that is not one never reaches the device', () async {
+      await expectLater(read('com.x; reboot'), throwsArgumentError);
+      expect(runner.calls, isEmpty);
     });
   });
 

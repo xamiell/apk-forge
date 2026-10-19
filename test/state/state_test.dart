@@ -452,6 +452,81 @@ void main() {
     },
   );
 
+  test(
+    'compare with installed: the copy from the device against the APK',
+    () async {
+      final selected = writeApk(p.join(temp.path, 'app-release.apk'), [
+        'arm64-v8a',
+      ]);
+      String? pulledBase;
+      runner
+        ..when(
+          (c) => c.arguments.contains('pm') && c.arguments.contains('path'),
+          (_) => ok(fixture('adb_pm_path_single.txt')),
+        )
+        ..when((c) => c.arguments.length > 2 && c.arguments[2] == 'pull', (c) {
+          pulledBase = writeApk(c.arguments[4], ['arm64-v8a']);
+          return ok();
+        })
+        ..when(
+          (c) => c.arguments.first == 'dump',
+          (c) => ok(
+            fixture(
+              c.arguments.last == selected
+                  ? 'aapt2_badging_debug.txt'
+                  : 'aapt2_badging_release.txt',
+            ),
+          ),
+        )
+        ..when(
+          (c) => c.arguments.first == 'verify',
+          (c) => ok(
+            fixture(
+              c.arguments.last == selected
+                  ? 'apksigner_verify_debug_key.txt'
+                  : 'apksigner_verify_test_key.txt',
+            ),
+          ),
+        );
+      container.read(apkListProvider.notifier).add(selected, ApkOrigin.built);
+
+      final comparison = await container.read(
+        installedComparisonProvider((
+          serial: 'SER1',
+          package: 'io.example.sample_app',
+          candidate: selected,
+        )).future,
+      );
+
+      // A debug build signed with the debug key, over the release install.
+      expect(comparison!.signer, SignerVerdict.different);
+      expect(comparison.updateBlockers.map((f) => f.label), [
+        'Signer SHA-256',
+        'Version code',
+      ]);
+      // The copy was deleted once read.
+      expect(File(pulledBase!).existsSync(), isFalse);
+    },
+  );
+
+  test('compare with installed: an app that is not installed', () async {
+    final selected = writeApk(p.join(temp.path, 'app.apk'), ['arm64-v8a']);
+    runner.when(
+      (c) => c.arguments.contains('pm') && c.arguments.contains('path'),
+      (_) => failed(1),
+    );
+
+    final comparison = await container.read(
+      installedComparisonProvider((
+        serial: 'SER1',
+        package: 'com.example.app',
+        candidate: selected,
+      )).future,
+    );
+
+    expect(comparison, isNull);
+  });
+
   test('CommandResult from a start failure keeps the reason', () {
     const result = CommandResult(
       exitCode: startFailureExitCode,

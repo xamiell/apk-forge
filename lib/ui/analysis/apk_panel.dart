@@ -2,7 +2,9 @@ import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../domain/devices/device_info.dart';
 import '../../state/apks.dart';
+import '../../state/devices.dart';
 import '../../state/providers.dart';
 import '../common/file_types.dart';
 import '../common/widgets.dart';
@@ -93,6 +95,17 @@ class _CompareButton extends ConsumerWidget {
     final host = ref.watch(hostProvider);
     final candidate = list.selectedPath!;
     final others = list.items.where((apk) => apk.path != candidate);
+    final device = ref.watch(selectedDeviceProvider);
+    final package = ref
+        .watch(apkReportProvider(candidate))
+        .value
+        ?.badging
+        ?.packageName;
+    final canReadInstalled =
+        device != null &&
+        device.isReady &&
+        package != null &&
+        isValidPackageName(package);
 
     Future<void> compare(String reference) =>
         showApkComparison(context, reference: reference, candidate: candidate);
@@ -106,6 +119,26 @@ class _CompareButton extends ConsumerWidget {
             child: Text(host.path.basename(apk.path)),
           ),
         if (others.isNotEmpty) const Divider(),
+        MenuItemButton(
+          leadingIcon: const Icon(Icons.phone_android_rounded, size: 18),
+          onPressed: canReadInstalled
+              ? () => showInstalledComparison(
+                  context,
+                  serial: device.serial,
+                  deviceName: device.displayName,
+                  package: package,
+                  candidate: candidate,
+                )
+              : null,
+          child: Text(switch (device) {
+            null => 'The installed app (no device selected)',
+            _ when !device.isReady =>
+              'The installed app (${device.displayName} is ${device.state})',
+            _ when package == null =>
+              'The installed app (the APK has no package name yet)',
+            _ => 'The installed app on ${device.displayName}',
+          }),
+        ),
         MenuItemButton(
           leadingIcon: const Icon(Icons.file_open_outlined, size: 18),
           onPressed: () async {

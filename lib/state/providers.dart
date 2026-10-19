@@ -9,6 +9,7 @@ import '../services/adb_service.dart';
 import '../services/apk_analyzer.dart';
 import '../services/apk_split_service.dart';
 import '../services/flutter_build_service.dart';
+import '../services/installed_apk_service.dart';
 import '../services/signing_service.dart';
 
 /// The environment programs start with: the login shell's, loaded once in
@@ -46,6 +47,12 @@ final apkSplitServiceProvider = Provider(
 );
 final apkAnalyzerProvider = Provider((ref) => const ApkAnalyzer());
 final adbServiceProvider = Provider((ref) => const AdbService());
+final installedApkServiceProvider = Provider(
+  (ref) => InstalledApkService(
+    host: ref.watch(hostProvider),
+    analyzer: ref.watch(apkAnalyzerProvider),
+  ),
+);
 
 /// Remembers the forms between launches. Passwords never come here.
 abstract interface class SettingsStore {

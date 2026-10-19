@@ -4,6 +4,7 @@ import 'package:apk_forge/domain/analysis/badging.dart';
 import 'package:apk_forge/domain/analysis/comparison.dart';
 import 'package:apk_forge/domain/analysis/findings.dart';
 import 'package:apk_forge/domain/analysis/signature.dart';
+import 'package:apk_forge/domain/devices/installed_apk.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../helpers/fakes.dart';
@@ -360,6 +361,39 @@ void main() {
       expect(engine.level, FindingLevel.error);
     });
 
+    test('an app installed as splits compares as a whole', () {
+      List<ZipEntry> entries(List<String> names) => [
+        for (final name in names)
+          ZipEntry(
+            name: name,
+            compressedSize: 1,
+            uncompressedSize: 1,
+            isCompressed: false,
+          ),
+      ];
+      // base.apk has no native code; its ABI split has it.
+      final installed = _report(
+        badging: _release,
+        signature: _testKey,
+        contents: installedContents(
+          entries(['AndroidManifest.xml', 'classes.dex']),
+          [
+            entries(['lib/arm64-v8a/libapp.so', 'lib/arm64-v8a/libflutter.so']),
+          ],
+        ),
+      );
+
+      final comparison = compareApks(
+        installed,
+        _report(sha256: 'bbbb', badging: _release, signature: _testKey),
+      );
+
+      expect(_field(comparison, 'ABIs').differs, isFalse);
+      expect(_field(comparison, 'Flutter build').differs, isFalse);
+      expect(comparison.signer, SignerVerdict.same);
+      expect(comparison.updateBlockers, isEmpty);
+    });
+
     test('dropping native code altogether loses no device', () {
       final comparison = compareApks(
         _report(contents: _flutterArm64),
@@ -454,6 +488,11 @@ void main() {
       expect(result.map((f) => f.title), [
         'Different signer',
         'Won\'t install as an update over the installed app',
+      ]);
+      // Both signers, short, so the wrong key stands out.
+      expect(result[0].detail!.split('\n').skip(1), [
+        'The installed app: SHA-256 B3:4C:94:45…58:2D:CF:A8',
+        'The selected APK: SHA-256 D9:74:F2:84…51:F2:AE:8D',
       ]);
       final blockers = result[1].detail!.split('\n');
       expect(blockers, hasLength(2));

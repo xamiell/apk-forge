@@ -75,12 +75,19 @@ class ApkComparison {
     required this.signer,
     required this.fields,
     required this.sameFile,
+    this.referenceSigners = const [],
+    this.candidateSigners = const [],
     this.permissionsAdded = const [],
     this.permissionsRemoved = const [],
     this.notCompared = const [],
   });
 
   final SignerVerdict signer;
+
+  /// Each side's signer certificates, by SHA-256 (normalized). Empty when
+  /// the signature couldn't be read.
+  final List<String> referenceSigners;
+  final List<String> candidateSigners;
 
   /// Every value compared, in the report's order.
   final List<ComparedField> fields;
@@ -363,6 +370,14 @@ ApkComparison compareApks(ApkReport reference, ApkReport candidate) {
     signer: verdict,
     fields: fields,
     sameFile: reference.sha256 == candidate.sha256,
+    referenceSigners: [
+      for (final signer in referenceSignature?.signers ?? const [])
+        ?signer.sha256,
+    ],
+    candidateSigners: [
+      for (final signer in candidateSignature?.signers ?? const [])
+        ?signer.sha256,
+    ],
     permissionsAdded: added,
     permissionsRemoved: removed,
     notCompared: notCompared,
@@ -378,11 +393,12 @@ List<Finding> comparisonFindings(
 }) {
   final findings = <Finding>[
     switch (comparison.signer) {
-      SignerVerdict.same => const Finding(
+      SignerVerdict.same => Finding(
         FindingLevel.ok,
         'Same signer',
-        'Signed with the same certificate: one installs as an update over '
-            'the other.',
+        'Signed with the same certificate '
+            '(SHA-256 ${_digests(comparison.candidateSigners)}): one installs '
+            'as an update over the other.',
       ),
       SignerVerdict.rotated => Finding(
         FindingLevel.warning,
@@ -391,11 +407,15 @@ List<Finding> comparisonFindings(
             'with (APK Signature Scheme v3). Android still accepts it as an '
             'update.',
       ),
-      SignerVerdict.different => const Finding(
+      SignerVerdict.different => Finding(
         FindingLevel.error,
         'Different signer',
         'Android refuses one as an update over the other '
-            '(INSTALL_FAILED_UPDATE_INCOMPATIBLE).',
+            '(INSTALL_FAILED_UPDATE_INCOMPATIBLE).\n'
+            '${_capitalized(reference)}: '
+            'SHA-256 ${_digests(comparison.referenceSigners)}\n'
+            '${_capitalized(candidate)}: '
+            'SHA-256 ${_digests(comparison.candidateSigners)}',
       ),
       SignerVerdict.unsigned => const Finding(
         FindingLevel.error,
@@ -460,6 +480,10 @@ List<Finding> comparisonFindings(
       ...findings.where((finding) => finding.level == level),
   ];
 }
+
+/// `AB:CD:EF:01…23:45:67:89`, or several joined.
+String _digests(List<String> digests) =>
+    digests.isEmpty ? '?' : digests.map(shortDigest).join(', ');
 
 String _capitalized(String text) =>
     text.isEmpty ? text : text[0].toUpperCase() + text.substring(1);

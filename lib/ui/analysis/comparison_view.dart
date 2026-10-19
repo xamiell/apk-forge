@@ -5,6 +5,7 @@ import '../../domain/analysis/comparison.dart';
 import '../../domain/analysis/findings.dart';
 import '../../domain/failure.dart';
 import '../../state/apks.dart';
+import '../../state/devices.dart';
 import '../../state/providers.dart';
 import '../common/widgets.dart';
 import '../theme.dart';
@@ -60,6 +61,70 @@ class _ApkComparisonDialogState extends ConsumerState<_ApkComparisonDialog> {
   }
 }
 
+/// Compares [candidate], an APK of the list, with the app of [package]
+/// installed on the device [serial], in a dialog.
+Future<void> showInstalledComparison(
+  BuildContext context, {
+  required String serial,
+  required String deviceName,
+  required String package,
+  required String candidate,
+}) => showDialog<void>(
+  context: context,
+  builder: (_) => _InstalledComparisonDialog(
+    serial: serial,
+    deviceName: deviceName,
+    package: package,
+    candidate: candidate,
+  ),
+);
+
+class _InstalledComparisonDialog extends ConsumerWidget {
+  const _InstalledComparisonDialog({
+    required this.serial,
+    required this.deviceName,
+    required this.package,
+    required this.candidate,
+  });
+
+  final String serial;
+  final String deviceName;
+  final String package;
+  final String candidate;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final host = ref.watch(hostProvider);
+    final files = ref
+        .watch(installedApkProvider((serial: serial, package: package)))
+        .value
+        ?.files;
+    return ComparisonDialog(
+      referenceTitle: 'Installed',
+      referenceName: '$package on $deviceName',
+      referenceDetail: files == null || !files.isSplit
+          ? null
+          : 'Installed as splits: ${files.pulledNames} compared'
+                '${files.notPulled.isEmpty ? '' : '; ${files.notPulledNames} '
+                          'left out (resources only)'}. '
+                'Size and hashes are of those files.',
+      referenceInText: 'the installed app',
+      candidateTitle: 'Selected',
+      candidateName: host.path.basename(candidate),
+      comparison: ref.watch(
+        installedComparisonProvider((
+          serial: serial,
+          package: package,
+          candidate: candidate,
+        )),
+      ),
+      missing:
+          '$package is not installed on $deviceName: installing the '
+          'selected APK would be a fresh install.',
+    );
+  }
+}
+
 /// The frame every comparison shares: the two sides named at the top, the
 /// verdicts, the differences, then what is the same.
 class ComparisonDialog extends StatelessWidget {
@@ -70,6 +135,9 @@ class ComparisonDialog extends StatelessWidget {
     required this.candidateTitle,
     required this.candidateName,
     required this.comparison,
+    this.referenceDetail,
+    this.referenceInText,
+    this.missing,
     this.onSwap,
   });
 
@@ -77,10 +145,20 @@ class ComparisonDialog extends StatelessWidget {
   final String referenceTitle;
   final String referenceName;
 
+  /// What the reference side is made of, when it isn't one APK.
+  final String? referenceDetail;
+
+  /// How the verdicts name the reference ("the installed app");
+  /// [referenceName] by default.
+  final String? referenceInText;
+
   /// "Compared", "Selected".
   final String candidateTitle;
   final String candidateName;
-  final AsyncValue<ApkComparison> comparison;
+
+  /// `null` when there is nothing to compare with; [missing] says why.
+  final AsyncValue<ApkComparison?> comparison;
+  final String? missing;
   final VoidCallback? onSwap;
 
   @override
@@ -128,19 +206,35 @@ class ComparisonDialog extends StatelessWidget {
               padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
               child: _Columns(
                 label: const SizedBox.shrink(),
-                reference: _Side(title: referenceTitle, name: referenceName),
+                reference: _Side(
+                  title: referenceTitle,
+                  name: referenceName,
+                  detail: referenceDetail,
+                ),
                 candidate: _Side(title: candidateTitle, name: candidateName),
               ),
             ),
             const Divider(),
             Flexible(
               child: switch (comparison) {
-                AsyncData(:final value) => SingleChildScrollView(
+                AsyncData(value: final value?) => SingleChildScrollView(
                   padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
                   child: ComparisonView(
                     comparison: value,
-                    referenceName: referenceName,
+                    referenceName: referenceInText ?? referenceName,
                     candidateName: candidateName,
+                  ),
+                ),
+                AsyncData() => Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: FindingList(
+                    findings: [
+                      Finding(
+                        FindingLevel.info,
+                        'Nothing to compare with',
+                        missing,
+                      ),
+                    ],
                   ),
                 ),
                 AsyncError(:final error) => Padding(
@@ -269,10 +363,11 @@ class _Columns extends StatelessWidget {
 }
 
 class _Side extends StatelessWidget {
-  const _Side({required this.title, required this.name});
+  const _Side({required this.title, required this.name, this.detail});
 
   final String title;
   final String name;
+  final String? detail;
 
   @override
   Widget build(BuildContext context) => Column(
@@ -291,6 +386,14 @@ class _Side extends StatelessWidget {
         name,
         style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13.5),
       ),
+      if (detail != null)
+        Padding(
+          padding: const EdgeInsets.only(top: 2),
+          child: Text(
+            detail!,
+            style: TextStyle(fontSize: 12, color: context.status.muted),
+          ),
+        ),
     ],
   );
 }

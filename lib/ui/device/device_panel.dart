@@ -8,6 +8,7 @@ import '../../domain/devices/devices.dart';
 import '../../state/apks.dart';
 import '../../state/devices.dart';
 import '../../state/forms.dart';
+import '../analysis/comparison_view.dart';
 import '../common/widgets.dart';
 import '../theme.dart';
 
@@ -404,6 +405,21 @@ class _SelectedApkOnDevice extends ConsumerWidget {
                   fontWeight: FontWeight.w600,
                   color: color,
                 ),
+              ),
+            ),
+          if (installed case AsyncData(value: _?))
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: () => showInstalledComparison(
+                  context,
+                  serial: device.serial,
+                  deviceName: device.displayName,
+                  package: package,
+                  candidate: path,
+                ),
+                icon: const Icon(Icons.compare_arrows_rounded, size: 16),
+                label: const Text('Compare with the installed app'),
               ),
             ),
         ],
