@@ -243,7 +243,7 @@ lib/
   core/       process running, host OS, ZIP reading and copying, formatting, log types
   domain/     models, command builders, output parsers, checks (pure Dart)
   services/   one class per tool job, through a ProcessRunner
-  state/      Riverpod notifiers: forms, the current task, actions, the log
+  state/      Riverpod notifiers (forms, the current task, the log) and the actions
   ui/         the screen and its panels
 tool/         the end-to-end smoke test
 test/         unit tests and the captured tool output
@@ -251,7 +251,8 @@ test/         unit tests and the captured tool output
 
 Dependencies only point down: `ui → state → services → domain → core`. The
 rules, including how secrets are handled, are in
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), and how the code is tested in
+[docs/TESTING.md](docs/TESTING.md).
 
 ### Contributing
 
@@ -261,7 +262,8 @@ rules, including how secrets are handled, are in
   hand-written guess.
 - Passwords never go in arguments, logs, settings or errors.
 - Before a pull request: `dart format .`, `dart analyze lib test tool` with
-  no issues, and `flutter test`.
+  no issues, and `flutter test`. Check the change against ARCHITECTURE's
+  "Every change" list.
 
 ## License
 
