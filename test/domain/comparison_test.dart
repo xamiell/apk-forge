@@ -455,6 +455,41 @@ void main() {
     });
   });
 
+  group('installSignerWarning', () {
+    test('another key: Android refuses the update, and why it matters', () {
+      final warning = installSignerWarning(_testKey, _debugKey)!;
+
+      expect(warning, contains('INSTALL_FAILED_UPDATE_INCOMPATIBLE'));
+      expect(warning, contains('uninstalled first, which deletes its data'));
+      expect(warning, contains('B3:4C:94:45…58:2D:CF:A8'));
+      expect(warning, contains('this APK: D9:74:F2:84…51:F2:AE:8D'));
+    });
+
+    test('the same key, or a key rotated from it, installs as an update', () {
+      final oldKey = parseApksignerVerify(
+        fixture('apksigner_verify_old_key.txt'),
+      );
+      final rotated =
+          parseApksignerVerify(fixture('apksigner_verify_rotated_v3.txt'))
+              .withLineage(
+                parseApksignerLineage(fixture('apksigner_lineage_rotated.txt')),
+              );
+
+      expect(installSignerWarning(_testKey, _testKey), isNull);
+      expect(installSignerWarning(oldKey, rotated), isNull);
+    });
+
+    test('nothing to compare: no warning', () {
+      final unsigned = parseApksignerVerify(
+        fixture('apksigner_verify_unsigned.txt'),
+      );
+
+      expect(installSignerWarning(null, _testKey), isNull);
+      expect(installSignerWarning(_testKey, null), isNull);
+      expect(installSignerWarning(_testKey, unsigned), isNull);
+    });
+  });
+
   group('comparisonFindings', () {
     List<Finding> findings(ApkComparison comparison) => comparisonFindings(
       comparison,

@@ -527,6 +527,64 @@ void main() {
     expect(comparison, isNull);
   });
 
+  group('the Install warning about the signer', () {
+    bool isDumpsys(Command c) => c.arguments.last.startsWith('dumpsys package');
+    bool isPmPath(Command c) =>
+        c.arguments.contains('pm') && c.arguments.contains('path');
+
+    test('another key than the installed app: warned', () async {
+      final apk = writeApk(p.join(temp.path, 'app-debug.apk'), ['arm64-v8a']);
+      runner
+        ..when(
+          isDumpsys,
+          (_) => ok(fixture('adb_installed_package_settings.txt')),
+        )
+        ..when(isPmPath, (_) => ok(fixture('adb_pm_path_single.txt')))
+        ..when((c) => c.arguments.length > 2 && c.arguments[2] == 'pull', (c) {
+          writeApk(c.arguments[4], ['arm64-v8a']);
+          return ok();
+        })
+        ..when(
+          (c) => c.arguments.first == 'dump',
+          (_) => ok(fixture('aapt2_badging_release.txt')),
+        )
+        ..when(
+          (c) => c.arguments.first == 'verify',
+          (c) => ok(
+            fixture(
+              c.arguments.last == apk
+                  ? 'apksigner_verify_debug_key.txt'
+                  : 'apksigner_verify_test_key.txt',
+            ),
+          ),
+        );
+
+      final warning = await container.read(
+        installSignerWarningProvider((serial: 'SER1', apk: apk)).future,
+      );
+
+      expect(warning, contains('INSTALL_FAILED_UPDATE_INCOMPATIBLE'));
+    });
+
+    test('not installed: no warning, and nothing copied', () async {
+      final apk = writeApk(p.join(temp.path, 'app.apk'), ['arm64-v8a']);
+      runner
+        // grep finds nothing: the package isn't installed.
+        ..when(isDumpsys, (_) => failed(1))
+        ..when(
+          (c) => c.arguments.first == 'dump',
+          (_) => ok(fixture('aapt2_badging_release.txt')),
+        );
+
+      final warning = await container.read(
+        installSignerWarningProvider((serial: 'SER1', apk: apk)).future,
+      );
+
+      expect(warning, isNull);
+      expect(runner.calls.where(isPmPath), isEmpty);
+    });
+  });
+
   test('CommandResult from a start failure keeps the reason', () {
     const result = CommandResult(
       exitCode: startFailureExitCode,

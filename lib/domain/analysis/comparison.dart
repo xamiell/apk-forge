@@ -488,6 +488,19 @@ String _digests(List<String> digests) =>
 String _capitalized(String text) =>
     text.isEmpty ? text : text[0].toUpperCase() + text.substring(1);
 
+/// The Install panel's warning for an APK signed with another key than the
+/// app installed from it: `null` when it would install as an update (the
+/// same signer, or a key rotated from the installed one), or when the two
+/// signers can't be compared.
+String? installSignerWarning(SignatureReport? installed, SignatureReport? apk) {
+  if (signerVerdict(installed, apk) != SignerVerdict.different) return null;
+  return 'Signed with another key than the installed app '
+      '(${_digests(_signerDigests(installed!).toList())}; this APK: '
+      '${_digests(_signerDigests(apk!).toList())}). Android will refuse the '
+      'update (INSTALL_FAILED_UPDATE_INCOMPATIBLE); installing it would need '
+      'the app uninstalled first, which deletes its data.';
+}
+
 /// Whether two signatures have the same signers. Android's rule for an
 /// update: the same set of certificates, whatever their order.
 SignerVerdict signerVerdict(

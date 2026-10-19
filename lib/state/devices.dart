@@ -157,6 +157,29 @@ final installedComparisonProvider =
       return compareApks(installed.report, candidate);
     });
 
+/// Why installing [apk] on [serial] would be refused for its signer: it is
+/// signed with another key than the installed app. `null` when that app
+/// isn't installed or it would install as an update.
+///
+/// Reads the installed version first (cheap), and copies the installed app
+/// only when there is one.
+final installSignerWarningProvider =
+    FutureProvider.family<String?, ({String serial, String apk})>((
+      ref,
+      key,
+    ) async {
+      final report = await ref.watch(apkReportProvider(key.apk).future);
+      final package = report.badging?.packageName;
+      if (package == null || !isValidPackageName(package)) return null;
+      final app = (serial: key.serial, package: package);
+      if (await ref.watch(installedPackageProvider(app).future) == null) {
+        return null;
+      }
+      final installed = await ref.watch(installedApkProvider(app).future);
+      if (installed == null) return null;
+      return installSignerWarning(installed.report.signature, report.signature);
+    });
+
 /// A package's installed version on a device; `null` when not installed.
 final installedPackageProvider =
     FutureProvider.family<InstalledPackage?, ({String serial, String package})>(
