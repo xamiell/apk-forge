@@ -3,13 +3,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/format/format.dart';
-import '../../domain/signing/signing.dart';
 import '../../state/actions.dart';
 import '../../state/forms.dart';
+import '../../state/profiles.dart';
 import '../../state/task_notifier.dart';
 import '../../state/toolchain_notifier.dart';
 import '../common/file_types.dart';
 import '../common/widgets.dart';
+import '../profiles/run_dialog.dart';
 import '../theme.dart';
 
 class SigningCard extends ConsumerWidget {
@@ -148,7 +149,7 @@ class SigningCard extends ConsumerWidget {
             ),
             const SizedBox(height: 8),
           ],
-          _SchemesField(
+          SchemesField(
             schemes: form.schemes,
             onChanged: (s) => notifier.update((f) => f.copyWith(schemes: s)),
           ),
@@ -197,70 +198,105 @@ class SigningCard extends ConsumerWidget {
               label: const Text('Split per ABI and sign…'),
             ),
           ),
+          const SizedBox(height: 14),
+          const Divider(),
+          const SizedBox(height: 10),
+          const _ProfilesEntry(),
         ],
       ),
     );
   }
 }
 
-class _SchemesField extends StatelessWidget {
-  const _SchemesField({required this.schemes, required this.onChanged});
-
-  final SigningSchemes schemes;
-  final ValueChanged<SigningSchemes> onChanged;
+/// The Workbench's one way into profiles: run one, or go set them up. A
+/// profile carries its own keys, so it runs without a keystore loaded here.
+class _ProfilesEntry extends ConsumerWidget {
+  const _ProfilesEntry();
 
   @override
-  Widget build(BuildContext context) {
-    final custom = !schemes.isAutomatic;
+  Widget build(BuildContext context, WidgetRef ref) {
+    final profiles = ref.watch(profilesProvider).profiles;
+    final history = ref.watch(profileHistoryProvider);
+    final busy = ref.watch(taskProvider.select((task) => task.isRunning));
+    final last = history.isEmpty ? null : history.first;
+
+    void manage() => ref.read(appViewProvider.notifier).show(AppView.profiles);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        SwitchListTile(
-          contentPadding: EdgeInsets.zero,
-          dense: true,
-          title: const Text('Choose the signature schemes'),
-          subtitle: Text(
-            custom
-                ? 'Only the ones marked are written.'
-                : 'Off: apksigner picks them by the APK\'s minSdk.',
-            style: const TextStyle(fontSize: 12),
-          ),
-          value: custom,
-          onChanged: (on) => onChanged(
-            on
-                ? const SigningSchemes(v1: true, v2: true, v3: true, v4: false)
-                : const SigningSchemes.automatic(),
+        Row(
+          children: [
+            const Expanded(
+              child: Text(
+                'Profiles',
+                style: TextStyle(fontWeight: FontWeight.w600),
+              ),
+            ),
+            TextButton(onPressed: manage, child: const Text('Manage profiles')),
+          ],
+        ),
+        const SizedBox(height: 4),
+        MenuAnchor(
+          menuChildren: [
+            for (final profile in profiles)
+              MenuItemButton(
+                onPressed: () => showRunProfileDialog(context, profile.id),
+                trailingIcon: Text(
+                  '${profile.targets.length} '
+                  'target${profile.targets.length == 1 ? '' : 's'}',
+                  style: TextStyle(fontSize: 12, color: context.status.muted),
+                ),
+                child: Text(profile.name),
+              ),
+            if (profiles.isNotEmpty) const Divider(),
+            MenuItemButton(
+              leadingIcon: const Icon(Icons.tune_rounded, size: 18),
+              onPressed: manage,
+              child: Text(
+                profiles.isEmpty ? 'Create a profile…' : 'Manage profiles…',
+              ),
+            ),
+          ],
+          builder: (context, controller, _) => FilledButton.icon(
+            onPressed: busy
+                ? null
+                : () => controller.isOpen
+                      ? controller.close()
+                      : controller.open(),
+            icon: const Icon(Icons.play_arrow_rounded),
+            label: const Text('Run profile…'),
           ),
         ),
-        if (custom)
-          Wrap(
-            spacing: 8,
+        if (last != null) ...[
+          const SizedBox(height: 8),
+          Row(
             children: [
-              FilterChip(
-                label: const Text('v1 (JAR)'),
-                selected: schemes.v1 ?? false,
-                onSelected: (v) => onChanged(schemes.copyWith(v1: v)),
+              Icon(
+                Icons.history_rounded,
+                size: 16,
+                color: context.status.muted,
               ),
-              FilterChip(
-                label: const Text('v2'),
-                selected: schemes.v2 ?? false,
-                onSelected: (v) => onChanged(schemes.copyWith(v2: v)),
-              ),
-              FilterChip(
-                label: const Text('v3'),
-                selected: schemes.v3 ?? false,
-                onSelected: (v) => onChanged(schemes.copyWith(v3: v)),
-              ),
-              Tooltip(
-                message: 'Also writes <apk>.idsig, for incremental installs (adb install --incremental).',
-                child: FilterChip(
-                  label: const Text('v4'),
-                  selected: schemes.v4 ?? false,
-                  onSelected: (v) => onChanged(schemes.copyWith(v4: v)),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  'Last run, ${last.profileName}: ${last.summary}.',
+                  style: TextStyle(fontSize: 12, color: context.status.muted),
                 ),
+              ),
+              TextButton(
+                onPressed: () {
+                  ref.read(profilesProvider.notifier).select(last.profileId);
+                  ref
+                      .read(profileTabProvider.notifier)
+                      .show(ProfileTab.history);
+                  manage();
+                },
+                child: const Text('View results'),
               ),
             ],
           ),
+        ],
       ],
     );
   }

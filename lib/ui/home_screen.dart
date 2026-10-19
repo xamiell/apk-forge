@@ -2,17 +2,19 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../state/devices.dart';
+import '../state/profiles.dart';
 import 'analysis/apk_panel.dart';
 import 'build/build_card.dart';
 import 'device/device_panel.dart';
 import 'install/install_card.dart';
 import 'log/log_panel.dart';
+import 'profiles/profiles_view.dart';
 import 'signing/signing_card.dart';
 import 'theme.dart';
 import 'tools/toolchain_bar.dart';
 
-/// The app's only screen: the steps on the left (build, sign, install), and
-/// what came out of them on the right (the APKs' analysis and the log).
+/// The app's only window: the toolchain on top, and a rail to switch between
+/// the Workbench (one-off work) and Profiles (setting up repeated work).
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
 
@@ -31,6 +33,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final view = ref.watch(appViewProvider);
     return Scaffold(
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -69,41 +72,31 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                SizedBox(
-                  width: 420,
-                  child: ListView(
-                    padding: const EdgeInsets.all(16),
-                    children: const [
-                      BuildCard(),
-                      SizedBox(height: 16),
-                      SigningCard(),
-                      SizedBox(height: 16),
-                      InstallCard(),
-                    ],
-                  ),
-                ),
-                Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(0, 16, 16, 16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: const [
-                        Expanded(
-                          flex: 11,
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              Expanded(flex: 3, child: ApkPanel()),
-                              SizedBox(width: 16),
-                              Expanded(flex: 2, child: DevicePanel()),
-                            ],
-                          ),
-                        ),
-                        SizedBox(height: 16),
-                        Expanded(flex: 7, child: LogPanel()),
-                      ],
+                NavigationRail(
+                  selectedIndex: view.index,
+                  labelType: NavigationRailLabelType.all,
+                  onDestinationSelected: (index) => ref
+                      .read(appViewProvider.notifier)
+                      .show(AppView.values[index]),
+                  destinations: const [
+                    NavigationRailDestination(
+                      icon: Icon(Icons.build_outlined),
+                      selectedIcon: Icon(Icons.build_rounded),
+                      label: Text('Workbench'),
                     ),
-                  ),
+                    NavigationRailDestination(
+                      icon: Icon(Icons.layers_outlined),
+                      selectedIcon: Icon(Icons.layers_rounded),
+                      label: Text('Profiles'),
+                    ),
+                  ],
+                ),
+                const VerticalDivider(width: 1),
+                Expanded(
+                  child: switch (view) {
+                    AppView.workbench => const _Workbench(),
+                    AppView.profiles => const ProfilesView(),
+                  },
                 ),
               ],
             ),
@@ -112,4 +105,53 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       ),
     );
   }
+}
+
+/// The steps on the left (build, sign, install), and what came out of them
+/// on the right (the APKs' analysis and the log).
+class _Workbench extends StatelessWidget {
+  const _Workbench();
+
+  @override
+  Widget build(BuildContext context) => Row(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      SizedBox(
+        width: 420,
+        child: ListView(
+          padding: const EdgeInsets.all(16),
+          children: const [
+            BuildCard(),
+            SizedBox(height: 16),
+            SigningCard(),
+            SizedBox(height: 16),
+            InstallCard(),
+          ],
+        ),
+      ),
+      Expanded(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(0, 16, 16, 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: const [
+              Expanded(
+                flex: 11,
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Expanded(flex: 3, child: ApkPanel()),
+                    SizedBox(width: 16),
+                    Expanded(flex: 2, child: DevicePanel()),
+                  ],
+                ),
+              ),
+              SizedBox(height: 16),
+              Expanded(flex: 7, child: LogPanel()),
+            ],
+          ),
+        ),
+      ),
+    ],
+  );
 }

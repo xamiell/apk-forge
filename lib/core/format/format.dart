@@ -1,3 +1,14 @@
+import '../system/host.dart';
+
+/// `/a/long/way/out/phone/app.apk` → `…/phone/app.apk`: the file and its
+/// folder, for a table cell. Show the whole path in a tooltip.
+String shortPath(String path, Host host) {
+  final p = host.path;
+  final folder = p.basename(p.dirname(path));
+  final short = '…${p.separator}$folder${p.separator}${p.basename(path)}';
+  return short.length < path.length ? short : path;
+}
+
 /// `15728640` → `15.0 MB`.
 String formatBytes(int bytes) {
   if (bytes < 1024) return '$bytes B';

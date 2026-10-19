@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../domain/analysis/findings.dart';
+import '../../domain/signing/signing.dart';
 import '../theme.dart';
 
 /// A titled panel.
@@ -430,4 +431,72 @@ class InfoRow extends StatelessWidget {
       ],
     ),
   );
+}
+
+/// The signature schemes: apksigner's choice, or the ones marked.
+class SchemesField extends StatelessWidget {
+  const SchemesField({
+    super.key,
+    required this.schemes,
+    required this.onChanged,
+  });
+
+  final SigningSchemes schemes;
+  final ValueChanged<SigningSchemes> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final custom = !schemes.isAutomatic;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          dense: true,
+          title: const Text('Choose the signature schemes'),
+          subtitle: Text(
+            custom
+                ? 'Only the ones marked are written.'
+                : 'Off: apksigner picks them by the APK\'s minSdk.',
+            style: const TextStyle(fontSize: 12),
+          ),
+          value: custom,
+          onChanged: (on) => onChanged(
+            on
+                ? const SigningSchemes(v1: true, v2: true, v3: true, v4: false)
+                : const SigningSchemes.automatic(),
+          ),
+        ),
+        if (custom)
+          Wrap(
+            spacing: 8,
+            children: [
+              FilterChip(
+                label: const Text('v1 (JAR)'),
+                selected: schemes.v1 ?? false,
+                onSelected: (v) => onChanged(schemes.copyWith(v1: v)),
+              ),
+              FilterChip(
+                label: const Text('v2'),
+                selected: schemes.v2 ?? false,
+                onSelected: (v) => onChanged(schemes.copyWith(v2: v)),
+              ),
+              FilterChip(
+                label: const Text('v3'),
+                selected: schemes.v3 ?? false,
+                onSelected: (v) => onChanged(schemes.copyWith(v3: v)),
+              ),
+              Tooltip(
+                message: 'Also writes <apk>.idsig, for incremental installs (adb install --incremental).',
+                child: FilterChip(
+                  label: const Text('v4'),
+                  selected: schemes.v4 ?? false,
+                  onSelected: (v) => onChanged(schemes.copyWith(v4: v)),
+                ),
+              ),
+            ],
+          ),
+      ],
+    );
+  }
 }
