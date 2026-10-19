@@ -412,7 +412,7 @@ void main() {
           'devices',
           ok([
             'List of devices attached',
-            'SER1 device model:D30M',
+            'SER1 device model:K10',
             'SER2 unauthorized',
           ]),
         )

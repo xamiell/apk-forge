@@ -300,7 +300,7 @@ void main() {
     test('parseAdbDevices reads ready and unauthorized devices', () {
       final devices = parseAdbDevices([
         'List of devices attached',
-        '0123456789ABCDEF   device usb:1-1 product:D30M model:D30M device:D30M transport_id:1',
+        '0123456789ABCDEF   device usb:1-1 product:K10 model:K10 device:K10 transport_id:1',
         'emulator-5554          unauthorized transport_id:2',
         '',
       ]);
@@ -310,7 +310,7 @@ void main() {
         'emulator-5554',
       ]);
       expect(devices.first.isReady, isTrue);
-      expect(devices.first.model, 'D30M');
+      expect(devices.first.model, 'K10');
       expect(devices.last.isReady, isFalse);
       expect(devices.last.displayName, 'emulator-5554');
     });

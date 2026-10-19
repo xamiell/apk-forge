@@ -52,7 +52,7 @@ class DeviceInfo {
   String? get brand => property('ro.product.brand');
   String? get model => property('ro.product.model');
 
-  /// The codename (`emu64a`, `shiba`, `D30M`).
+  /// The codename (`emu64a`, `shiba`).
   String? get device => property('ro.product.device');
 
   String? get androidVersion =>
