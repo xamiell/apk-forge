@@ -20,6 +20,16 @@ class SignerCertificate {
   final String? keyAlgorithm;
   final int? keySize;
 
+  /// `API 33+` or `API 24–32` for a v3.1 signer, which signs only for those
+  /// API levels; `null` for one that signs for all (`Signer #1`).
+  String? get apiRange {
+    final match = _apiRangeLabel.firstMatch(label);
+    if (match == null) return null;
+    final min = match.group(1)!;
+    final max = int.parse(match.group(2)!);
+    return max >= 0x7fffffff ? 'API $min+' : 'API $min–$max';
+  }
+
   /// Android Studio's debug key (`CN=Android Debug, O=Android, C=US`, in any
   /// order: apksigner prints it reversed).
   bool get isAndroidDebugKey =>
@@ -36,9 +46,22 @@ class SignatureReport {
     required this.verifies,
     this.schemes = const {},
     this.signers = const [],
+    this.lineage = const [],
     this.errors = const [],
     this.warnings = const [],
   });
+
+  /// This report with the certificates of its v3 key rotation, from
+  /// `apksigner lineage`, which `verify` doesn't print.
+  SignatureReport withLineage(List<SignerCertificate> lineage) =>
+      SignatureReport(
+        verifies: verifies,
+        schemes: schemes,
+        signers: signers,
+        lineage: lineage,
+        errors: errors,
+        warnings: warnings,
+      );
 
   final bool verifies;
 
@@ -48,12 +71,21 @@ class SignatureReport {
   /// with minSdk 24+ reports `v1: false` even when it carries a v1
   /// signature, since Android 7+ ignores it. See [ApkReport.hasJarSignature].
   final Map<String, bool> schemes;
+
+  /// The certificates `verify` lists. A v3.1 rotation lists one per API
+  /// range (`Signer (minSdkVersion=33, …)`), newest key first.
   final List<SignerCertificate> signers;
+
+  /// A v3 key rotation, oldest certificate first: the keys the current one
+  /// was rotated from. Empty when the key never rotated.
+  final List<SignerCertificate> lineage;
   final List<String> errors;
   final List<String> warnings;
 
   bool scheme(String name) => schemes[name] ?? false;
 }
+
+final _apiRangeLabel = RegExp(r'minSdkVersion=(\d+), maxSdkVersion=(\d+)');
 
 final _schemeLine = RegExp(
   r'^Verified using (v[\d.]+) scheme \([^)]*\): (true|false)',
@@ -120,6 +152,34 @@ SignatureReport parseApksignerVerify(Iterable<String> lines) {
     errors: errors,
     warnings: warnings,
   );
+}
+
+final _lineageLine = RegExp(
+  r'^Signer #(\d+) in lineage certificate (.+?): (.*)$',
+);
+
+/// What `apksigner lineage --in <apk> --print-certs` lists: the key
+/// rotation, oldest certificate first. Empty for an APK without one ("does
+/// not contain a valid lineage").
+List<SignerCertificate> parseApksignerLineage(Iterable<String> lines) {
+  final signers = <int, Map<String, String>>{};
+  for (final raw in lines) {
+    final match = _lineageLine.firstMatch(raw.trim());
+    if (match == null) continue;
+    final number = int.parse(match.group(1)!);
+    signers.putIfAbsent(number, () => {})[match.group(2)!] = match.group(3)!;
+  }
+  final oldestFirst = signers.entries.toList()
+    ..sort((a, b) => a.key.compareTo(b.key));
+  return [
+    for (final MapEntry(key: number, value: fields) in oldestFirst)
+      SignerCertificate(
+        label: 'Signer #$number in lineage',
+        distinguishedName: fields['DN'],
+        sha256: _digest(fields['SHA-256 digest']),
+        sha1: _digest(fields['SHA-1 digest']),
+      ),
+  ];
 }
 
 String? _digest(String? value) => value == null ? null : normalizeDigest(value);

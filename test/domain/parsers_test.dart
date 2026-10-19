@@ -120,6 +120,87 @@ void main() {
       expect(report.warnings, ['META-INF/x.txt not protected by signature.']);
       expect(report.errors, isEmpty);
     });
+
+    test('a v3 rotation shows only the new key', () {
+      final report = parseApksignerVerify(
+        fixture('apksigner_verify_rotated_v3.txt'),
+      );
+
+      expect(report.scheme('v3'), isTrue);
+      expect(report.scheme('v3.1'), isFalse);
+      expect(
+        report.signers.single.distinguishedName,
+        'CN=APK Forge New Key, O=Example, C=US',
+      );
+      expect(report.lineage, isEmpty);
+    });
+
+    test('a v3.1 rotation lists a signer per API range, newest first', () {
+      final report = parseApksignerVerify(
+        fixture('apksigner_verify_rotated_v31.txt'),
+      );
+
+      expect(report.scheme('v3.1'), isTrue);
+      expect(report.signers.map((s) => s.label), [
+        'Signer (minSdkVersion=33, maxSdkVersion=2147483647)',
+        'Signer (minSdkVersion=24, maxSdkVersion=32)',
+      ]);
+      expect(report.signers.map((s) => s.distinguishedName), [
+        'CN=APK Forge New Key, O=Example, C=US',
+        'CN=APK Forge Old Key, O=Example, C=US',
+      ]);
+      expect(report.signers.map((s) => s.apiRange), ['API 33+', 'API 24–32']);
+      expect(
+        parseApksignerVerify(fixture('apksigner_verify_old_key.txt'))
+            .signers
+            .single
+            .apiRange,
+        isNull,
+      );
+    });
+  });
+
+  group('parseApksignerLineage', () {
+    test('reads the rotation, oldest key first', () {
+      final lineage = parseApksignerLineage(
+        fixture('apksigner_lineage_rotated.txt'),
+      );
+
+      expect(lineage.map((s) => s.distinguishedName), [
+        'CN=APK Forge Old Key, O=Example, C=US',
+        'CN=APK Forge New Key, O=Example, C=US',
+      ]);
+      // The same certificates as `verify` prints for each key.
+      final oldKey = parseApksignerVerify(
+        fixture('apksigner_verify_old_key.txt'),
+      ).signers.single;
+      final newKey = parseApksignerVerify(
+        fixture('apksigner_verify_rotated_v3.txt'),
+      ).signers.single;
+      expect(lineage.first.sha256, oldKey.sha256);
+      expect(lineage.first.sha1, oldKey.sha1);
+      expect(lineage.last.sha256, newKey.sha256);
+    });
+
+    test('an APK whose key never rotated has none', () {
+      expect(
+        parseApksignerLineage(fixture('apksigner_lineage_none.txt')),
+        isEmpty,
+      );
+    });
+
+    test('withLineage keeps the rest of the report', () {
+      final report =
+          parseApksignerVerify(fixture('apksigner_verify_rotated_v3.txt'))
+              .withLineage(
+                parseApksignerLineage(fixture('apksigner_lineage_rotated.txt')),
+              );
+
+      expect(report.verifies, isTrue);
+      expect(report.scheme('v2'), isTrue);
+      expect(report.signers, hasLength(1));
+      expect(report.lineage, hasLength(2));
+    });
   });
 
   group('parseKeytoolList', () {

@@ -147,6 +147,21 @@ void main() {
       keyPassword: 'k3y-pass',
     );
 
+    test('verify prints the certificates; lineage prints the rotation', () {
+      expect(apksignerVerifyArguments('/a b/app.apk'), [
+        'verify',
+        '--verbose',
+        '--print-certs',
+        '/a b/app.apk',
+      ]);
+      expect(apksignerLineageArguments('/a b/app.apk'), [
+        'lineage',
+        '--in',
+        '/a b/app.apk',
+        '--print-certs',
+      ]);
+    });
+
     test('the passwords travel in the environment, never in the arguments', () {
       final arguments = apksignerSignArguments(
         request,

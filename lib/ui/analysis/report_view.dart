@@ -398,7 +398,11 @@ class _SignatureDetails extends StatelessWidget {
         const SizedBox(height: 10),
         for (final signer in signature.signers) ...[
           InfoRow(
-            signature.signers.length > 1 ? signer.label : 'Signer',
+            signer.apiRange != null
+                ? 'Signer, ${signer.apiRange}'
+                : signature.signers.length > 1
+                ? signer.label
+                : 'Signer',
             signer.distinguishedName ?? '?',
           ),
           if (signer.sha256 != null)
@@ -422,6 +426,15 @@ class _SignatureDetails extends StatelessWidget {
             ),
           const SizedBox(height: 6),
         ],
+        if (signature.lineage.isNotEmpty)
+          InfoRow(
+            'Key rotated',
+            [
+              for (final signer in signature.lineage)
+                signer.distinguishedName ??
+                    (signer.sha256 == null ? '?' : shortDigest(signer.sha256!)),
+            ].join('  →  '),
+          ),
         for (final error in signature.errors)
           Text('ERROR: $error', style: monospace.copyWith(color: colors.error)),
         if (signature.warnings.isNotEmpty)

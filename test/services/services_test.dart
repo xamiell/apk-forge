@@ -716,6 +716,65 @@ void main() {
       File(apk).writeAsBytesSync(ZipEncoder().encode(archive));
     });
 
+    test('reads the key rotation of a v3 signature', () async {
+      runner
+        ..whenFirstArg('dump', ok(fixture('aapt2_badging_release.txt')))
+        ..whenFirstArg('verify', ok(fixture('apksigner_verify_rotated_v3.txt')))
+        ..whenFirstArg('lineage', ok(fixture('apksigner_lineage_rotated.txt')));
+
+      final report = await const ApkAnalyzer().analyze(
+        executor,
+        toolchain: _toolchain,
+        path: apk,
+      );
+
+      expect(runner.callsWithFirstArg('lineage').single.arguments, [
+        'lineage',
+        '--in',
+        apk,
+        '--print-certs',
+      ]);
+      expect(report.signature!.lineage.map((s) => s.distinguishedName), [
+        'CN=APK Forge Old Key, O=Example, C=US',
+        'CN=APK Forge New Key, O=Example, C=US',
+      ]);
+    });
+
+    test('a key that never rotated leaves the signature as it is', () async {
+      runner
+        ..whenFirstArg('verify', ok(fixture('apksigner_verify_old_key.txt')))
+        ..whenFirstArg(
+          'lineage',
+          failed(1, stdout: fixture('apksigner_lineage_none.txt')),
+        );
+
+      final report = await const ApkAnalyzer().analyze(
+        executor,
+        toolchain: _toolchain,
+        path: apk,
+      );
+
+      expect(runner.callsWithFirstArg('lineage'), hasLength(1));
+      expect(report.signature!.lineage, isEmpty);
+      expect(report.signature!.verifies, isTrue);
+      expect(report.signatureError, isNull);
+    });
+
+    test('a v2-only signature cannot rotate: no lineage is read', () async {
+      runner.whenFirstArg(
+        'verify',
+        ok(fixture('apksigner_verify_debug_key.txt')),
+      );
+
+      await const ApkAnalyzer().analyze(
+        executor,
+        toolchain: _toolchain,
+        path: apk,
+      );
+
+      expect(runner.callsWithFirstArg('lineage'), isEmpty);
+    });
+
     test(
       'combines the hashes, the files, the manifest and the signature',
       () async {

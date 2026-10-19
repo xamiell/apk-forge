@@ -13,7 +13,7 @@ import '../domain/tools/toolchain.dart';
 import 'tool_executor.dart';
 
 /// Builds an [ApkReport]: hashes and the file list in Dart, the manifest
-/// with aapt2, and the signature with apksigner.
+/// with aapt2, and the signature (and a v3 key rotation) with apksigner.
 ///
 /// A missing tool or a tool error leaves its part empty with the reason,
 /// instead of failing the whole report.
@@ -77,6 +77,19 @@ class ApkAnalyzer {
       );
       if (sawVerdict) {
         signature = parsed;
+        // Only v3 can carry a key rotation, and `verify` doesn't print it.
+        // No lineage (exit 1, "does not contain a valid lineage") or a
+        // failure leaves the report as it is.
+        if (parsed.scheme('v3')) {
+          final lineage = await executor.run(
+            Command(apksigner, apksignerLineageArguments(path)),
+            echoOutput: false,
+          );
+          final certificates = parseApksignerLineage(lineage.stdout);
+          if (certificates.isNotEmpty) {
+            signature = parsed.withLineage(certificates);
+          }
+        }
       } else {
         signatureError = parsed.errors.isNotEmpty
             ? parsed.errors.join('\n')
