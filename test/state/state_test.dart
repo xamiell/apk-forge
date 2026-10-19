@@ -1,7 +1,9 @@
 import 'dart:io';
 
+import 'package:apk_forge/core/process/command.dart';
 import 'package:apk_forge/core/process/process_runner.dart';
 import 'package:apk_forge/core/system/host.dart';
+import 'package:apk_forge/domain/analysis/comparison.dart';
 import 'package:apk_forge/domain/build/build_options.dart';
 import 'package:apk_forge/domain/signing/keystore.dart';
 import 'package:apk_forge/domain/tools/toolchain.dart';
@@ -398,6 +400,57 @@ void main() {
     expect(container.read(installOptionsProvider).selectedSerial, isNull);
     expect(container.read(selectedDeviceProvider), isNull);
   });
+
+  test(
+    'compare: two APKs of the list, from their reports, read once',
+    () async {
+      final release = writeApk(p.join(temp.path, 'app-release.apk'), [
+        'arm64-v8a',
+        'armeabi-v7a',
+      ]);
+      final debug = writeApk(p.join(temp.path, 'app-debug.apk'), ['arm64-v8a']);
+      bool reads(Command c, String path) => c.arguments.last == path;
+      runner
+        ..when(
+          (c) => c.arguments.first == 'dump' && reads(c, release),
+          (_) => ok(fixture('aapt2_badging_release.txt')),
+        )
+        ..when(
+          (c) => c.arguments.first == 'dump' && reads(c, debug),
+          (_) => ok(fixture('aapt2_badging_debug.txt')),
+        )
+        ..when(
+          (c) => c.arguments.first == 'verify' && reads(c, release),
+          (_) => ok(fixture('apksigner_verify_test_key.txt')),
+        )
+        ..when(
+          (c) => c.arguments.first == 'verify' && reads(c, debug),
+          (_) => ok(fixture('apksigner_verify_debug_key.txt')),
+        );
+      container.read(apkListProvider.notifier)
+        ..add(release, ApkOrigin.signed)
+        ..add(debug, ApkOrigin.built);
+
+      final comparison = await container.read(
+        apkComparisonProvider((reference: release, candidate: debug)).future,
+      );
+
+      expect(comparison.signer, SignerVerdict.different);
+      expect(comparison.updateBlockers.map((f) => f.label), [
+        'Signer SHA-256',
+        'Version code',
+      ]);
+      expect(comparison.differences.map((f) => f.label), contains('ABIs'));
+
+      // Swapping the two reads nothing again.
+      final calls = runner.calls.length;
+      final swapped = await container.read(
+        apkComparisonProvider((reference: debug, candidate: release)).future,
+      );
+      expect(runner.calls, hasLength(calls));
+      expect(swapped.updateBlockers.map((f) => f.label), ['Signer SHA-256']);
+    },
+  );
 
   test('CommandResult from a start failure keeps the reason', () {
     const result = CommandResult(

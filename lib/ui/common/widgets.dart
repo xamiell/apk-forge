@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../domain/analysis/findings.dart';
 import '../theme.dart';
 
 /// A titled panel.
@@ -302,6 +303,76 @@ class Pill extends StatelessWidget {
     ),
   );
 }
+
+/// Checks as tinted boxes, in the order given: the Analyze panel's findings,
+/// a comparison's verdicts.
+class FindingList extends StatelessWidget {
+  const FindingList({super.key, required this.findings});
+
+  final List<Finding> findings;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.status;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (final finding in findings)
+          Container(
+            margin: const EdgeInsets.only(bottom: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: colors.forFinding(finding.level).withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: colors.forFinding(finding.level).withValues(alpha: 0.35),
+              ),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(
+                  findingIcon(finding.level),
+                  size: 18,
+                  color: colors.forFinding(finding.level),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        finding.title,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13,
+                        ),
+                      ),
+                      if (finding.detail != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2),
+                          child: SelectableText(
+                            finding.detail!,
+                            style: const TextStyle(fontSize: 12.5),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+IconData findingIcon(FindingLevel level) => switch (level) {
+  FindingLevel.ok => Icons.check_circle_rounded,
+  FindingLevel.info => Icons.info_rounded,
+  FindingLevel.warning => Icons.warning_amber_rounded,
+  FindingLevel.error => Icons.error_rounded,
+};
 
 /// A label and a selectable value, side by side.
 class InfoRow extends StatelessWidget {

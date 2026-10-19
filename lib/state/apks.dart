@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../domain/analysis/apk_report.dart';
+import '../domain/analysis/comparison.dart';
 import '../services/tool_executor.dart';
 import 'log_notifier.dart';
 import 'providers.dart';
@@ -95,3 +96,19 @@ final apkReportProvider = FutureProvider.family<ApkReport, String>((
   );
   return report;
 });
+
+/// [candidate] compared with [reference] as an update over it, from their
+/// reports: nothing is read twice.
+final apkComparisonProvider =
+    FutureProvider.family<
+      ApkComparison,
+      ({String reference, String candidate})
+    >((ref, pair) async {
+      final reference = await ref.watch(
+        apkReportProvider(pair.reference).future,
+      );
+      final candidate = await ref.watch(
+        apkReportProvider(pair.candidate).future,
+      );
+      return compareApks(reference, candidate);
+    });
