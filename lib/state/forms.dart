@@ -295,8 +295,9 @@ class SigningFormNotifier extends Notifier<SigningForm> {
 final signingProblemProvider = Provider<String?>((ref) {
   final problem = ref.watch(signingFormProvider.select((f) => f.problem));
   if (problem != null) return problem;
-  final schemes = ref.watch(defaultsProvider.select((d) => d.schemes.problem));
-  return schemes == null ? null : 'Signature schemes in Defaults: $schemes';
+  return ref.watch(
+    defaultsProvider.select((d) => defaultSchemesProblem(d.schemes)),
+  );
 });
 
 // ---------------------------------------------------------------- Install

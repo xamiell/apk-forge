@@ -100,8 +100,7 @@ ProfileRunPlan planProfileRun(
     if (profile.targets.isEmpty) 'The profile has no targets.',
     if (inputs.isEmpty) 'Pick an APK to run the profile on.',
     ...fileNamePatternProblems(profile.fileNamePattern),
-    if (followsDefaults && defaultSchemes.problem != null)
-      'Signature schemes in Defaults: ${defaultSchemes.problem}',
+    if (followsDefaults) ?defaultSchemesProblem(defaultSchemes),
     for (final target in profile.targets) ...[
       if (target.keyProperties.trim().isEmpty)
         '${target.name}: choose its key.properties file.'
@@ -138,7 +137,7 @@ ProfileRunPlan planProfileRun(
             profile.fileNamePattern,
             name: path.basenameWithoutExtension(input.path),
             target: target.name,
-            abi: target.abi?.abiName ?? 'universal',
+            abi: target.abiName,
             versionName: input.badging?.versionName,
             versionCode: input.badging?.versionCode,
             date: date,

@@ -31,6 +31,9 @@ class ProfileTarget {
   /// What the device is called, for the file name and the results.
   final String name;
 
+  /// What a target that keeps every ABI is called in file names and tables.
+  static const universalAbiName = 'universal';
+
   /// The ABI the APK keeps; `null` keeps them all (universal).
   final AndroidAbi? abi;
 
@@ -42,6 +45,9 @@ class ProfileTarget {
   /// when the profile runs.
   final SigningSchemes? schemes;
   final String outputDir;
+
+  /// [abi]'s folder name, or [universalAbiName].
+  String get abiName => abi?.abiName ?? universalAbiName;
 
   ProfileTarget copyWith({
     String? id,

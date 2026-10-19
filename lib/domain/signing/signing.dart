@@ -61,6 +61,14 @@ class SigningSchemes {
       );
 }
 
+/// Why the schemes in the Workbench's Defaults can't sign, as Sign and a
+/// profile run say it, or `null`.
+String? defaultSchemesProblem(SigningSchemes schemes) =>
+    switch (schemes.problem) {
+      null => null,
+      final problem => 'Signature schemes in Defaults: $problem',
+    };
+
 class SigningRequest {
   const SigningRequest({
     required this.keystorePath,

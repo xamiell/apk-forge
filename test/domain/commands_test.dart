@@ -275,6 +275,16 @@ void main() {
       expect(chosen.problem, isNull);
     });
 
+    test('a problem with the schemes in Defaults says where they are', () {
+      expect(
+        defaultSchemesProblem(
+          const SigningSchemes(v1: false, v2: false, v3: false),
+        ),
+        'Signature schemes in Defaults: Mark v1, v2 or v3.',
+      );
+      expect(defaultSchemesProblem(const SigningSchemes.automatic()), isNull);
+    });
+
     test(
       'keytool lists in English and reads the password from the environment',
       () {

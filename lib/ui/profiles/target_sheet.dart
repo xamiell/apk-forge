@@ -138,11 +138,11 @@ class _TargetSheetState extends ConsumerState<_TargetSheet> {
                           label: Text(abi.abiName),
                         ),
                       const ButtonSegment(
-                        value: 'universal',
+                        value: ProfileTarget.universalAbiName,
                         label: Text('Universal'),
                       ),
                     ],
-                    selected: {_draft.abi?.abiName ?? 'universal'},
+                    selected: {_draft.abiName},
                     onSelectionChanged: (choice) {
                       final abi = AndroidAbi.fromAbiName(choice.single);
                       _set(

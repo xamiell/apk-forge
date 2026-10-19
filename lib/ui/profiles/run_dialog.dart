@@ -468,7 +468,7 @@ class _PlanTable extends ConsumerWidget {
                   DataCell(Text(output.target.name)),
                   if (several)
                     DataCell(Text(host.path.basename(job.input.path))),
-                  DataCell(Text(output.target.abi?.abiName ?? 'universal')),
+                  DataCell(Text(output.target.abiName)),
                   DataCell(Text(keyName(job.keyProperties))),
                   DataCell(
                     Tooltip(
@@ -487,7 +487,7 @@ class _PlanTable extends ConsumerWidget {
                 DataCell(Text(skipped.target.name)),
                 if (several)
                   DataCell(Text(host.path.basename(skipped.input.path))),
-                DataCell(Text(skipped.target.abi?.abiName ?? 'universal')),
+                DataCell(Text(skipped.target.abiName)),
                 DataCell(Text(keyName(skipped.target.keyProperties))),
                 DataCell(
                   Row(

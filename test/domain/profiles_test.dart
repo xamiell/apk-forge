@@ -12,6 +12,7 @@ import 'package:apk_forge/domain/profiles/profile_plan.dart';
 import 'package:apk_forge/domain/profiles/profile_run.dart';
 import 'package:apk_forge/domain/signing/signing.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as p;
 
 import '../helpers/fakes.dart';
 
@@ -454,6 +455,23 @@ void main() {
         universal.jobs.single.outputs.single.path,
         '/out/all/app-release-All.apk',
       );
+    });
+
+    test('{abi} is the ABI kept, or universal for a target that keeps all', () {
+      final plan = _plan([
+        _target('Phone'),
+        _target('All', abi: null),
+      ], pattern: '{target}-{abi}');
+
+      expect(
+        [
+          for (final job in plan.jobs)
+            for (final output in job.outputs) p.basename(output.path),
+        ],
+        ['Phone-arm64-v8a.apk', 'All-universal.apk'],
+      );
+      expect(_target('All', abi: null).abiName, 'universal');
+      expect(_target('Phone').abiName, 'arm64-v8a');
     });
 
     test('the input checks stop the run before anything is signed', () {

@@ -603,7 +603,7 @@ class _TargetsStep extends ConsumerWidget {
                           style: const TextStyle(fontWeight: FontWeight.w600),
                         ),
                       ),
-                      DataCell(Text(target.abi?.abiName ?? 'universal')),
+                      DataCell(Text(target.abiName)),
                       DataCell(_KeyCell(path: target.keyProperties)),
                       DataCell(
                         Text(
@@ -795,7 +795,7 @@ class _FileNameStep extends StatelessWidget {
             ProblemText(problems)
           else
             Text(
-              'For app-release.apk 1.0.0: ${profileFileName(profile.fileNamePattern, name: 'app-release', target: example?.name ?? 'Phone', abi: example?.abi?.abiName ?? 'universal', versionName: '1.0.0', versionCode: '1', date: DateTime.now())}',
+              'For app-release.apk 1.0.0: ${profileFileName(profile.fileNamePattern, name: 'app-release', target: example?.name ?? 'Phone', abi: example?.abiName ?? ProfileTarget.universalAbiName, versionName: '1.0.0', versionCode: '1', date: DateTime.now())}',
               style: TextStyle(fontSize: 12.5, color: context.status.muted),
             ),
         ],
