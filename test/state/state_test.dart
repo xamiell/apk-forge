@@ -1,7 +1,9 @@
 import 'dart:io';
 
+import 'package:apk_forge/core/process/command.dart';
 import 'package:apk_forge/core/process/process_runner.dart';
 import 'package:apk_forge/core/system/host.dart';
+import 'package:apk_forge/domain/analysis/comparison.dart';
 import 'package:apk_forge/domain/build/build_options.dart';
 import 'package:apk_forge/domain/signing/keystore.dart';
 import 'package:apk_forge/domain/tools/toolchain.dart';
@@ -397,6 +399,190 @@ void main() {
 
     expect(container.read(installOptionsProvider).selectedSerial, isNull);
     expect(container.read(selectedDeviceProvider), isNull);
+  });
+
+  test(
+    'compare: two APKs of the list, from their reports, read once',
+    () async {
+      final release = writeApk(p.join(temp.path, 'app-release.apk'), [
+        'arm64-v8a',
+        'armeabi-v7a',
+      ]);
+      final debug = writeApk(p.join(temp.path, 'app-debug.apk'), ['arm64-v8a']);
+      bool reads(Command c, String path) => c.arguments.last == path;
+      runner
+        ..when(
+          (c) => c.arguments.first == 'dump' && reads(c, release),
+          (_) => ok(fixture('aapt2_badging_release.txt')),
+        )
+        ..when(
+          (c) => c.arguments.first == 'dump' && reads(c, debug),
+          (_) => ok(fixture('aapt2_badging_debug.txt')),
+        )
+        ..when(
+          (c) => c.arguments.first == 'verify' && reads(c, release),
+          (_) => ok(fixture('apksigner_verify_test_key.txt')),
+        )
+        ..when(
+          (c) => c.arguments.first == 'verify' && reads(c, debug),
+          (_) => ok(fixture('apksigner_verify_debug_key.txt')),
+        );
+      container.read(apkListProvider.notifier)
+        ..add(release, ApkOrigin.signed)
+        ..add(debug, ApkOrigin.built);
+
+      final comparison = await container.read(
+        apkComparisonProvider((reference: release, candidate: debug)).future,
+      );
+
+      expect(comparison.signer, SignerVerdict.different);
+      expect(comparison.updateBlockers.map((f) => f.label), [
+        'Signer SHA-256',
+        'Version code',
+      ]);
+      expect(comparison.differences.map((f) => f.label), contains('ABIs'));
+
+      // Swapping the two reads nothing again.
+      final calls = runner.calls.length;
+      final swapped = await container.read(
+        apkComparisonProvider((reference: debug, candidate: release)).future,
+      );
+      expect(runner.calls, hasLength(calls));
+      expect(swapped.updateBlockers.map((f) => f.label), ['Signer SHA-256']);
+    },
+  );
+
+  test(
+    'compare with installed: the copy from the device against the APK',
+    () async {
+      final selected = writeApk(p.join(temp.path, 'app-release.apk'), [
+        'arm64-v8a',
+      ]);
+      String? pulledBase;
+      runner
+        ..when(
+          (c) => c.arguments.contains('pm') && c.arguments.contains('path'),
+          (_) => ok(fixture('adb_pm_path_single.txt')),
+        )
+        ..when((c) => c.arguments.length > 2 && c.arguments[2] == 'pull', (c) {
+          pulledBase = writeApk(c.arguments[4], ['arm64-v8a']);
+          return ok();
+        })
+        ..when(
+          (c) => c.arguments.first == 'dump',
+          (c) => ok(
+            fixture(
+              c.arguments.last == selected
+                  ? 'aapt2_badging_debug.txt'
+                  : 'aapt2_badging_release.txt',
+            ),
+          ),
+        )
+        ..when(
+          (c) => c.arguments.first == 'verify',
+          (c) => ok(
+            fixture(
+              c.arguments.last == selected
+                  ? 'apksigner_verify_debug_key.txt'
+                  : 'apksigner_verify_test_key.txt',
+            ),
+          ),
+        );
+      container.read(apkListProvider.notifier).add(selected, ApkOrigin.built);
+
+      final comparison = await container.read(
+        installedComparisonProvider((
+          serial: 'SER1',
+          package: 'io.example.sample_app',
+          candidate: selected,
+        )).future,
+      );
+
+      // A debug build signed with the debug key, over the release install.
+      expect(comparison!.signer, SignerVerdict.different);
+      expect(comparison.updateBlockers.map((f) => f.label), [
+        'Signer SHA-256',
+        'Version code',
+      ]);
+      // The copy was deleted once read.
+      expect(File(pulledBase!).existsSync(), isFalse);
+    },
+  );
+
+  test('compare with installed: an app that is not installed', () async {
+    final selected = writeApk(p.join(temp.path, 'app.apk'), ['arm64-v8a']);
+    runner.when(
+      (c) => c.arguments.contains('pm') && c.arguments.contains('path'),
+      (_) => failed(1),
+    );
+
+    final comparison = await container.read(
+      installedComparisonProvider((
+        serial: 'SER1',
+        package: 'com.example.app',
+        candidate: selected,
+      )).future,
+    );
+
+    expect(comparison, isNull);
+  });
+
+  group('the Install warning about the signer', () {
+    bool isDumpsys(Command c) => c.arguments.last.startsWith('dumpsys package');
+    bool isPmPath(Command c) =>
+        c.arguments.contains('pm') && c.arguments.contains('path');
+
+    test('another key than the installed app: warned', () async {
+      final apk = writeApk(p.join(temp.path, 'app-debug.apk'), ['arm64-v8a']);
+      runner
+        ..when(
+          isDumpsys,
+          (_) => ok(fixture('adb_installed_package_settings.txt')),
+        )
+        ..when(isPmPath, (_) => ok(fixture('adb_pm_path_single.txt')))
+        ..when((c) => c.arguments.length > 2 && c.arguments[2] == 'pull', (c) {
+          writeApk(c.arguments[4], ['arm64-v8a']);
+          return ok();
+        })
+        ..when(
+          (c) => c.arguments.first == 'dump',
+          (_) => ok(fixture('aapt2_badging_release.txt')),
+        )
+        ..when(
+          (c) => c.arguments.first == 'verify',
+          (c) => ok(
+            fixture(
+              c.arguments.last == apk
+                  ? 'apksigner_verify_debug_key.txt'
+                  : 'apksigner_verify_test_key.txt',
+            ),
+          ),
+        );
+
+      final warning = await container.read(
+        installSignerWarningProvider((serial: 'SER1', apk: apk)).future,
+      );
+
+      expect(warning, contains('INSTALL_FAILED_UPDATE_INCOMPATIBLE'));
+    });
+
+    test('not installed: no warning, and nothing copied', () async {
+      final apk = writeApk(p.join(temp.path, 'app.apk'), ['arm64-v8a']);
+      runner
+        // grep finds nothing: the package isn't installed.
+        ..when(isDumpsys, (_) => failed(1))
+        ..when(
+          (c) => c.arguments.first == 'dump',
+          (_) => ok(fixture('aapt2_badging_release.txt')),
+        );
+
+      final warning = await container.read(
+        installSignerWarningProvider((serial: 'SER1', apk: apk)).future,
+      );
+
+      expect(warning, isNull);
+      expect(runner.calls.where(isPmPath), isEmpty);
+    });
   });
 
   test('CommandResult from a start failure keeps the reason', () {

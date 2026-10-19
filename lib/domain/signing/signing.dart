@@ -106,6 +106,15 @@ List<String> apksignerVerifyArguments(String apk) => [
   apk,
 ];
 
+/// `apksigner lineage` arguments that print [apk]'s key rotation, which
+/// `verify` doesn't show.
+List<String> apksignerLineageArguments(String apk) => [
+  'lineage',
+  '--in',
+  apk,
+  '--print-certs',
+];
+
 /// Where the signed copy of [input] goes: `<name>-signed.apk` in
 /// [outputDir], or next to [input]. Never [input] itself: a failed signing
 /// must leave the original intact.

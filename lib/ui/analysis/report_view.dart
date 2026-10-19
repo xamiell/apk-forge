@@ -144,7 +144,7 @@ class _Report extends ConsumerWidget {
             ],
           ),
           const SizedBox(height: 14),
-          _Findings(findings: findings),
+          FindingList(findings: findings),
           const SizedBox(height: 18),
           _Section(
             title: 'Signature',
@@ -280,72 +280,6 @@ class _Section extends StatelessWidget {
   );
 }
 
-class _Findings extends StatelessWidget {
-  const _Findings({required this.findings});
-
-  final List<Finding> findings;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.status;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        for (final finding in findings)
-          Container(
-            margin: const EdgeInsets.only(bottom: 6),
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            decoration: BoxDecoration(
-              color: colors.forFinding(finding.level).withValues(alpha: 0.08),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(
-                color: colors.forFinding(finding.level).withValues(alpha: 0.35),
-              ),
-            ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Icon(
-                  switch (finding.level) {
-                    FindingLevel.ok => Icons.check_circle_rounded,
-                    FindingLevel.info => Icons.info_rounded,
-                    FindingLevel.warning => Icons.warning_amber_rounded,
-                    FindingLevel.error => Icons.error_rounded,
-                  },
-                  size: 18,
-                  color: colors.forFinding(finding.level),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        finding.title,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w600,
-                          fontSize: 13,
-                        ),
-                      ),
-                      if (finding.detail != null)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 2),
-                          child: SelectableText(
-                            finding.detail!,
-                            style: const TextStyle(fontSize: 12.5),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-      ],
-    );
-  }
-}
-
 class _SignatureDetails extends StatelessWidget {
   const _SignatureDetails({
     required this.signature,
@@ -398,7 +332,11 @@ class _SignatureDetails extends StatelessWidget {
         const SizedBox(height: 10),
         for (final signer in signature.signers) ...[
           InfoRow(
-            signature.signers.length > 1 ? signer.label : 'Signer',
+            signer.apiRange != null
+                ? 'Signer, ${signer.apiRange}'
+                : signature.signers.length > 1
+                ? signer.label
+                : 'Signer',
             signer.distinguishedName ?? '?',
           ),
           if (signer.sha256 != null)
@@ -422,6 +360,15 @@ class _SignatureDetails extends StatelessWidget {
             ),
           const SizedBox(height: 6),
         ],
+        if (signature.lineage.isNotEmpty)
+          InfoRow(
+            'Key rotated',
+            [
+              for (final signer in signature.lineage)
+                signer.distinguishedName ??
+                    (signer.sha256 == null ? '?' : shortDigest(signer.sha256!)),
+            ].join('  →  '),
+          ),
         for (final error in signature.errors)
           Text('ERROR: $error', style: monospace.copyWith(color: colors.error)),
         if (signature.warnings.isNotEmpty)

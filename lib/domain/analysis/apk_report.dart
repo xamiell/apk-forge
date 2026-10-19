@@ -122,6 +122,25 @@ class ApkReport {
   final SignatureReport? signature;
   final String? signatureError;
 
+  /// This report with other contents: an installed app's `base.apk` with
+  /// the native code of its splits, or the reason they couldn't be read.
+  ApkReport withContents(
+    ApkContents contents, {
+    String? contentsError,
+    int? sizeBytes,
+  }) => ApkReport(
+    path: path,
+    sizeBytes: sizeBytes ?? this.sizeBytes,
+    md5: md5,
+    sha256: sha256,
+    contents: contents,
+    contentsError: contentsError,
+    badging: badging,
+    badgingError: badgingError,
+    signature: signature,
+    signatureError: signatureError,
+  );
+
   bool get hasJarSignature => contents.hasJarSignature;
 
   /// Release or debug, as Android sees it: the manifest's debuggable flag.

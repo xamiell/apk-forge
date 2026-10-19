@@ -74,8 +74,8 @@ A test covers each of these. Keep it that way when a new tool takes a secret.
 
 - **One task at a time.** `TaskNotifier.run` refuses to start a second one,
   holds the cancel token, and turns a `ToolFailure` into the error banner.
-  Builds, signings, key loading and installs go through it. Listing devices
-  and analyzing an APK don't: they're quick and change nothing.
+  Builds, signings, key loading and installs go through it. Listing devices,
+  analyzing an APK and reading an installed app don't: they change nothing.
 - **Forms** (`state/forms.dart`) persist their non-secret fields through
   `SettingsStore` on every change.
 - **The log** (`state/log_notifier.dart`) is an append-only list with a
@@ -102,6 +102,19 @@ A test covers each of these. Keep it that way when a new tool takes a secret.
   package) until the device list is refreshed. The Install and Device panels
   share one selected device (`installOptionsProvider.selectedSerial`); a
   refresh keeps it while it's listed, else selects the first ready device.
+- **An installed app is read like any APK** (`InstalledApkService`):
+  1. `pm path` lists its files (`adbPackagePathArguments` validates the
+     package name);
+  2. `adb pull` copies `base.apk` and its ABI splits to a temporary folder
+     (`InstalledApkFiles` picks them; density and language splits are
+     resources only, so they stay on the device);
+  3. `ApkAnalyzer` reads `base.apk`, and `installedContents` adds the native
+     code of the splits;
+  4. the folder is deleted, even on a failure.
+
+  A `base.apk` that can't be copied fails; a split that can't leaves the
+  native code unread, with the reason. `installedApkProvider` caches the
+  result per serial and package until a refresh.
 
 ## 7. Signing
 
@@ -136,7 +149,30 @@ The input is never modified or overwritten (`signedApkPath`).
 The splits keep the universal APK's manifest, `versionCode` included:
 changing it would mean rewriting the binary manifest.
 
-## 8. Tests
+## 8. Comparing APKs
+
+`compareApks` (`domain/analysis/comparison.dart`) is pure, over two
+`ApkReport`s: the reference (a previous release, the installed app) and the
+candidate, compared as an update over it.
+
+- **Signers.** The same set of certificates by SHA-256 is the same signer:
+  Android's rule for an update. Otherwise, if every reference certificate is
+  in the candidate's v3 lineage or among its v3.1 per-API-level signers, it
+  is a rotated key, which Android accepts. Anything else is another signer.
+  `apksigner verify` doesn't print a v3 lineage, so `ApkAnalyzer` runs
+  `apksigner lineage` for a signature that verifies with v3.
+- **What blocks an update:** another package, another signer, a lower
+  versionCode, a signature that doesn't verify (`ComparedField.blocksUpdate`).
+- **A part either report couldn't read** is a `NotCompared`, never a
+  difference.
+
+`apkComparisonProvider` compares two APKs of the list from their reports,
+so nothing is read twice. `installedComparisonProvider` compares with the
+installed app. `installSignerWarningProvider` gives Install's warning: it
+reads the installed version first (`dumpsys`) and copies the installed app
+only when there is one.
+
+## 9. Tests
 
 - `test/domain` and `test/core`: parsers against the real output in
   `test/fixtures` (see its README), command builders, findings, locator.

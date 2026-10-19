@@ -1,0 +1,3 @@
+package:/data/app/~~aP9lLubdMjs0s1AVeulAaA==/com.github.android-8lOWJ5HNSsl8jTKN9Bzhhw==/base.apk
+package:/data/app/~~aP9lLubdMjs0s1AVeulAaA==/com.github.android-8lOWJ5HNSsl8jTKN9Bzhhw==/split_config.arm64_v8a.apk
+package:/data/app/~~aP9lLubdMjs0s1AVeulAaA==/com.github.android-8lOWJ5HNSsl8jTKN9Bzhhw==/split_config.xhdpi.apk

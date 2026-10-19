@@ -1,8 +1,11 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../domain/analysis/comparison.dart';
 import '../domain/devices/device_info.dart';
 import '../domain/devices/devices.dart';
+import '../services/installed_apk_service.dart';
 import '../services/tool_executor.dart';
+import 'apks.dart';
 import 'forms.dart';
 import 'log_notifier.dart';
 import 'providers.dart';
@@ -60,6 +63,7 @@ class DevicesNotifier extends Notifier<DevicesState> {
       // read it again on the next look.
       ref.invalidate(deviceInfoProvider);
       ref.invalidate(installedPackageProvider);
+      ref.invalidate(installedApkProvider);
 
       final options = ref.read(installOptionsProvider.notifier);
       final selected = ref.read(installOptionsProvider).selectedSerial;
@@ -106,6 +110,75 @@ final deviceInfoProvider = FutureProvider.family<DeviceInfo, String>((
   );
   return info;
 });
+
+/// An app as installed on a device, copied and read once per serial and
+/// package until the devices are refreshed; `null` when not installed.
+///
+/// Like an analysis, it changes nothing, so it runs outside the task lock.
+final installedApkProvider =
+    FutureProvider.family<InstalledApk?, ({String serial, String package})>((
+      ref,
+      key,
+    ) async {
+      final toolchain = await ref.watch(toolchainProvider.future);
+      final log = ref.read(logProvider.notifier);
+      log.step('Read the installed ${key.package} from ${key.serial}');
+      final executor = ToolExecutor(ref.read(processRunnerProvider), log);
+      final installed = await ref
+          .read(installedApkServiceProvider)
+          .read(
+            executor,
+            toolchain: toolchain,
+            serial: key.serial,
+            package: key.package,
+          );
+      log.info(
+        installed == null
+            ? '${key.package} is not installed.'
+            : 'Read ${installed.files.pulledNames}.',
+      );
+      return installed;
+    });
+
+/// [candidate], an APK of the list, compared with the app of its package
+/// installed on [serial]; `null` when that app isn't installed.
+final installedComparisonProvider =
+    FutureProvider.family<
+      ApkComparison?,
+      ({String serial, String package, String candidate})
+    >((ref, key) async {
+      final installed = await ref.watch(
+        installedApkProvider((serial: key.serial, package: key.package)).future,
+      );
+      if (installed == null) return null;
+      final candidate = await ref.watch(
+        apkReportProvider(key.candidate).future,
+      );
+      return compareApks(installed.report, candidate);
+    });
+
+/// Why installing [apk] on [serial] would be refused for its signer: it is
+/// signed with another key than the installed app. `null` when that app
+/// isn't installed or it would install as an update.
+///
+/// Reads the installed version first (cheap), and copies the installed app
+/// only when there is one.
+final installSignerWarningProvider =
+    FutureProvider.family<String?, ({String serial, String apk})>((
+      ref,
+      key,
+    ) async {
+      final report = await ref.watch(apkReportProvider(key.apk).future);
+      final package = report.badging?.packageName;
+      if (package == null || !isValidPackageName(package)) return null;
+      final app = (serial: key.serial, package: package);
+      if (await ref.watch(installedPackageProvider(app).future) == null) {
+        return null;
+      }
+      final installed = await ref.watch(installedApkProvider(app).future);
+      if (installed == null) return null;
+      return installSignerWarning(installed.report.signature, report.signature);
+    });
 
 /// A package's installed version on a device; `null` when not installed.
 final installedPackageProvider =

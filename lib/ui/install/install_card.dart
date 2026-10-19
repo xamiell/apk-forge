@@ -52,6 +52,19 @@ class InstallCard extends ConsumerWidget {
         selected != null &&
         apkAbis != null &&
         !isAbiCompatible(apkAbis, selected.abis);
+    // Another key than the installed app's, once both are read. A failure
+    // to read the installed app shows in the log, not here.
+    final signerWarning =
+        apkPath == null || selected == null || !selected.isReady
+        ? null
+        : ref
+              .watch(
+                installSignerWarningProvider((
+                  serial: selected.serial,
+                  apk: apkPath,
+                )),
+              )
+              .value;
 
     return SectionCard(
       title: 'Install',
@@ -123,6 +136,11 @@ class InstallCard extends ConsumerWidget {
                 'This APK has native code for ${apkAbis.join(', ')} only; '
                     'the device runs ${selected.abis.join(', ')}.',
               ]),
+            ),
+          if (signerWarning != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: ProblemText([signerWarning]),
             ),
           const SizedBox(height: 8),
           ProblemText(problems),
