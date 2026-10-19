@@ -16,7 +16,7 @@ List<String> buildProblems(BuildOptions options, Host host, FileProbe probe) {
     problems.add('The project has no android/ folder.');
   }
   if (options.abis.isEmpty) {
-    problems.add('Select at least one architecture.');
+    problems.add('Choose at least one architecture in Defaults.');
   }
   if (options.effectiveObfuscate && options.symbolsDir.trim().isEmpty) {
     problems.add('Obfuscation needs a folder for the symbols.');

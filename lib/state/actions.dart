@@ -33,6 +33,8 @@ class ForgeActions {
     final options = _ref.read(buildOptionsProvider);
     final host = _ref.read(hostProvider);
     final signing = _ref.read(signingFormProvider);
+    final signingProblem = _ref.read(signingProblemProvider);
+    final schemes = _ref.read(defaultsProvider).schemes;
 
     await _task.run('Build', (executor) async {
       final toolchain = await _toolchain();
@@ -51,10 +53,10 @@ class ForgeActions {
       if (problems.isNotEmpty) {
         throw ToolFailure('Cannot build yet', details: problems);
       }
-      if (options.signAfterBuild && !signing.isReady) {
+      if (options.signAfterBuild && signingProblem != null) {
         throw ToolFailure(
           'Sign after build is on, but signing is not ready',
-          details: [signing.problem!],
+          details: [signingProblem],
         );
       }
 
@@ -74,7 +76,7 @@ class ForgeActions {
           executor,
           toolchain,
           apks,
-          signing.toRequest(),
+          signing.toRequest(schemes: schemes),
           signing.selectedEntry?.sha256,
         );
       } else {
@@ -83,45 +85,51 @@ class ForgeActions {
     });
   }
 
-  /// Signs APKs that already exist (from CI, a store, another machine).
+  /// Signs APKs that already exist (from CI, a store, another machine)
+  /// with the schemes in Defaults.
   Future<void> signFiles(List<String> paths) async {
     if (paths.isEmpty) return;
     final signing = _ref.read(signingFormProvider);
+    final problem = _ref.read(signingProblemProvider);
+    final schemes = _ref.read(defaultsProvider).schemes;
     final label = paths.length == 1
         ? 'Sign ${_ref.read(hostProvider).path.basename(paths.single)}'
         : 'Sign ${paths.length} APKs';
     await _task.run(label, (executor) async {
-      if (!signing.isReady) {
-        throw ToolFailure('Signing is not ready', details: [signing.problem!]);
+      if (problem != null) {
+        throw ToolFailure('Signing is not ready', details: [problem]);
       }
       final toolchain = await _toolchain();
       await _signAll(
         executor,
         toolchain,
         paths,
-        signing.toRequest(),
+        signing.toRequest(schemes: schemes),
         signing.selectedEntry?.sha256,
       );
     });
   }
 
-  /// Splits each APK (a universal one, from CI) into one APK per ABI and
-  /// signs each split, next to the original as `<name>-<abi>-signed.apk`
-  /// unless the Sign panel has an output folder. An APK with nothing to
-  /// split is signed as it is.
+  /// Splits each APK (a universal one, from CI) into one APK per ABI in
+  /// Defaults that it has, and signs each split with the schemes in
+  /// Defaults, next to the original as `<name>-<abi>-signed.apk` unless the
+  /// Sign panel has an output folder. An APK with nothing to split is
+  /// signed as it is.
   Future<void> splitAndSignFiles(List<String> paths) async {
     if (paths.isEmpty) return;
     final signing = _ref.read(signingFormProvider);
+    final problem = _ref.read(signingProblemProvider);
+    final defaults = _ref.read(defaultsProvider);
     final host = _ref.read(hostProvider);
     final label = paths.length == 1
         ? 'Split and sign ${host.path.basename(paths.single)}'
         : 'Split and sign ${paths.length} APKs';
     await _task.run(label, (executor) async {
-      if (!signing.isReady) {
-        throw ToolFailure('Signing is not ready', details: [signing.problem!]);
+      if (problem != null) {
+        throw ToolFailure('Signing is not ready', details: [problem]);
       }
       final toolchain = await _toolchain();
-      final request = signing.toRequest();
+      final request = signing.toRequest(schemes: defaults.schemes);
       for (final path in paths) {
         if (executor.isCancelled) return;
         await _ref
@@ -129,6 +137,7 @@ class ForgeActions {
             .withSplits(
               executor,
               input: path,
+              abis: defaults.abiNames,
               use: (splits) => _signAll(
                 executor,
                 toolchain,

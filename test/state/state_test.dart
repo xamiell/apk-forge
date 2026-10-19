@@ -8,6 +8,7 @@ import 'package:apk_forge/domain/build/build_options.dart';
 import 'package:apk_forge/domain/profiles/profile.dart';
 import 'package:apk_forge/domain/profiles/profile_run.dart';
 import 'package:apk_forge/domain/signing/keystore.dart';
+import 'package:apk_forge/domain/signing/signing.dart';
 import 'package:apk_forge/domain/tools/toolchain.dart';
 import 'package:apk_forge/state/actions.dart';
 import 'package:apk_forge/state/apks.dart';
@@ -328,7 +329,6 @@ void main() {
     store.values['build'] = {
       'projectDir': '/w/app',
       'mode': 'debug',
-      'abis': ['arm64-v8a'],
       'packaging': 'splitPerAbi',
       'obfuscate': true,
       'symbolsDir': '/w/sym',
@@ -339,9 +339,166 @@ void main() {
 
     expect(options.projectDir, '/w/app');
     expect(options.mode, BuildMode.debug);
-    expect(options.abis, {AndroidAbi.arm64V8a});
     expect(options.packaging, ApkPackaging.splitPerAbi);
     expect(options.signAfterBuild, isFalse);
+  });
+
+  group('Defaults', () {
+    test('saved, back after a restart, and Build follows its ABIs', () {
+      final defaults = container.read(defaultsProvider.notifier);
+      expect(container.read(buildOptionsProvider).abis, hasLength(3));
+
+      defaults
+        ..toggleAbi(AndroidAbi.x8664)
+        ..toggleAbi(AndroidAbi.armeabiV7a)
+        ..update(
+          (d) => d.copyWith(
+            schemes: const SigningSchemes(v1: false, v2: true, v3: true),
+            folded: true,
+          ),
+        );
+
+      expect(container.read(buildOptionsProvider).abis, {AndroidAbi.arm64V8a});
+      expect(store.values['defaults'], {
+        'abis': ['arm64-v8a'],
+        'schemes': {'v1': false, 'v2': true, 'v3': true, 'v4': null},
+        'folded': true,
+      });
+
+      final restarted = ProviderContainer.test(
+        overrides: [settingsStoreProvider.overrideWithValue(store)],
+      );
+      final back = restarted.read(defaultsProvider);
+      expect(back.abis, {AndroidAbi.arm64V8a});
+      expect(back.schemes.label, 'v2, v3');
+      expect(back.folded, isTrue);
+      expect(restarted.read(buildOptionsProvider).abis, {AndroidAbi.arm64V8a});
+    });
+
+    test('the ABIs and schemes saved in Build and Sign move here, once', () {
+      store.values['build'] = {
+        'projectDir': '/w/app',
+        'abis': ['arm64-v8a', 'x86_64'],
+      };
+      store.values['signing'] = {
+        'keystorePath': '/k.jks',
+        'schemes': {'v1': true, 'v2': true, 'v3': false, 'v4': false},
+      };
+
+      migrateSettings(store);
+      container.read(buildOptionsProvider.notifier).update((o) => o);
+      container.read(signingFormProvider.notifier).update((f) => f);
+
+      final defaults = container.read(defaultsProvider);
+      expect(defaults.abis, {AndroidAbi.arm64V8a, AndroidAbi.x8664});
+      expect(defaults.schemes.label, 'v1, v2');
+      expect(container.read(buildOptionsProvider).abis, defaults.abis);
+      // Build and Sign no longer save them.
+      expect(store.values['build']!.containsKey('abis'), isFalse);
+      expect(store.values['signing']!.containsKey('schemes'), isFalse);
+
+      // Once there, Defaults wins.
+      container.read(defaultsProvider.notifier).toggleAbi(AndroidAbi.x8664);
+      store.values['build'] = {
+        'abis': ['armeabi-v7a'],
+      };
+      migrateSettings(store);
+      expect(store.values['defaults']!['abis'], ['arm64-v8a']);
+    });
+
+    test('nothing saved before: nothing to move', () {
+      migrateSettings(store);
+
+      expect(store.values, isEmpty);
+      expect(container.read(defaultsProvider).abis, hasLength(3));
+      expect(container.read(defaultsProvider).schemes.isAutomatic, isTrue);
+    });
+
+    test('Sign writes the schemes in Defaults', () async {
+      runner.whenFirstArg(
+        'verify',
+        ok(fixture('apksigner_verify_test_key.txt')),
+      );
+      final apk = writeApk(p.join(temp.path, 'app.apk'), ['arm64-v8a']);
+      loadTestKey();
+      container
+          .read(defaultsProvider.notifier)
+          .update(
+            (d) => d.copyWith(
+              schemes: const SigningSchemes(
+                v1: false,
+                v2: true,
+                v3: true,
+                v4: false,
+              ),
+            ),
+          );
+
+      await container.read(actionsProvider).signFiles([apk]);
+
+      expect(container.read(taskProvider).failure, isNull);
+      expect(
+        runner.callsWithFirstArg('sign').single.arguments,
+        containsAllInOrder([
+          '--v1-signing-enabled', 'false', //
+          '--v2-signing-enabled', 'true',
+          '--v3-signing-enabled', 'true',
+          '--v4-signing-enabled', 'false',
+        ]),
+      );
+    });
+
+    test('schemes apksigner cannot sign with stop Sign first', () async {
+      final apk = writeApk(p.join(temp.path, 'app.apk'), ['arm64-v8a']);
+      loadTestKey();
+      container
+          .read(defaultsProvider.notifier)
+          .update(
+            (d) => d.copyWith(
+              schemes: const SigningSchemes(
+                v1: false,
+                v2: false,
+                v3: false,
+                v4: false,
+              ),
+            ),
+          );
+
+      await container.read(actionsProvider).signFiles([apk]);
+
+      expect(runner.calls, isEmpty);
+      expect(container.read(taskProvider).failure!.details, [
+        'Signature schemes in Defaults: Mark v1, v2 or v3.',
+      ]);
+    });
+
+    test('split and sign writes only the ABIs in Defaults', () async {
+      runner.whenFirstArg(
+        'verify',
+        ok(fixture('apksigner_verify_test_key.txt')),
+      );
+      final universal = writeApk(p.join(temp.path, 'ci', 'app-release.apk'), [
+        'arm64-v8a',
+        'armeabi-v7a',
+        'x86_64',
+      ]);
+      loadTestKey();
+      container.read(defaultsProvider.notifier).toggleAbi(AndroidAbi.x8664);
+
+      await container.read(actionsProvider).splitAndSignFiles([universal]);
+
+      expect(container.read(taskProvider).failure, isNull);
+      expect(
+        runner
+            .callsWithFirstArg('sign')
+            .map((c) => p.basename(c.arguments.last)),
+        ['app-release-arm64-v8a.apk', 'app-release-armeabi-v7a.apk'],
+      );
+      expect(
+        container.read(logProvider).entries.map((e) => e.text),
+        contains('Left out x86_64: not chosen.'),
+      );
+    });
   });
 
   test(

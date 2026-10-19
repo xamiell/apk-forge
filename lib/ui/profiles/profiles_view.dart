@@ -9,6 +9,7 @@ import '../../core/system/host.dart';
 import '../../domain/profiles/profile.dart';
 import '../../domain/profiles/profile_run.dart';
 import '../../state/apks.dart';
+import '../../state/forms.dart';
 import '../../state/profiles.dart';
 import '../../state/providers.dart';
 import '../../state/task_notifier.dart';
@@ -563,6 +564,7 @@ class _TargetsStep extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final host = ref.watch(hostProvider);
     final colors = context.status;
+    final defaultSchemes = ref.watch(defaultsProvider.select((d) => d.schemes));
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -602,7 +604,12 @@ class _TargetsStep extends ConsumerWidget {
                       ),
                       DataCell(Text(target.abi?.abiName ?? 'universal')),
                       DataCell(_KeyCell(path: target.keyProperties)),
-                      DataCell(Text(_schemes(target))),
+                      DataCell(
+                        Text(
+                          target.schemes?.label ??
+                              'Defaults (${defaultSchemes.label})',
+                        ),
+                      ),
                       DataCell(
                         Text(
                           target.outputDir.isEmpty
@@ -668,17 +675,6 @@ class _TargetsStep extends ConsumerWidget {
         ),
       ],
     );
-  }
-
-  static String _schemes(ProfileTarget target) {
-    final schemes = target.schemes;
-    if (schemes.isAutomatic) return 'Auto';
-    return [
-      if (schemes.v1 ?? false) 'v1',
-      if (schemes.v2 ?? false) 'v2',
-      if (schemes.v3 ?? false) 'v3',
-      if (schemes.v4 ?? false) 'v4',
-    ].join(', ');
   }
 }
 

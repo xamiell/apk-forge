@@ -5,6 +5,7 @@ import '../state/devices.dart';
 import '../state/profiles.dart';
 import 'analysis/apk_panel.dart';
 import 'build/build_card.dart';
+import 'defaults/defaults_card.dart';
 import 'device/device_panel.dart';
 import 'install/install_card.dart';
 import 'log/log_panel.dart';
@@ -107,8 +108,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 }
 
-/// The steps on the left (build, sign, install), and what came out of them
-/// on the right (the APKs' analysis and the log).
+/// The steps on the left (the defaults they share, build, sign, install),
+/// and what came out of them on the right (the APKs' analysis and the log).
 class _Workbench extends StatelessWidget {
   const _Workbench();
 
@@ -121,6 +122,8 @@ class _Workbench extends StatelessWidget {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: const [
+            DefaultsCard(),
+            SizedBox(height: 16),
             BuildCard(),
             SizedBox(height: 16),
             SigningCard(),

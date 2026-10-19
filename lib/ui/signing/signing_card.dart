@@ -3,8 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/format/format.dart';
+import '../../domain/signing/abi_split.dart';
 import '../../state/actions.dart';
+import '../../state/apks.dart';
 import '../../state/forms.dart';
+import '../../state/providers.dart';
 import '../../state/profiles.dart';
 import '../../state/task_notifier.dart';
 import '../../state/toolchain_notifier.dart';
@@ -25,20 +28,15 @@ class SigningCard extends ConsumerWidget {
     final actions = ref.read(actionsProvider);
     final entry = form.selectedEntry;
 
+    final schemes = ref.watch(defaultsProvider.select((d) => d.schemes));
     final problems = [
       if (toolchain != null && !toolchain.canSign)
         'apksigner was not found (Android SDK build-tools).',
-      ?form.problem,
+      ?ref.watch(signingProblemProvider),
     ];
 
     void loadKeys() {
       if (form.canLoadKeys && !busy) actions.loadKeys();
-    }
-
-    final canSign = problems.isEmpty && !busy;
-    Future<void> pickApks(Future<void> Function(List<String>) action) async {
-      final files = await openFiles(acceptedTypeGroups: const [apkTypes]);
-      if (files.isNotEmpty) await action([for (final f in files) f.path]);
     }
 
     return SectionCard(
@@ -149,11 +147,7 @@ class SigningCard extends ConsumerWidget {
             ),
             const SizedBox(height: 8),
           ],
-          SchemesField(
-            schemes: form.schemes,
-            onChanged: (s) => notifier.update((f) => f.copyWith(schemes: s)),
-          ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 4),
           PathField(
             label: 'Output folder',
             hint: 'Empty: next to each APK',
@@ -176,28 +170,14 @@ class SigningCard extends ConsumerWidget {
             style: TextStyle(fontSize: 12, color: context.status.muted),
           ),
           const SizedBox(height: 10),
+          FromDefaults(
+            'Schemes: ${schemes.label}',
+            warning: schemes.problem != null,
+          ),
+          const SizedBox(height: 14),
           ProblemText(problems),
           const SizedBox(height: 6),
-          FilledButton.icon(
-            onPressed: canSign ? () => pickApks(actions.signFiles) : null,
-            icon: const Icon(Icons.draw_outlined),
-            label: const Text('Sign APK files…'),
-          ),
-          const SizedBox(height: 8),
-          Tooltip(
-            message:
-                'From a universal APK, one signed APK per ABI: '
-                '<name>-<abi>-signed.apk. They keep its versionCode, which is '
-                'fine to install or share; Google Play needs a different one '
-                'per APK.',
-            child: OutlinedButton.icon(
-              onPressed: canSign
-                  ? () => pickApks(actions.splitAndSignFiles)
-                  : null,
-              icon: const Icon(Icons.call_split),
-              label: const Text('Split per ABI and sign…'),
-            ),
-          ),
+          _SignActions(canSign: problems.isEmpty && !busy),
           const SizedBox(height: 14),
           const Divider(),
           const SizedBox(height: 10),
@@ -205,6 +185,142 @@ class SigningCard extends ConsumerWidget {
         ],
       ),
     );
+  }
+}
+
+/// Signs the APK selected in Analyze APK, or picked files when none is.
+class _SignActions extends ConsumerWidget {
+  const _SignActions({required this.canSign});
+
+  final bool canSign;
+
+  static const _splitTooltip =
+      'One signed APK per architecture in Defaults: '
+      '<name>-<abi>-signed.apk. They keep the versionCode, which is fine to '
+      'install or share; Google Play needs a different one per APK.';
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final actions = ref.read(actionsProvider);
+    final selected = ref.watch(apkListProvider.select((list) => list.selected));
+    final defaults = ref.watch(defaultsProvider);
+    final muted = TextStyle(fontSize: 12, color: context.status.muted);
+    final fewAbis = defaults.abis.length < 2;
+
+    Future<void> pick(Future<void> Function(List<String>) action) async {
+      final files = await openFiles(acceptedTypeGroups: const [apkTypes]);
+      if (files.isNotEmpty) await action([for (final f in files) f.path]);
+    }
+
+    if (selected == null) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          FilledButton.icon(
+            onPressed: canSign ? () => pick(actions.signFiles) : null,
+            icon: const Icon(Icons.draw_outlined),
+            label: const Text('Sign APK files…'),
+          ),
+          const SizedBox(height: 8),
+          Tooltip(
+            message: fewAbis
+                ? 'Needs two or more architectures in Defaults.'
+                : _splitTooltip,
+            child: OutlinedButton.icon(
+              onPressed: canSign && !fewAbis
+                  ? () => pick(actions.splitAndSignFiles)
+                  : null,
+              icon: const Icon(Icons.call_split),
+              label: const Text('Split per ABI and sign…'),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Or open an APK in Analyze APK: Sign uses the one selected there.',
+            style: muted,
+          ),
+        ],
+      );
+    }
+
+    final name = ref.watch(hostProvider).path.basename(selected.path);
+    final contents = ref
+        .watch(apkReportProvider(selected.path))
+        .value
+        ?.contents;
+    final plan = contents == null
+        ? null
+        : planAbiSplit(contents, only: defaults.abiNames);
+    final String? cannotSplit;
+    if (fewAbis) {
+      cannotSplit = 'Needs two or more architectures in Defaults.';
+    } else if (plan == null || plan.canSplit) {
+      cannotSplit = null;
+    } else if (plan.noneChosen) {
+      cannotSplit = 'It has none of the architectures in Defaults.';
+    } else {
+      cannotSplit = plan.abis.isEmpty
+          ? 'It has no native code: nothing to split.'
+          : 'It only has ${plan.abis.single}: nothing to split.';
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const FieldLabel('The APK selected in Analyze APK'),
+        Tooltip(
+          message: selected.path,
+          child: FilledButton.icon(
+            onPressed: canSign
+                ? () => actions.signFiles([selected.path])
+                : null,
+            icon: const Icon(Icons.draw_outlined),
+            label: Text('Sign $name', overflow: TextOverflow.ellipsis),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Tooltip(
+          message: cannotSplit ?? _splitTooltip,
+          child: OutlinedButton.icon(
+            onPressed: canSign && cannotSplit == null
+                ? () => actions.splitAndSignFiles([selected.path])
+                : null,
+            icon: const Icon(Icons.call_split),
+            label: Text(
+              cannotSplit == null
+                  ? 'Split $name per ABI and sign'
+                  : 'Split per ABI and sign',
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(cannotSplit ?? _splitSummary(plan, defaults), style: muted),
+        const SizedBox(height: 4),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton.icon(
+            onPressed: canSign ? () => pick(actions.signFiles) : null,
+            icon: const Icon(Icons.folder_open_rounded, size: 18),
+            label: const Text('Sign other APK files…'),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// "Writes 3 signed APKs, one per architecture in Defaults: …".
+  static String _splitSummary(AbiSplitPlan? plan, WorkbenchDefaults defaults) {
+    final abis = plan?.abis ?? defaults.abiNames.toList();
+    final count = abis.length;
+    final writes = count == 1
+        ? 'Writes 1 signed APK, for ${abis.single}.'
+        : 'Writes $count signed APKs, one per architecture in Defaults: '
+              '${abis.join(', ')}.';
+    final missing = plan?.missing ?? const [];
+    return missing.isEmpty
+        ? writes
+        : '$writes It has no ${missing.join(', ')}.';
   }
 }
 

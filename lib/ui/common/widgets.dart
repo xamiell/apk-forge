@@ -433,7 +433,7 @@ class InfoRow extends StatelessWidget {
   );
 }
 
-/// The signature schemes: apksigner's choice, or the ones marked.
+/// The signature schemes: apksigner's choice (Auto), or the ones marked.
 class SchemesField extends StatelessWidget {
   const SchemesField({
     super.key,
@@ -447,56 +447,92 @@ class SchemesField extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final custom = !schemes.isAutomatic;
+    final problem = schemes.problem;
+    Widget chip(String label, bool? value, SigningSchemes Function(bool) set) =>
+        FilterChip(
+          label: Text(label),
+          selected: value ?? false,
+          onSelected: (on) => onChanged(set(on)),
+        );
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        SwitchListTile(
-          contentPadding: EdgeInsets.zero,
-          dense: true,
-          title: const Text('Choose the signature schemes'),
-          subtitle: Text(
-            custom
-                ? 'Only the ones marked are written.'
-                : 'Off: apksigner picks them by the APK\'s minSdk.',
-            style: const TextStyle(fontSize: 12),
-          ),
-          value: custom,
-          onChanged: (on) => onChanged(
-            on
+        SegmentedButton<bool>(
+          segments: const [
+            ButtonSegment(value: false, label: Text('Auto')),
+            ButtonSegment(value: true, label: Text('Choose')),
+          ],
+          selected: {custom},
+          showSelectedIcon: false,
+          onSelectionChanged: (selection) => onChanged(
+            selection.single
                 ? const SigningSchemes(v1: true, v2: true, v3: true, v4: false)
                 : const SigningSchemes.automatic(),
           ),
         ),
-        if (custom)
+        if (custom) ...[
+          const SizedBox(height: 8),
           Wrap(
             spacing: 8,
+            runSpacing: 8,
             children: [
-              FilterChip(
-                label: const Text('v1 (JAR)'),
-                selected: schemes.v1 ?? false,
-                onSelected: (v) => onChanged(schemes.copyWith(v1: v)),
-              ),
-              FilterChip(
-                label: const Text('v2'),
-                selected: schemes.v2 ?? false,
-                onSelected: (v) => onChanged(schemes.copyWith(v2: v)),
-              ),
-              FilterChip(
-                label: const Text('v3'),
-                selected: schemes.v3 ?? false,
-                onSelected: (v) => onChanged(schemes.copyWith(v3: v)),
-              ),
+              chip('v1 (JAR)', schemes.v1, (v) => schemes.copyWith(v1: v)),
+              chip('v2', schemes.v2, (v) => schemes.copyWith(v2: v)),
+              chip('v3', schemes.v3, (v) => schemes.copyWith(v3: v)),
               Tooltip(
-                message: 'Also writes <apk>.idsig, for incremental installs (adb install --incremental).',
-                child: FilterChip(
-                  label: const Text('v4'),
-                  selected: schemes.v4 ?? false,
-                  onSelected: (v) => onChanged(schemes.copyWith(v4: v)),
-                ),
+                message:
+                    'Also writes <apk>.idsig, for incremental installs '
+                    '(adb install --incremental).',
+                child: chip('v4', schemes.v4, (v) => schemes.copyWith(v4: v)),
               ),
             ],
           ),
+        ],
+        const SizedBox(height: 6),
+        if (problem != null)
+          ProblemText([problem])
+        else
+          Text(
+            custom
+                ? 'Only the ones marked are written.'
+                : 'Auto: apksigner picks them by each APK\'s minSdk.',
+            style: TextStyle(fontSize: 12, color: context.status.muted),
+          ),
       ],
+    );
+  }
+}
+
+/// A setting a card takes from the Workbench's Defaults, which is where it
+/// changes.
+class FromDefaults extends StatelessWidget {
+  const FromDefaults(this.text, {super.key, this.warning = false});
+
+  final String text;
+
+  /// [text] says what's wrong with it.
+  final bool warning;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.status;
+    return Tooltip(
+      message: 'Change it in Defaults, at the top of the Workbench.',
+      child: Row(
+        children: [
+          Pill('From Defaults', color: colors.info),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(
+                fontSize: 12.5,
+                color: warning ? colors.warning : null,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

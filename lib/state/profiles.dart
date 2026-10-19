@@ -10,6 +10,7 @@ import '../domain/profiles/profile_run.dart';
 import '../services/profile_runner.dart';
 import '../services/tool_executor.dart';
 import 'apks.dart';
+import 'forms.dart';
 import 'log_notifier.dart';
 import 'providers.dart';
 import 'toolchain_notifier.dart';
@@ -236,6 +237,7 @@ final profileRunCheckProvider = FutureProvider.autoDispose
         profilesProvider.select((state) => state.byId(key.profileId)),
       );
       if (profile == null) throw StateError('No profile ${key.profileId}.');
+      final schemes = ref.watch(defaultsProvider.select((d) => d.schemes));
       final paths = key.inputs.isEmpty
           ? const <String>[]
           : key.inputs.split('\n');
@@ -246,6 +248,7 @@ final profileRunCheckProvider = FutureProvider.autoDispose
       final plan = planProfileRun(
         profile,
         inputs,
+        defaultSchemes: schemes,
         host: ref.read(hostProvider),
         date: ref.read(clockProvider)(),
       );

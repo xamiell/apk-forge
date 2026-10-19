@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../domain/build/build_options.dart';
 import '../../domain/profiles/key_properties.dart';
 import '../../domain/profiles/profile.dart';
+import '../../state/forms.dart';
 import '../../state/profiles.dart';
 import '../common/file_types.dart';
 import '../common/widgets.dart';
@@ -86,6 +87,7 @@ class _TargetSheetState extends ConsumerState<_TargetSheet> {
   Widget build(BuildContext context) {
     final colors = context.status;
     final nameMissing = _draft.name.trim().isEmpty;
+    final defaultSchemes = ref.watch(defaultsProvider.select((d) => d.schemes));
     return Material(
       elevation: 12,
       color: Theme.of(context).colorScheme.surfaceContainerHigh,
@@ -181,11 +183,31 @@ class _TargetSheetState extends ConsumerState<_TargetSheet> {
                     _KeyFileSummaryBox(path: _draft.keyProperties.trim()),
                   ],
                   const SizedBox(height: 14),
-                  SchemesField(
-                    schemes: _draft.schemes,
-                    onChanged: (schemes) =>
-                        _set(_draft.copyWith(schemes: schemes)),
+                  const FieldLabel('Signature schemes'),
+                  CheckboxListTile(
+                    contentPadding: EdgeInsets.zero,
+                    dense: true,
+                    controlAffinity: ListTileControlAffinity.leading,
+                    title: Text(
+                      'The ones in Defaults (${defaultSchemes.label})',
+                    ),
+                    subtitle: const Text(
+                      'Whatever Defaults has when the profile runs.',
+                      style: TextStyle(fontSize: 12),
+                    ),
+                    value: _draft.schemes == null,
+                    onChanged: (on) => _set(
+                      on ?? false
+                          ? _draft.copyWith(defaultSchemes: true)
+                          : _draft.copyWith(schemes: defaultSchemes),
+                    ),
                   ),
+                  if (_draft.schemes case final schemes?)
+                    SchemesField(
+                      schemes: schemes,
+                      onChanged: (schemes) =>
+                          _set(_draft.copyWith(schemes: schemes)),
+                    ),
                   const SizedBox(height: 14),
                   PathField(
                     label: 'Output folder',

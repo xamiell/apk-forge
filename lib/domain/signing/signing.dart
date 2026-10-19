@@ -9,12 +9,48 @@ class SigningSchemes {
 
   const SigningSchemes.automatic() : this();
 
+  /// Anything but a map is [SigningSchemes.automatic].
+  factory SigningSchemes.fromJson(Object? json) {
+    if (json is! Map<String, Object?>) return const SigningSchemes.automatic();
+    return SigningSchemes(
+      v1: json['v1'] as bool?,
+      v2: json['v2'] as bool?,
+      v3: json['v3'] as bool?,
+      v4: json['v4'] as bool?,
+    );
+  }
+
   final bool? v1;
   final bool? v2;
   final bool? v3;
   final bool? v4;
 
   bool get isAutomatic => v1 == null && v2 == null && v3 == null && v4 == null;
+
+  /// Why apksigner can't sign with the ones marked, or `null`. With v1, v2
+  /// and v3 off it writes an APK with no signature and exits 0; v4 without
+  /// v2 or v3 makes it fail (build-tools 36). A `null` scheme is
+  /// apksigner's choice, and it picks v2 and v3 unless told not to.
+  String? get problem {
+    final v2OrV3 = v2 != false || v3 != false;
+    if (v1 != true && !v2OrV3) return 'Mark v1, v2 or v3.';
+    if (v4 == true && !v2OrV3) return 'v4 needs v2 or v3.';
+    return null;
+  }
+
+  /// "Auto", or the ones marked: "v2, v3".
+  String get label {
+    if (isAutomatic) return 'Auto';
+    final marked = [
+      if (v1 ?? false) 'v1',
+      if (v2 ?? false) 'v2',
+      if (v3 ?? false) 'v3',
+      if (v4 ?? false) 'v4',
+    ];
+    return marked.isEmpty ? 'none marked' : marked.join(', ');
+  }
+
+  Map<String, Object?> toJson() => {'v1': v1, 'v2': v2, 'v3': v3, 'v4': v4};
 
   SigningSchemes copyWith({bool? v1, bool? v2, bool? v3, bool? v4}) =>
       SigningSchemes(

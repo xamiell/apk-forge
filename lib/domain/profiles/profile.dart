@@ -11,7 +11,7 @@ class ProfileTarget {
     required this.name,
     this.abi,
     this.keyProperties = '',
-    this.schemes = const SigningSchemes.automatic(),
+    this.schemes,
     this.outputDir = '',
   });
 
@@ -20,7 +20,9 @@ class ProfileTarget {
     name: json['name'] as String? ?? '',
     abi: AndroidAbi.fromAbiName(json['abi'] as String? ?? ''),
     keyProperties: json['keyProperties'] as String? ?? '',
-    schemes: _schemesFromJson(json['schemes']),
+    schemes: json['schemes'] == null
+        ? null
+        : SigningSchemes.fromJson(json['schemes']),
     outputDir: json['outputDir'] as String? ?? '',
   );
 
@@ -35,7 +37,10 @@ class ProfileTarget {
   /// The path of a `key.properties`, never its contents: the passwords stay
   /// in the file and are read when a run starts.
   final String keyProperties;
-  final SigningSchemes schemes;
+
+  /// `null` follows the schemes in the Workbench's Defaults, as they are
+  /// when the profile runs.
+  final SigningSchemes? schemes;
   final String outputDir;
 
   ProfileTarget copyWith({
@@ -45,13 +50,14 @@ class ProfileTarget {
     bool universal = false,
     String? keyProperties,
     SigningSchemes? schemes,
+    bool defaultSchemes = false,
     String? outputDir,
   }) => ProfileTarget(
     id: id ?? this.id,
     name: name ?? this.name,
     abi: universal ? null : abi ?? this.abi,
     keyProperties: keyProperties ?? this.keyProperties,
-    schemes: schemes ?? this.schemes,
+    schemes: defaultSchemes ? null : schemes ?? this.schemes,
     outputDir: outputDir ?? this.outputDir,
   );
 
@@ -60,7 +66,7 @@ class ProfileTarget {
     'name': name,
     'abi': abi?.abiName,
     'keyProperties': keyProperties,
-    'schemes': _schemesToJson(schemes),
+    'schemes': schemes?.toJson(),
     'outputDir': outputDir,
   };
 }
@@ -163,23 +169,6 @@ class SigningProfile {
     'fileNamePattern': fileNamePattern,
     'afterRun': afterRun.name,
   };
-}
-
-Map<String, Object?> _schemesToJson(SigningSchemes schemes) => {
-  'v1': schemes.v1,
-  'v2': schemes.v2,
-  'v3': schemes.v3,
-  'v4': schemes.v4,
-};
-
-SigningSchemes _schemesFromJson(Object? json) {
-  if (json is! Map<String, Object?>) return const SigningSchemes.automatic();
-  return SigningSchemes(
-    v1: json['v1'] as bool?,
-    v2: json['v2'] as bool?,
-    v3: json['v3'] as bool?,
-    v4: json['v4'] as bool?,
-  );
 }
 
 /// The tokens a file name pattern can use.

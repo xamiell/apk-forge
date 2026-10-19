@@ -80,6 +80,7 @@ class ProfileRunPlan {
 ///   folder are problems that stop the run.
 /// - A target an input has no native code (or no Flutter engine) for is
 ///   skipped, with the reason.
+/// - A target without schemes of its own uses [defaultSchemes].
 /// - Targets that share the input, the ABI, the key and the schemes are
 ///   signed once and copied to each folder.
 /// - Two targets writing the same file, or a target writing over its input,
@@ -87,17 +88,23 @@ class ProfileRunPlan {
 ProfileRunPlan planProfileRun(
   SigningProfile profile,
   List<ApkReport> inputs, {
+  required SigningSchemes defaultSchemes,
   required Host host,
   required DateTime date,
 }) {
   final path = host.path;
+  final followsDefaults = profile.targets.any((t) => t.schemes == null);
   final problems = <String>[
     if (profile.targets.isEmpty) 'The profile has no targets.',
     if (inputs.isEmpty) 'Pick an APK to run the profile on.',
     ...fileNamePatternProblems(profile.fileNamePattern),
+    if (followsDefaults && defaultSchemes.problem != null)
+      'Signature schemes in Defaults: ${defaultSchemes.problem}',
     for (final target in profile.targets) ...[
       if (target.keyProperties.trim().isEmpty)
         '${target.name}: choose its key.properties file.',
+      if (target.schemes?.problem case final problem?)
+        '${target.name}: $problem',
       if (target.outputDir.trim().isEmpty)
         '${target.name}: choose its output folder.',
     ],
@@ -130,11 +137,12 @@ ProfileRunPlan planProfileRun(
           ),
         ),
       );
+      final schemes = target.schemes ?? defaultSchemes;
       final key = [
         input.path,
         source.cut?.abiName,
         target.keyProperties,
-        _schemesKey(target.schemes),
+        _schemesKey(schemes),
       ].join('|');
       jobs.update(
         key,
@@ -143,7 +151,7 @@ ProfileRunPlan planProfileRun(
           input: input,
           abi: source.cut,
           keyProperties: target.keyProperties,
-          schemes: target.schemes,
+          schemes: schemes,
           outputs: [output],
         ),
       );

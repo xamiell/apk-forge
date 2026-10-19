@@ -673,6 +673,53 @@ void main() {
       },
     );
 
+    test('only the ABIs asked for, with what is left out in the log', () async {
+      final input = apk('app.apk', universal());
+
+      final splits = await service().withSplits(
+        executor,
+        input: input,
+        abis: {'arm64-v8a', 'armeabi-v7a', 'riscv64'},
+        use: (splits) async => splits,
+      );
+
+      expect(splits.map((s) => s.abi), ['arm64-v8a', 'armeabi-v7a']);
+      expect(
+        log.lines,
+        containsAll([
+          'warning: app.apk has no riscv64: no APK for it.',
+          'info: Left out x86_64: not chosen.',
+        ]),
+      );
+      expect(splitDirectories(), isEmpty);
+    });
+
+    test('an APK with none of the ABIs asked for fails', () async {
+      final input = apk('app.apk', universal());
+
+      await expectLater(
+        service().withSplits(
+          executor,
+          input: input,
+          abis: {'riscv64'},
+          use: (splits) async => splits,
+        ),
+        throwsA(
+          isA<ToolFailure>()
+              .having(
+                (f) => f.title,
+                'title',
+                'app.apk has none of the architectures chosen',
+              )
+              .having(
+                (f) => f.details.single,
+                'details',
+                'It has arm64-v8a, armeabi-v7a, x86_64; chosen: riscv64.',
+              ),
+        ),
+      );
+    });
+
     test('the splits are deleted when using them fails', () async {
       final input = apk('app.apk', universal());
 
@@ -893,6 +940,7 @@ void main() {
         planProfileRun(
           SigningProfile(id: 'p', name: 'Release', targets: targets),
           [input],
+          defaultSchemes: const SigningSchemes.automatic(),
           host: macHost,
           date: DateTime(2026, 10, 18),
         );

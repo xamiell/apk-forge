@@ -259,6 +259,46 @@ void main() {
       expect(planAbiSplit(_contents(['classes.dex'])).abis, isEmpty);
     });
 
+    test('only the ABIs chosen get an APK', () {
+      final universal = _contents([
+        for (final abi in ['arm64-v8a', 'armeabi-v7a', 'x86_64']) ...[
+          'lib/$abi/libflutter.so',
+          'lib/$abi/libapp.so',
+        ],
+      ]);
+
+      final two = planAbiSplit(
+        universal,
+        only: {'arm64-v8a', 'armeabi-v7a', 'riscv64'},
+      );
+      expect(two.abis, ['arm64-v8a', 'armeabi-v7a']);
+      expect(two.notChosen, ['x86_64']);
+      expect(two.missing, ['riscv64']);
+      expect(two.canSplit, isTrue);
+
+      // One chosen out of three: still a cut, without the other two.
+      final one = planAbiSplit(universal, only: {'arm64-v8a'});
+      expect(one.abis, ['arm64-v8a']);
+      expect(one.canSplit, isTrue);
+
+      final none = planAbiSplit(universal, only: {'riscv64'});
+      expect(none.abis, isEmpty);
+      expect(none.noneChosen, isTrue);
+      expect(none.canSplit, isFalse);
+    });
+
+    test('one ABI is nothing to split, whatever was chosen', () {
+      final plan = planAbiSplit(
+        _contents(['lib/arm64-v8a/libflutter.so', 'lib/arm64-v8a/libapp.so']),
+        only: {'armeabi-v7a', 'x86_64'},
+      );
+
+      expect(plan.abis, ['arm64-v8a']);
+      expect(plan.canSplit, isFalse);
+      expect(plan.noneChosen, isFalse);
+      expect(plan.missing, isEmpty);
+    });
+
     test('each split keeps everything but the other ABIs and the v1 files', () {
       bool keeps(String name) => keepsEntryForAbi(name, 'arm64-v8a');
 

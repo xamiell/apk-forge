@@ -3,7 +3,12 @@ import '../analysis/apk_report.dart';
 
 /// What splitting one APK per ABI makes.
 class AbiSplitPlan {
-  const AbiSplitPlan({required this.abis, this.withoutEngine = const []});
+  const AbiSplitPlan({
+    required this.abis,
+    this.withoutEngine = const [],
+    this.notChosen = const [],
+    this.missing = const [],
+  });
 
   /// The `lib/` folders that each get an APK of their own.
   final List<String> abis;
@@ -12,19 +17,41 @@ class AbiSplitPlan {
   /// so an APK for one of them would crash at launch.
   final List<String> withoutEngine;
 
-  /// With fewer than two ABIs there's nothing to split.
-  bool get canSplit => abis.length > 1;
+  /// The APK's ABIs that weren't chosen: no APK for them.
+  final List<String> notChosen;
+
+  /// The chosen ABIs the APK has no native code for.
+  final List<String> missing;
+
+  /// Whether splitting makes something other than the APK itself: two APKs
+  /// or more, or one without the ABIs that weren't chosen.
+  bool get canSplit =>
+      abis.length > 1 || (abis.length == 1 && notChosen.isNotEmpty);
+
+  /// The APK has ABIs to split, but none of the chosen ones.
+  bool get noneChosen => abis.isEmpty && notChosen.isNotEmpty;
 }
 
-/// One APK per ABI that [contents] has native code for.
-AbiSplitPlan planAbiSplit(ApkContents contents) {
+/// One APK per ABI that [contents] has native code for. With [only], one
+/// per ABI in [only] that it has.
+AbiSplitPlan planAbiSplit(ApkContents contents, {Set<String>? only}) {
   final withoutEngine = contents.abisWithoutFlutterEngine;
+  final usable = [
+    for (final abi in contents.nativeLibraries.keys)
+      if (!withoutEngine.contains(abi)) abi,
+  ];
+  // One ABI or none: nothing to split, whatever was chosen.
+  if (only == null || usable.length < 2) {
+    return AbiSplitPlan(abis: usable, withoutEngine: withoutEngine);
+  }
   return AbiSplitPlan(
-    abis: [
-      for (final abi in contents.nativeLibraries.keys)
-        if (!withoutEngine.contains(abi)) abi,
-    ],
+    abis: [...usable.where(only.contains)],
     withoutEngine: withoutEngine,
+    notChosen: [...usable.where((abi) => !only.contains(abi))],
+    missing: [
+      for (final abi in only)
+        if (!usable.contains(abi)) abi,
+    ]..sort(),
   );
 }
 

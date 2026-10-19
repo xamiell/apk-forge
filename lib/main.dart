@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'core/system/shell_environment.dart';
+import 'state/forms.dart';
 import 'state/providers.dart';
 import 'ui/home_screen.dart';
 import 'ui/theme.dart';
@@ -10,7 +11,10 @@ import 'ui/theme.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final environment = await loadShellEnvironment();
-  final preferences = await SharedPreferences.getInstance();
+  final settings = PreferencesSettingsStore(
+    await SharedPreferences.getInstance(),
+  );
+  migrateSettings(settings);
 
   runApp(
     ProviderScope(
@@ -19,9 +23,7 @@ Future<void> main() async {
       retry: (_, _) => null,
       overrides: [
         environmentProvider.overrideWithValue(environment),
-        settingsStoreProvider.overrideWithValue(
-          PreferencesSettingsStore(preferences),
-        ),
+        settingsStoreProvider.overrideWithValue(settings),
       ],
       child: const ApkForgeApp(),
     ),

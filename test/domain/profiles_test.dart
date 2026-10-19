@@ -62,7 +62,7 @@ ProfileTarget _target(
   AndroidAbi? abi = AndroidAbi.arm64V8a,
   String key = '/keys/vendor/key.properties',
   String? folder,
-  SigningSchemes schemes = const SigningSchemes.automatic(),
+  SigningSchemes? schemes,
 }) => ProfileTarget(
   id: name.toLowerCase(),
   name: name,
@@ -79,6 +79,7 @@ ProfileRunPlan _plan(
   List<ApkReport>? inputs,
   InputChecks input = const InputChecks(),
   String pattern = '{name}-{target}',
+  SigningSchemes defaultSchemes = const SigningSchemes.automatic(),
   Host host = macHost,
 }) => planProfileRun(
   SigningProfile(
@@ -89,6 +90,7 @@ ProfileRunPlan _plan(
     fileNamePattern: pattern,
   ),
   inputs ?? [_input()],
+  defaultSchemes: defaultSchemes,
   host: host,
   date: _date,
 );
@@ -233,8 +235,9 @@ void main() {
       expect(back.toJson(), profile.toJson());
       expect(back.targets.first.abi, AndroidAbi.arm64V8a);
       expect(back.targets.last.abi, isNull);
-      expect(back.targets.first.schemes.v1, isFalse);
-      expect(back.targets.last.schemes.isAutomatic, isTrue);
+      expect(back.targets.first.schemes?.v1, isFalse);
+      // No schemes of its own: it follows Defaults.
+      expect(back.targets.last.schemes, isNull);
       expect(back.input.packageName, 'com.example.app');
       expect(back.keyFiles, ['/keys/vendor/key.properties']);
     });
@@ -343,6 +346,46 @@ void main() {
       expect(plan.outputCount, 4);
     });
 
+    test('a target without schemes of its own signs with Defaults\'', () {
+      const defaults = SigningSchemes(v1: false, v2: true, v3: true);
+      final plan = _plan([
+        _target('Phone'),
+        _target('Same as Defaults', schemes: defaults),
+        _target('Auto', schemes: const SigningSchemes.automatic()),
+      ], defaultSchemes: defaults);
+
+      expect(plan.jobs, hasLength(2));
+      expect(plan.jobs.first.schemes.label, 'v2, v3');
+      expect(plan.jobs.first.outputs.map((output) => output.target.name), [
+        'Phone',
+        'Same as Defaults',
+      ]);
+      expect(plan.jobs.last.schemes.isAutomatic, isTrue);
+    });
+
+    test('schemes apksigner cannot sign with are a problem', () {
+      final followsDefaults = _plan([
+        _target('Phone'),
+      ], defaultSchemes: const SigningSchemes(v1: false, v2: false, v3: false));
+      final own = _plan([
+        _target(
+          'Phone',
+          schemes: const SigningSchemes(
+            v1: true,
+            v2: false,
+            v3: false,
+            v4: true,
+          ),
+        ),
+      ], defaultSchemes: const SigningSchemes(v1: false));
+
+      expect(followsDefaults.problems, [
+        'Signature schemes in Defaults: Mark v1, v2 or v3.',
+      ]);
+      expect(own.problems, ['Phone: v4 needs v2 or v3.']);
+      expect(own.canRun, isFalse);
+    });
+
     test('a target the input cannot serve is skipped, with the reason', () {
       final plan = _plan(
         [
@@ -430,6 +473,7 @@ void main() {
           input: const InputChecks(packageName: 'com.example.app'),
           targets: [_target('Phone')],
         ),
+        defaultSchemes: const SigningSchemes.automatic(),
         [
           ApkReport(
             path: '/ci/app.apk',

@@ -5,6 +5,102 @@ import '../domain/signing/keystore.dart';
 import '../domain/signing/signing.dart';
 import 'providers.dart';
 
+// ---------------------------------------------------------------- Defaults
+
+/// What Build and Sign share, set once at the top of the Workbench.
+class WorkbenchDefaults {
+  const WorkbenchDefaults({
+    this.abis = const {
+      AndroidAbi.armeabiV7a,
+      AndroidAbi.arm64V8a,
+      AndroidAbi.x8664,
+    },
+    this.schemes = const SigningSchemes.automatic(),
+    this.folded = false,
+  });
+
+  /// What Build targets, and the APKs "Split per ABI and sign" writes.
+  final Set<AndroidAbi> abis;
+
+  /// What Sign writes, and a profile target without schemes of its own.
+  final SigningSchemes schemes;
+
+  /// The card shows one line.
+  final bool folded;
+
+  /// [abis] as the folder names under `lib/`, in the enum's order.
+  Set<String> get abiNames => {
+    for (final abi in AndroidAbi.values)
+      if (abis.contains(abi)) abi.abiName,
+  };
+
+  WorkbenchDefaults copyWith({
+    Set<AndroidAbi>? abis,
+    SigningSchemes? schemes,
+    bool? folded,
+  }) => WorkbenchDefaults(
+    abis: abis ?? this.abis,
+    schemes: schemes ?? this.schemes,
+    folded: folded ?? this.folded,
+  );
+}
+
+final defaultsProvider = NotifierProvider<DefaultsNotifier, WorkbenchDefaults>(
+  DefaultsNotifier.new,
+);
+
+class DefaultsNotifier extends Notifier<WorkbenchDefaults> {
+  static const _key = 'defaults';
+
+  @override
+  WorkbenchDefaults build() {
+    final saved = ref.read(settingsStoreProvider).read(_key);
+    if (saved == null) return const WorkbenchDefaults();
+    return WorkbenchDefaults(
+      abis: _abisFromJson(saved['abis']) ?? const WorkbenchDefaults().abis,
+      schemes: SigningSchemes.fromJson(saved['schemes']),
+      folded: saved['folded'] as bool? ?? false,
+    );
+  }
+
+  void update(WorkbenchDefaults Function(WorkbenchDefaults defaults) change) {
+    state = change(state);
+    ref.read(settingsStoreProvider).write(_key, {
+      'abis': state.abiNames.toList(),
+      'schemes': state.schemes.toJson(),
+      'folded': state.folded,
+    });
+  }
+
+  void toggleAbi(AndroidAbi abi) => update((defaults) {
+    final abis = {...defaults.abis};
+    if (!abis.remove(abi)) abis.add(abi);
+    return defaults.copyWith(abis: abis);
+  });
+}
+
+Set<AndroidAbi>? _abisFromJson(Object? json) => json is List
+    ? json
+          .whereType<String>()
+          .map(AndroidAbi.fromAbiName)
+          .whereType<AndroidAbi>()
+          .toSet()
+    : null;
+
+/// Moves what older versions kept in Build and Sign, the architectures and
+/// the signature schemes, to Defaults. Runs once, before anything reads or
+/// writes the settings: Build and Sign no longer save them.
+void migrateSettings(SettingsStore store) {
+  if (store.read(DefaultsNotifier._key) != null) return;
+  final build = store.read(BuildOptionsNotifier._key);
+  final signing = store.read(SigningFormNotifier._key);
+  if (build?['abis'] == null && signing?['schemes'] == null) return;
+  store.write(DefaultsNotifier._key, {
+    'abis': build?['abis'],
+    'schemes': signing?['schemes'],
+  });
+}
+
 // ---------------------------------------------------------------- Build
 
 final buildOptionsProvider =
@@ -15,20 +111,17 @@ final buildOptionsProvider =
 class BuildOptionsNotifier extends Notifier<BuildOptions> {
   static const _key = 'build';
 
+  /// The architectures are the ones in Defaults, and change there.
   @override
   BuildOptions build() {
+    final abis = ref.watch(defaultsProvider.select((d) => d.abis));
     final saved = ref.read(settingsStoreProvider).read(_key);
-    if (saved == null) return const BuildOptions();
+    if (saved == null) return BuildOptions(abis: abis);
     const defaults = BuildOptions();
-    final abis = (saved['abis'] as List?)
-        ?.whereType<String>()
-        .map(AndroidAbi.fromAbiName)
-        .whereType<AndroidAbi>()
-        .toSet();
     return BuildOptions(
       projectDir: saved['projectDir'] as String? ?? '',
       mode: BuildMode.values.asNameMap()[saved['mode']] ?? defaults.mode,
-      abis: abis ?? defaults.abis,
+      abis: abis,
       packaging:
           ApkPackaging.values.asNameMap()[saved['packaging']] ??
           defaults.packaging,
@@ -44,10 +137,6 @@ class BuildOptionsNotifier extends Notifier<BuildOptions> {
     ref.read(settingsStoreProvider).write(_key, {
       'projectDir': state.projectDir,
       'mode': state.mode.name,
-      'abis': [
-        for (final abi in AndroidAbi.values)
-          if (state.abis.contains(abi)) abi.abiName,
-      ],
       'packaging': state.packaging.name,
       'obfuscate': state.obfuscate,
       'symbolsDir': state.symbolsDir,
@@ -70,12 +159,6 @@ class BuildOptionsNotifier extends Notifier<BuildOptions> {
       ),
     );
   }
-
-  void toggleAbi(AndroidAbi abi) => update((options) {
-    final abis = {...options.abis};
-    if (!abis.remove(abi)) abis.add(abi);
-    return options.copyWith(abis: abis);
-  });
 }
 
 // ---------------------------------------------------------------- Sign
@@ -88,7 +171,6 @@ class SigningForm {
     this.alias,
     this.keyUsesStorePassword = true,
     this.keyPassword = '',
-    this.schemes = const SigningSchemes.automatic(),
     this.outputDir = '',
   });
 
@@ -102,7 +184,6 @@ class SigningForm {
   final String? alias;
   final bool keyUsesStorePassword;
   final String keyPassword;
-  final SigningSchemes schemes;
 
   /// Empty: next to each APK.
   final String outputDir;
@@ -133,7 +214,8 @@ class SigningForm {
 
   bool get isReady => problem == null;
 
-  SigningRequest toRequest() => SigningRequest(
+  /// The schemes are the ones in Defaults.
+  SigningRequest toRequest({required SigningSchemes schemes}) => SigningRequest(
     keystorePath: keystorePath.trim(),
     storePassword: storePassword,
     alias: alias!,
@@ -150,7 +232,6 @@ class SigningForm {
     bool clearAlias = false,
     bool? keyUsesStorePassword,
     String? keyPassword,
-    SigningSchemes? schemes,
     String? outputDir,
   }) => SigningForm(
     keystorePath: keystorePath ?? this.keystorePath,
@@ -159,7 +240,6 @@ class SigningForm {
     alias: clearAlias ? null : (alias ?? this.alias),
     keyUsesStorePassword: keyUsesStorePassword ?? this.keyUsesStorePassword,
     keyPassword: keyPassword ?? this.keyPassword,
-    schemes: schemes ?? this.schemes,
     outputDir: outputDir ?? this.outputDir,
   );
 }
@@ -175,17 +255,10 @@ class SigningFormNotifier extends Notifier<SigningForm> {
   SigningForm build() {
     final saved = ref.read(settingsStoreProvider).read(_key);
     if (saved == null) return const SigningForm();
-    final schemes = saved['schemes'] as Map<String, Object?>?;
     return SigningForm(
       keystorePath: saved['keystorePath'] as String? ?? '',
       alias: saved['alias'] as String?,
       keyUsesStorePassword: saved['keyUsesStorePassword'] as bool? ?? true,
-      schemes: SigningSchemes(
-        v1: schemes?['v1'] as bool?,
-        v2: schemes?['v2'] as bool?,
-        v3: schemes?['v3'] as bool?,
-        v4: schemes?['v4'] as bool?,
-      ),
       outputDir: saved['outputDir'] as String? ?? '',
     );
   }
@@ -197,12 +270,6 @@ class SigningFormNotifier extends Notifier<SigningForm> {
       'keystorePath': state.keystorePath,
       'alias': state.alias,
       'keyUsesStorePassword': state.keyUsesStorePassword,
-      'schemes': {
-        'v1': state.schemes.v1,
-        'v2': state.schemes.v2,
-        'v3': state.schemes.v3,
-        'v4': state.schemes.v4,
-      },
       'outputDir': state.outputDir,
     });
   }
@@ -233,6 +300,14 @@ class SigningFormNotifier extends Notifier<SigningForm> {
     );
   });
 }
+
+/// Why Sign can't sign yet, or `null`: its key, or the schemes in Defaults.
+final signingProblemProvider = Provider<String?>((ref) {
+  final problem = ref.watch(signingFormProvider.select((f) => f.problem));
+  if (problem != null) return problem;
+  final schemes = ref.watch(defaultsProvider.select((d) => d.schemes.problem));
+  return schemes == null ? null : 'Signature schemes in Defaults: $schemes';
+});
 
 // ---------------------------------------------------------------- Install
 
