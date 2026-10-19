@@ -18,21 +18,34 @@ class TaskState {
   bool get isRunning => running != null;
 }
 
+/// Runs the one task that can run at a time. [TaskNotifier] is the app's.
+abstract interface class TaskRunner {
+  bool get isRunning;
+
+  /// Runs [body] as the current task and returns its value, or `null` if
+  /// another task is running, it failed, or the user cancelled it.
+  Future<T?> run<T>(
+    String label,
+    Future<T> Function(ToolExecutor executor) body,
+  );
+}
+
 final taskProvider = NotifierProvider<TaskNotifier, TaskState>(
   TaskNotifier.new,
 );
 
-class TaskNotifier extends Notifier<TaskState> {
+class TaskNotifier extends Notifier<TaskState> implements TaskRunner {
   CancelToken? _cancelToken;
 
   @override
   TaskState build() => const TaskState();
 
-  /// Runs [body] as the current task and returns its value, or `null` if
-  /// another task is running, it failed, or the user cancelled it.
-  ///
+  @override
+  bool get isRunning => state.isRunning;
+
   /// A [ToolFailure] becomes the error panel; anything else thrown is a bug,
   /// shown the same way so it isn't lost.
+  @override
   Future<T?> run<T>(
     String label,
     Future<T> Function(ToolExecutor executor) body,

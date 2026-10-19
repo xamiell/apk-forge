@@ -291,14 +291,52 @@ class SigningFormNotifier extends Notifier<SigningForm> {
   });
 }
 
-/// Why Sign can't sign yet, or `null`: its key, or the schemes in Defaults.
-final signingProblemProvider = Provider<String?>((ref) {
-  final problem = ref.watch(signingFormProvider.select((f) => f.problem));
-  if (problem != null) return problem;
-  return ref.watch(
-    defaultsProvider.select((d) => defaultSchemesProblem(d.schemes)),
+/// What Sign signs with, or why it can't sign yet.
+sealed class SigningSetup {
+  const SigningSetup();
+}
+
+/// The key in Sign, with the schemes in Defaults.
+final class ReadyToSign extends SigningSetup {
+  const ReadyToSign(this.request, {this.expectedSha256});
+
+  final SigningRequest request;
+
+  /// The selected key's certificate: each signed APK must carry it.
+  final String? expectedSha256;
+}
+
+final class NotReadyToSign extends SigningSetup {
+  const NotReadyToSign(this.problem);
+
+  final String problem;
+}
+
+/// [form]'s key with [schemes], or the first thing missing: the key, then
+/// the schemes.
+SigningSetup signingSetup(SigningForm form, SigningSchemes schemes) {
+  final problem = form.problem ?? defaultSchemesProblem(schemes);
+  if (problem != null) return NotReadyToSign(problem);
+  return ReadyToSign(
+    form.toRequest(schemes: schemes),
+    expectedSha256: form.selectedEntry?.sha256,
   );
-});
+}
+
+final signingSetupProvider = Provider<SigningSetup>(
+  (ref) => signingSetup(
+    ref.watch(signingFormProvider),
+    ref.watch(defaultsProvider.select((d) => d.schemes)),
+  ),
+);
+
+/// Why Sign can't sign yet, or `null`: its key, or the schemes in Defaults.
+final signingProblemProvider = Provider<String?>(
+  (ref) => switch (ref.watch(signingSetupProvider)) {
+    ReadyToSign() => null,
+    NotReadyToSign(:final problem) => problem,
+  },
+);
 
 // ---------------------------------------------------------------- Install
 

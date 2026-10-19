@@ -5,7 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/process/command.dart';
 import '../../domain/build/build_options.dart';
 import '../../domain/build/flutter_build.dart';
-import '../../state/actions.dart';
+import '../../state/actions/build_action.dart';
 import '../../state/forms.dart';
 import '../../state/providers.dart';
 import '../../state/task_notifier.dart';
@@ -164,7 +164,7 @@ class BuildCard extends ConsumerWidget {
           const SizedBox(height: 6),
           FilledButton.icon(
             onPressed: problems.isEmpty && !busy
-                ? () => ref.read(actionsProvider).build()
+                ? () => ref.read(buildActionProvider).run()
                 : null,
             icon: const Icon(Icons.play_arrow_rounded),
             label: Text(options.signAfterBuild ? 'Build and sign' : 'Build'),

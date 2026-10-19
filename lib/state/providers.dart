@@ -37,9 +37,11 @@ final processRunnerProvider = Provider<ProcessRunner>(
 
 final clockProvider = Provider<DateTime Function()>((ref) => DateTime.now);
 
-/// Shows a file in the OS file manager. Overridden in tests, so they open
-/// no window.
-final fileRevealerProvider = Provider<Future<void> Function(String, Host)>(
+/// Shows the file at [path] in the OS file manager.
+typedef FileRevealer = Future<void> Function(String path, Host host);
+
+/// Overridden in tests, so they open no window.
+final fileRevealerProvider = Provider<FileRevealer>(
   (ref) => revealInFileManager,
 );
 

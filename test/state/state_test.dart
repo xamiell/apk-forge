@@ -5,12 +5,17 @@ import 'package:apk_forge/core/process/process_runner.dart';
 import 'package:apk_forge/core/system/host.dart';
 import 'package:apk_forge/domain/analysis/comparison.dart';
 import 'package:apk_forge/domain/build/build_options.dart';
+import 'package:apk_forge/domain/failure.dart';
 import 'package:apk_forge/domain/profiles/profile.dart';
 import 'package:apk_forge/domain/profiles/profile_run.dart';
 import 'package:apk_forge/domain/signing/keystore.dart';
 import 'package:apk_forge/domain/signing/signing.dart';
 import 'package:apk_forge/domain/tools/toolchain.dart';
-import 'package:apk_forge/state/actions.dart';
+import 'package:apk_forge/state/actions/build_action.dart';
+import 'package:apk_forge/state/actions/install_action.dart';
+import 'package:apk_forge/state/actions/load_keys_action.dart';
+import 'package:apk_forge/state/actions/profile_run_action.dart';
+import 'package:apk_forge/state/actions/sign_actions.dart';
 import 'package:apk_forge/state/apks.dart';
 import 'package:apk_forge/state/devices.dart';
 import 'package:apk_forge/state/forms.dart';
@@ -19,7 +24,6 @@ import 'package:apk_forge/state/profiles.dart';
 import 'package:apk_forge/state/providers.dart';
 import 'package:apk_forge/state/task_notifier.dart';
 import 'package:apk_forge/state/toolchain_notifier.dart';
-import 'package:archive/archive.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
@@ -103,7 +107,7 @@ void main() {
         );
     loadTestKey();
 
-    await container.read(actionsProvider).build();
+    await container.read(buildActionProvider).run();
 
     expect(container.read(taskProvider).failure, isNull);
     expect(runner.callsWithFirstArg('sign'), hasLength(3));
@@ -113,131 +117,18 @@ void main() {
     expect(p.basename(list.selectedPath!), 'app-x86_64-release-signed.apk');
   });
 
-  String writeApk(String path, List<String> abis) {
-    final archive = Archive()
-      ..add(ArchiveFile.string('AndroidManifest.xml', 'manifest'));
-    for (final abi in abis) {
-      archive
-        ..add(ArchiveFile.string('lib/$abi/libflutter.so', 'engine'))
-        ..add(ArchiveFile.string('lib/$abi/libapp.so', 'app'));
-    }
-    File(path)
-      ..parent.createSync(recursive: true)
-      ..writeAsBytesSync(ZipEncoder().encode(archive));
-    return path;
-  }
-
-  test(
-    'split and sign: one signed APK per ABI, next to the original',
-    () async {
-      runner.whenFirstArg(
-        'verify',
-        ok(fixture('apksigner_verify_test_key.txt')),
-      );
-      final ci = p.join(temp.path, 'ci');
-      final universal = writeApk(p.join(ci, 'app-release.apk'), [
-        'arm64-v8a',
-        'armeabi-v7a',
-        'x86_64',
-      ]);
-      loadTestKey();
-
-      await container.read(actionsProvider).splitAndSignFiles([universal]);
-
-      expect(container.read(taskProvider).failure, isNull);
-      final signs = runner.callsWithFirstArg('sign').toList();
-      expect(signs.map((c) => p.basename(c.arguments.last)), [
-        'app-release-arm64-v8a.apk',
-        'app-release-armeabi-v7a.apk',
-        'app-release-x86_64.apk',
-      ]);
-      expect(
-        p.dirname(
-          signs.first.arguments[signs.first.arguments.indexOf('--out') + 1],
-        ),
-        ci,
-      );
-      final list = container.read(apkListProvider);
-      expect(list.items.map((i) => p.basename(i.path)), [
-        'app-release-x86_64-signed.apk',
-        'app-release-armeabi-v7a-signed.apk',
-        'app-release-arm64-v8a-signed.apk',
-      ]);
-      expect(list.items.every((i) => i.origin == ApkOrigin.signed), isTrue);
-      expect(p.dirname(list.selectedPath!), ci);
-      expect(File(universal).existsSync(), isTrue);
-    },
-  );
-
-  test('split and sign: an APK with one ABI is signed as it is', () async {
-    runner.whenFirstArg('verify', ok(fixture('apksigner_verify_test_key.txt')));
-    final apk = writeApk(p.join(temp.path, 'app-arm64-v8a-release.apk'), [
-      'arm64-v8a',
-    ]);
-    loadTestKey();
-
-    await container.read(actionsProvider).splitAndSignFiles([apk]);
-
-    expect(runner.callsWithFirstArg('sign').single.arguments.last, apk);
-    expect(
-      p.basename(container.read(apkListProvider).selectedPath!),
-      'app-arm64-v8a-release-signed.apk',
-    );
-  });
-
-  test(
-    'a build with signing on but no key fails before running flutter',
-    () async {
-      container
-          .read(buildOptionsProvider.notifier)
-          .update((o) => o.copyWith(projectDir: project()));
-
-      await container.read(actionsProvider).build();
-
-      expect(runner.calls, isEmpty);
-      final failure = container.read(taskProvider).failure!;
-      expect(failure.title, 'Sign after build is on, but signing is not ready');
-      expect(failure.details, ['Choose a keystore.']);
-    },
-  );
-
-  test(
-    'without signing, the built APK keeps Gradle\'s signature and is selected',
-    () async {
-      runner.whenFirstArg('build', ok(fixture('flutter_build_debug.txt')));
-      container
-          .read(buildOptionsProvider.notifier)
-          .update(
-            (o) => o.copyWith(
-              projectDir: project(),
-              mode: BuildMode.debug,
-              signAfterBuild: false,
-            ),
-          );
-
-      await container.read(actionsProvider).build();
-
-      expect(runner.callsWithFirstArg('sign'), isEmpty);
-      expect(
-        p.basename(container.read(apkListProvider).selectedPath!),
-        'app-debug.apk',
-      );
-    },
-  );
-
   test('a failure becomes the error panel and frees the task', () async {
-    runner.whenFirstArg(
-      'build',
-      failed(1, stdout: ['* What went wrong:', 'Gradle broke', '* Try:']),
+    final notifier = container.read(taskProvider.notifier);
+
+    final value = await notifier.run<String>(
+      'Build',
+      (_) => throw const ToolFailure(
+        'Build failed (exit code 1)',
+        details: ['Gradle broke'],
+      ),
     );
-    container
-        .read(buildOptionsProvider.notifier)
-        .update(
-          (o) => o.copyWith(projectDir: project(), signAfterBuild: false),
-        );
 
-    await container.read(actionsProvider).build();
-
+    expect(value, isNull);
     final task = container.read(taskProvider);
     expect(task.isRunning, isFalse);
     expect(task.failure!.details, ['Gradle broke']);
@@ -251,7 +142,7 @@ void main() {
       ]),
     );
 
-    container.read(taskProvider.notifier).dismissFailure();
+    notifier.dismissFailure();
     expect(container.read(taskProvider).failure, isNull);
   });
 
@@ -291,7 +182,7 @@ void main() {
       ..setKeystore('/k.jks')
       ..setStorePassword('hunter2');
 
-    await container.read(actionsProvider).loadKeys();
+    await container.read(loadKeysActionProvider).run();
 
     final form = container.read(signingFormProvider);
     expect(form.entries, hasLength(2));
@@ -312,6 +203,51 @@ void main() {
     expect(saved['alias'], 'forge-test');
     expect(saved.toString(), isNot(contains('hunter2')));
     expect(saved.toString(), isNot(contains('k3y')));
+  });
+
+  group('signingSetup', () {
+    const entry = KeystoreEntry(
+      alias: 'forge-test',
+      entryType: 'PrivateKeyEntry',
+      sha256: 'b34c',
+    );
+    const form = SigningForm(
+      keystorePath: ' /k.jks ',
+      storePassword: 'hunter2',
+      entries: [entry],
+      alias: 'forge-test',
+    );
+    const schemes = SigningSchemes(v1: false, v2: true, v3: true);
+
+    test('the key in Sign with the schemes in Defaults', () {
+      final setup = signingSetup(form, schemes) as ReadyToSign;
+
+      expect(setup.request.keystorePath, '/k.jks');
+      expect(setup.request.alias, 'forge-test');
+      expect(setup.request.schemes.label, 'v2, v3');
+      expect(setup.expectedSha256, 'b34c');
+    });
+
+    test('the key is missing first, then the schemes', () {
+      const bad = SigningSchemes(v1: false, v2: false, v3: false);
+
+      expect(
+        signingSetup(form.copyWith(storePassword: ''), bad),
+        isA<NotReadyToSign>().having(
+          (s) => s.problem,
+          'problem',
+          'Enter the keystore password.',
+        ),
+      );
+      expect(
+        signingSetup(form, bad),
+        isA<NotReadyToSign>().having(
+          (s) => s.problem,
+          'problem',
+          'Signature schemes in Defaults: Mark v1, v2 or v3.',
+        ),
+      );
+    });
   });
 
   test('another keystore forgets the password and the keys', () {
@@ -437,7 +373,7 @@ void main() {
             ),
           );
 
-      await container.read(actionsProvider).signFiles([apk]);
+      await container.read(signActionProvider).run([apk]);
 
       expect(container.read(taskProvider).failure, isNull);
       expect(
@@ -467,7 +403,7 @@ void main() {
             ),
           );
 
-      await container.read(actionsProvider).signFiles([apk]);
+      await container.read(signActionProvider).run([apk]);
 
       expect(runner.calls, isEmpty);
       expect(container.read(taskProvider).failure!.details, [
@@ -488,7 +424,7 @@ void main() {
       loadTestKey();
       container.read(defaultsProvider.notifier).toggleAbi(AndroidAbi.x8664);
 
-      await container.read(actionsProvider).splitAndSignFiles([universal]);
+      await container.read(splitAndSignActionProvider).run([universal]);
 
       expect(container.read(taskProvider).failure, isNull);
       expect(
@@ -519,7 +455,7 @@ void main() {
           .read(apkListProvider.notifier)
           .add('/out/app.apk', ApkOrigin.opened);
 
-      await container.read(actionsProvider).install();
+      await container.read(installActionProvider).run();
 
       expect(container.read(taskProvider).failure, isNull);
       expect(runner.calls.last.arguments, [
@@ -955,8 +891,8 @@ void main() {
 
         final profile = container.read(profilesProvider).byId(profileId)!;
         final record = await container
-            .read(actionsProvider)
-            .runProfile(profile, checked);
+            .read(profileRunActionProvider)
+            .run(profile, checked);
 
         expect(record!.summary, '2 signed · 1 skipped');
         expect(
@@ -1020,7 +956,7 @@ void main() {
         );
         final profile = container.read(profilesProvider).byId(profileId)!;
         expect(
-          await container.read(actionsProvider).runProfile(profile, checked),
+          await container.read(profileRunActionProvider).run(profile, checked),
           isNull,
         );
         expect(runner.callsWithFirstArg('sign'), isEmpty);

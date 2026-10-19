@@ -38,13 +38,21 @@ class ApkList {
   }
 }
 
+/// Where the actions list the APKs they write. [ApkListNotifier] is the
+/// app's.
+abstract interface class ApkSink {
+  /// Lists [path] on top. Without [select], the selection stays.
+  void add(String path, ApkOrigin origin, {bool select});
+  void select(String path);
+}
+
 /// The APKs of this session: built, signed or opened. Not saved: the files
 /// may be gone next time.
 final apkListProvider = NotifierProvider<ApkListNotifier, ApkList>(
   ApkListNotifier.new,
 );
 
-class ApkListNotifier extends Notifier<ApkList> {
+class ApkListNotifier extends Notifier<ApkList> implements ApkSink {
   @override
   ApkList build() => const ApkList();
 
@@ -53,6 +61,7 @@ class ApkListNotifier extends Notifier<ApkList> {
   ///
   /// Without [select] it's still selected when nothing is: a list with
   /// APKs always has one selected.
+  @override
   void add(String path, ApkOrigin origin, {bool select = true}) {
     final items = [
       ApkItem(path, origin),
@@ -67,6 +76,7 @@ class ApkListNotifier extends Notifier<ApkList> {
     ref.invalidate(apkReportProvider(path));
   }
 
+  @override
   void select(String path) =>
       state = ApkList(items: state.items, selectedPath: path);
 

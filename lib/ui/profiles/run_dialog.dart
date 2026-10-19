@@ -7,7 +7,7 @@ import '../../core/system/host.dart';
 import '../../domain/analysis/apk_report.dart';
 import '../../domain/profiles/profile.dart';
 import '../../domain/profiles/profile_run.dart';
-import '../../state/actions.dart';
+import '../../state/actions/profile_run_action.dart';
 import '../../state/apks.dart';
 import '../../state/profiles.dart';
 import '../../state/providers.dart';
@@ -59,7 +59,7 @@ class _RunProfileDialogState extends ConsumerState<_RunProfileDialog> {
                 }),
                 onRun: (check) {
                   setState(() => _started = true);
-                  ref.read(actionsProvider).runProfile(profile, check);
+                  ref.read(profileRunActionProvider).run(profile, check);
                 },
               ),
       ),

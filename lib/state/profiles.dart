@@ -327,15 +327,25 @@ class ProfileRunState {
       progress.where((entry) => entry.stage == TargetStage.finished).length;
 }
 
+/// Where a run reports its progress. [ProfileRunNotifier] is the app's.
+abstract interface class ProfileRunProgress {
+  /// Every target of [plan], waiting.
+  void start(String profileId, ProfileRunPlan plan, Host host);
+  void update(TargetProgress progress);
+  void finish(ProfileRunRecord record);
+}
+
 final profileRunProvider =
     NotifierProvider<ProfileRunNotifier, ProfileRunState?>(
       ProfileRunNotifier.new,
     );
 
-class ProfileRunNotifier extends Notifier<ProfileRunState?> {
+class ProfileRunNotifier extends Notifier<ProfileRunState?>
+    implements ProfileRunProgress {
   @override
   ProfileRunState? build() => null;
 
+  @override
   void start(String profileId, ProfileRunPlan plan, Host host) =>
       state = ProfileRunState(
         profileId: profileId,
@@ -356,6 +366,7 @@ class ProfileRunNotifier extends Notifier<ProfileRunState?> {
         ],
       );
 
+  @override
   void update(TargetProgress progress) {
     final current = state;
     if (current == null) return;
@@ -370,6 +381,7 @@ class ProfileRunNotifier extends Notifier<ProfileRunState?> {
     );
   }
 
+  @override
   void finish(ProfileRunRecord record) {
     final current = state;
     if (current == null) return;

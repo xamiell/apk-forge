@@ -4,7 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/format/format.dart';
 import '../../domain/signing/abi_split.dart';
-import '../../state/actions.dart';
+import '../../state/actions/load_keys_action.dart';
+import '../../state/actions/sign_actions.dart';
 import '../../state/apks.dart';
 import '../../state/forms.dart';
 import '../../state/providers.dart';
@@ -25,7 +26,6 @@ class SigningCard extends ConsumerWidget {
     final notifier = ref.read(signingFormProvider.notifier);
     final busy = ref.watch(taskProvider.select((task) => task.isRunning));
     final toolchain = ref.watch(toolchainProvider).value;
-    final actions = ref.read(actionsProvider);
     final entry = form.selectedEntry;
 
     final schemes = ref.watch(defaultsProvider.select((d) => d.schemes));
@@ -36,7 +36,7 @@ class SigningCard extends ConsumerWidget {
     ];
 
     void loadKeys() {
-      if (form.canLoadKeys && !busy) actions.loadKeys();
+      if (form.canLoadKeys && !busy) ref.read(loadKeysActionProvider).run();
     }
 
     return SectionCard(
@@ -201,7 +201,8 @@ class _SignActions extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final actions = ref.read(actionsProvider);
+    final sign = ref.read(signActionProvider);
+    final split = ref.read(splitAndSignActionProvider);
     final selected = ref.watch(apkListProvider.select((list) => list.selected));
     final defaults = ref.watch(defaultsProvider);
     final muted = TextStyle(fontSize: 12, color: context.status.muted);
@@ -217,7 +218,7 @@ class _SignActions extends ConsumerWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           FilledButton.icon(
-            onPressed: canSign ? () => pick(actions.signFiles) : null,
+            onPressed: canSign ? () => pick(sign.run) : null,
             icon: const Icon(Icons.draw_outlined),
             label: const Text('Sign APK files…'),
           ),
@@ -227,9 +228,7 @@ class _SignActions extends ConsumerWidget {
                 ? 'Needs two or more architectures in Defaults.'
                 : _splitTooltip,
             child: OutlinedButton.icon(
-              onPressed: canSign && !fewAbis
-                  ? () => pick(actions.splitAndSignFiles)
-                  : null,
+              onPressed: canSign && !fewAbis ? () => pick(split.run) : null,
               icon: const Icon(Icons.call_split),
               label: const Text('Split per ABI and sign…'),
             ),
@@ -271,9 +270,7 @@ class _SignActions extends ConsumerWidget {
         Tooltip(
           message: selected.path,
           child: FilledButton.icon(
-            onPressed: canSign
-                ? () => actions.signFiles([selected.path])
-                : null,
+            onPressed: canSign ? () => sign.run([selected.path]) : null,
             icon: const Icon(Icons.draw_outlined),
             label: Text('Sign $name', overflow: TextOverflow.ellipsis),
           ),
@@ -283,7 +280,7 @@ class _SignActions extends ConsumerWidget {
           message: cannotSplit ?? _splitTooltip,
           child: OutlinedButton.icon(
             onPressed: canSign && cannotSplit == null
-                ? () => actions.splitAndSignFiles([selected.path])
+                ? () => split.run([selected.path])
                 : null,
             icon: const Icon(Icons.call_split),
             label: Text(
@@ -300,7 +297,7 @@ class _SignActions extends ConsumerWidget {
         Align(
           alignment: Alignment.centerLeft,
           child: TextButton.icon(
-            onPressed: canSign ? () => pick(actions.signFiles) : null,
+            onPressed: canSign ? () => pick(sign.run) : null,
             icon: const Icon(Icons.folder_open_rounded, size: 18),
             label: const Text('Sign other APK files…'),
           ),

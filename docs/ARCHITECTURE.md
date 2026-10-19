@@ -13,7 +13,8 @@ lib/
   core/       Process running, the host OS, ZIP reading and copying, formatting, log types.
   domain/     Models, command builders, output parsers, findings. Pure.
   services/   One class per tool job; runs commands through a ProcessRunner.
-  state/      Riverpod notifiers: forms, the current task, actions, the log.
+  state/      Riverpod notifiers (forms, the current task, the log) and the
+              actions the buttons run (state/actions/).
   ui/         The screen and its panels.
   main.dart   Loads the shell environment and settings, starts the app.
 tool/
@@ -28,9 +29,9 @@ tool/
 
 A layer folder is split by area (`build/`, `signing/`, `analysis/`,
 `devices/`, `tools/`), not the other way round: the app is small and its
-steps are tightly sequenced (build → sign → analyze → install), so one
-`state/actions.dart` composing the services reads better than four features
-calling each other.
+steps are tightly sequenced (build → sign → analyze → install), so the
+actions in `state/actions/` composing the services read better than four
+features calling each other.
 
 ## 2. The process boundary
 
@@ -76,6 +77,12 @@ A test covers each of these. Keep it that way when a new tool takes a secret.
   holds the cancel token, and turns a `ToolFailure` into the error banner.
   Builds, signings, key loading and installs go through it. Listing devices,
   analyzing an APK and reading an installed app don't: they change nothing.
+- **Actions** (`state/actions/`) are plain classes, one per job: build, sign,
+  split and sign, run a profile, load keys, install. Each takes what it uses
+  in its constructor: the services, a `TaskRunner`, an `ApkSink` for the
+  APKs it writes, and functions that read the forms when the button is
+  pressed (`SigningSetup` says what Sign signs with, or why it can't). Their
+  providers are where that's wired; no action receives `ref`.
 - **Forms** (`state/forms.dart`) persist their non-secret fields through
   `SettingsStore` on every change. What Build and Sign share, the
   architectures and the signature schemes, lives once in `defaultsProvider`:
@@ -183,8 +190,11 @@ only when there is one.
   `test/fixtures` (see its README), command builders, findings, locator.
 - `test/services`: each service with `FakeProcessRunner`, which answers from
   a script and records the calls.
-- `test/state`: the actions through a `ProviderContainer` with the runner,
-  host, settings and toolchain overridden.
+- `test/state`: each action built directly, with `FakeTaskRunner` and
+  `RecordingApkSink` and the real services over `FakeProcessRunner`
+  (`actions_test`). The notifiers and the providers' wiring go through a
+  `ProviderContainer` with the runner, host, settings and toolchain
+  overridden. `settings_test` pins what each setting saves.
 - Widgets aren't unit-tested; the screen is checked by hand on macOS.
 - Real-tool behavior is checked with `tool/smoke.dart`. When a tool's output
   changes, capture the new output into `test/fixtures` and fix the parser

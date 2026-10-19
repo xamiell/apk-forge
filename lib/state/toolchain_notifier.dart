@@ -31,6 +31,10 @@ class ToolOverridesNotifier extends Notifier<ToolOverrides> {
   }
 }
 
+/// The tools, as [toolchainProvider] found them: what the actions read when
+/// a task starts.
+typedef ToolchainSource = Future<Toolchain> Function();
+
 final toolchainProvider = AsyncNotifierProvider<ToolchainNotifier, Toolchain>(
   ToolchainNotifier.new,
 );
