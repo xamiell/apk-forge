@@ -96,9 +96,27 @@ class _SyncedTextFieldState extends State<SyncedTextField> {
   late final _controller = TextEditingController(text: widget.value);
   bool _revealed = false;
 
+  /// What this field sent through `onChanged` that the parent hasn't given
+  /// back yet. Keys typed faster than a frame arrive before the parent
+  /// rebuilds with the first of them; that late value is an echo, not a
+  /// change to show.
+  final _echoes = <String>[];
+
+  void _changed(String value) {
+    _echoes.add(value);
+    widget.onChanged(value);
+  }
+
   @override
   void didUpdateWidget(SyncedTextField oldWidget) {
     super.didUpdateWidget(oldWidget);
+    final echo = _echoes.indexOf(widget.value);
+    if (echo >= 0) {
+      _echoes.removeRange(0, echo + 1);
+      return;
+    }
+    // A change from outside (a Browse button, a reset): show it.
+    _echoes.clear();
     if (widget.value != _controller.text) {
       _controller.value = TextEditingValue(
         text: widget.value,
@@ -144,7 +162,7 @@ class _SyncedTextFieldState extends State<SyncedTextField> {
                 children: [?reveal, ?widget.suffix],
               ),
       ),
-      onChanged: widget.onChanged,
+      onChanged: _changed,
       onSubmitted: widget.onSubmitted,
     );
   }

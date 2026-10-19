@@ -50,6 +50,9 @@ class ApkListNotifier extends Notifier<ApkList> {
 
   /// Adds [path] on top, or moves it there if it's listed, and re-reads its
   /// report: the file may have changed (signed again to the same name).
+  ///
+  /// Without [select] it's still selected when nothing is: a list with
+  /// APKs always has one selected.
   void add(String path, ApkOrigin origin, {bool select = true}) {
     final items = [
       ApkItem(path, origin),
@@ -57,7 +60,9 @@ class ApkListNotifier extends Notifier<ApkList> {
     ];
     state = ApkList(
       items: items,
-      selectedPath: select ? path : state.selectedPath,
+      selectedPath: select || state.selectedPath == null
+          ? path
+          : state.selectedPath,
     );
     ref.invalidate(apkReportProvider(path));
   }

@@ -401,6 +401,16 @@ void main() {
     expect(container.read(selectedDeviceProvider), isNull);
   });
 
+  test('a list with APKs always has one selected', () {
+    final list = container.read(apkListProvider.notifier)
+      ..add('/out/a.apk', ApkOrigin.signed, select: false);
+    expect(container.read(apkListProvider).selectedPath, '/out/a.apk');
+
+    // Once something is selected, select: false keeps it.
+    list.add('/out/b.apk', ApkOrigin.signed, select: false);
+    expect(container.read(apkListProvider).selectedPath, '/out/a.apk');
+  });
+
   test(
     'compare: two APKs of the list, from their reports, read once',
     () async {
