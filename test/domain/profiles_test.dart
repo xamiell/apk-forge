@@ -81,6 +81,7 @@ ProfileRunPlan _plan(
   String pattern = '{name}-{target}',
   SigningSchemes defaultSchemes = const SigningSchemes.automatic(),
   Host host = macHost,
+  FileProbe? probe,
 }) => planProfileRun(
   SigningProfile(
     id: 'p',
@@ -92,6 +93,13 @@ ProfileRunPlan _plan(
   inputs ?? [_input()],
   defaultSchemes: defaultSchemes,
   host: host,
+  // Every target's key file and folder exist unless the test says otherwise.
+  probe:
+      probe ??
+      FakeFileProbe(
+        files: {for (final t in targets) t.keyProperties},
+        directories: {for (final t in targets) t.outputDir},
+      ),
   date: _date,
 );
 
@@ -260,6 +268,19 @@ void main() {
       );
       expect(() => importProfile('not json'), throwsFormatException);
       expect(() => importProfile('{"format": "other"}'), throwsFormatException);
+    });
+
+    test('a name already taken gets a number, ignoring case', () {
+      expect(uniqueProfileName('Release', const []), 'Release');
+      expect(uniqueProfileName('Release', ['Release']), 'Release 2');
+      expect(
+        uniqueProfileName('Release', ['release', 'Release 2']),
+        'Release 3',
+      );
+      expect(
+        uniqueProfileName('Release copy', ['Release', 'Release copy']),
+        'Release copy 2',
+      );
     });
 
     test('a blank package name takes any package', () {
@@ -474,6 +495,10 @@ void main() {
           targets: [_target('Phone')],
         ),
         defaultSchemes: const SigningSchemes.automatic(),
+        probe: FakeFileProbe(
+          files: {'/keys/vendor/key.properties'},
+          directories: {'/out/phone'},
+        ),
         [
           ApkReport(
             path: '/ci/app.apk',
@@ -518,6 +543,25 @@ void main() {
         'Phone: choose its output folder.',
       ]);
       expect(_plan(const []).problems, contains('The profile has no targets.'));
+    });
+
+    test('a key file or folder missing on this machine stops the run', () {
+      final plan = _plan(
+        [
+          _target('Phone', key: '/elsewhere/key.properties'),
+          _target('Tablet', abi: AndroidAbi.armeabiV7a),
+        ],
+        probe: FakeFileProbe(
+          files: {'/keys/vendor/key.properties'},
+          directories: {'/out/phone'},
+        ),
+      );
+
+      expect(plan.problems, [
+        'Phone: its key.properties does not exist: /elsewhere/key.properties',
+        'Tablet: its output folder does not exist: /out/tablet',
+      ]);
+      expect(plan.canRun, isFalse);
     });
 
     test('several inputs: each one through every target', () {

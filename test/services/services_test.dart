@@ -942,6 +942,11 @@ void main() {
           [input],
           defaultSchemes: const SigningSchemes.automatic(),
           host: macHost,
+          // The runner makes the folders; the plan only checks they exist.
+          probe: FakeFileProbe(
+            files: {for (final t in targets) t.keyProperties},
+            directories: {for (final t in targets) t.outputDir},
+          ),
           date: DateTime(2026, 10, 18),
         );
 

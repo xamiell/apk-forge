@@ -110,19 +110,25 @@ class ProfilesNotifier extends Notifier<ProfilesState> {
     return id;
   }
 
+  Iterable<String> get _names => state.profiles.map((p) => p.name);
+
   /// Adds an empty profile and selects it.
   String create() {
     final profile = SigningProfile(
       id: newId('p'),
-      name: 'New profile ${state.profiles.length + 1}',
+      name: uniqueProfileName('New profile', _names),
     );
     _set([...state.profiles, profile], profile.id);
     return profile.id;
   }
 
-  /// Adds [profile] (from an import) as a new one and selects it.
+  /// Adds [profile] (from an import) as a new one and selects it. A name
+  /// already in the list gets a number.
   String add(SigningProfile profile) {
-    final added = profile.copyWith(id: newId('p'));
+    final added = profile.copyWith(
+      id: newId('p'),
+      name: uniqueProfileName(profile.name, _names),
+    );
     _set([...state.profiles, added], added.id);
     return added.id;
   }
@@ -134,7 +140,10 @@ class ProfilesNotifier extends Notifier<ProfilesState> {
 
   String duplicate(String id) {
     final source = state.byId(id)!;
-    final copy = source.copyWith(id: newId('p'), name: '${source.name} copy');
+    final copy = source.copyWith(
+      id: newId('p'),
+      name: uniqueProfileName('${source.name} copy', _names),
+    );
     final index = state.profiles.indexOf(source);
     _set([
       ...state.profiles.take(index + 1),
@@ -250,6 +259,7 @@ final profileRunCheckProvider = FutureProvider.autoDispose
         inputs,
         defaultSchemes: schemes,
         host: ref.read(hostProvider),
+        probe: ref.read(fileProbeProvider),
         date: ref.read(clockProvider)(),
       );
       if (!plan.canRun) return ProfileRunCheck(inputs: inputs, plan: plan);

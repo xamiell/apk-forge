@@ -64,16 +64,18 @@ class _ProfileList extends ConsumerWidget {
         if (context.mounted) _snack(context, error.message);
         return;
       }
-      notifier.add(profile);
+      // A name already in the list gets a number.
+      final id = notifier.add(profile);
+      final name = ref.read(profilesProvider).byId(id)!.name;
       final missing = missingProfilePaths(profile, ref.read(fileProbeProvider));
       if (!context.mounted) return;
       if (missing.isEmpty) {
-        _snack(context, 'Imported ${profile.name}.');
+        _snack(context, 'Imported $name.');
       } else {
         await showDialog<void>(
           context: context,
           builder: (context) => AlertDialog(
-            title: Text('Imported ${profile.name}'),
+            title: Text('Imported $name'),
             content: SizedBox(
               width: 520,
               child: Column(
@@ -562,7 +564,6 @@ class _TargetsStep extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final host = ref.watch(hostProvider);
     final colors = context.status;
     final defaultSchemes = ref.watch(defaultsProvider.select((d) => d.schemes));
     return Column(
@@ -610,18 +611,7 @@ class _TargetsStep extends ConsumerWidget {
                               'Defaults (${defaultSchemes.label})',
                         ),
                       ),
-                      DataCell(
-                        Text(
-                          target.outputDir.isEmpty
-                              ? 'Not set'
-                              : host.path.basename(target.outputDir),
-                          style: TextStyle(
-                            color: target.outputDir.isEmpty
-                                ? colors.warning
-                                : null,
-                          ),
-                        ),
-                      ),
+                      DataCell(_FolderCell(path: target.outputDir.trim())),
                       DataCell(
                         Row(
                           mainAxisSize: MainAxisSize.min,
@@ -674,6 +664,42 @@ class _TargetsStep extends ConsumerWidget {
           ],
         ),
       ],
+    );
+  }
+}
+
+/// A target's output folder, flagged when it doesn't exist on this machine
+/// (a profile imported from another one).
+class _FolderCell extends ConsumerWidget {
+  const _FolderCell({required this.path});
+
+  final String path;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final colors = context.status;
+    if (path.isEmpty) {
+      return Text('Not set', style: TextStyle(color: colors.warning));
+    }
+    final missing = !ref.watch(fileProbeProvider).directoryExists(path);
+    final name = ref.watch(hostProvider).path.basename(path);
+    return Tooltip(
+      message: missing ? '$path\nDoes not exist on this machine.' : path,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (missing)
+            Padding(
+              padding: const EdgeInsets.only(right: 6),
+              child: Icon(
+                Icons.warning_amber_rounded,
+                size: 16,
+                color: colors.warning,
+              ),
+            ),
+          Text(name),
+        ],
+      ),
     );
   }
 }

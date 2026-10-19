@@ -76,8 +76,9 @@ class ProfileRunPlan {
 
 /// Plans running [profile] on [inputs], from their reports.
 ///
-/// - The input checks (package, unsigned) and every target's key file and
-///   folder are problems that stop the run.
+/// - The input checks (package, unsigned), every target's key file and
+///   folder, and a key file or folder that doesn't exist on this machine
+///   (a profile imported from another one) are problems that stop the run.
 /// - A target an input has no native code (or no Flutter engine) for is
 ///   skipped, with the reason.
 /// - A target without schemes of its own uses [defaultSchemes].
@@ -90,6 +91,7 @@ ProfileRunPlan planProfileRun(
   List<ApkReport> inputs, {
   required SigningSchemes defaultSchemes,
   required Host host,
+  required FileProbe probe,
   required DateTime date,
 }) {
   final path = host.path;
@@ -102,11 +104,17 @@ ProfileRunPlan planProfileRun(
       'Signature schemes in Defaults: ${defaultSchemes.problem}',
     for (final target in profile.targets) ...[
       if (target.keyProperties.trim().isEmpty)
-        '${target.name}: choose its key.properties file.',
+        '${target.name}: choose its key.properties file.'
+      else if (!probe.fileExists(target.keyProperties.trim()))
+        '${target.name}: its key.properties does not exist: '
+            '${target.keyProperties.trim()}',
       if (target.schemes?.problem case final problem?)
         '${target.name}: $problem',
       if (target.outputDir.trim().isEmpty)
-        '${target.name}: choose its output folder.',
+        '${target.name}: choose its output folder.'
+      else if (!probe.directoryExists(target.outputDir.trim()))
+        '${target.name}: its output folder does not exist: '
+            '${target.outputDir.trim()}',
     ],
     for (final input in inputs) ..._inputProblems(profile.input, input, host),
   ];

@@ -808,6 +808,30 @@ void main() {
       },
     );
 
+    test('an import, a copy or a new profile never repeats a name', () {
+      final profiles = container.read(profilesProvider.notifier);
+      String name(String id) => container.read(profilesProvider).byId(id)!.name;
+      const imported = SigningProfile(id: 'from-file', name: 'Release');
+
+      final first = profiles.add(imported);
+      final again = profiles.add(imported);
+      final copy = profiles.duplicate(first);
+      final secondCopy = profiles.duplicate(first);
+      final created = profiles.create();
+      final createdAgain = profiles.create();
+
+      expect(name(first), 'Release');
+      expect(name(again), 'Release 2');
+      expect(name(copy), 'Release copy');
+      expect(name(secondCopy), 'Release copy 2');
+      expect(name(created), 'New profile');
+      expect(name(createdAgain), 'New profile 2');
+
+      // A name freed by a delete is used again, never repeated.
+      profiles.delete(created);
+      expect(name(profiles.create()), 'New profile');
+    });
+
     test('the history keeps each profile\'s runs, newest first', () {
       ProfileRunRecord run(String profile, int minute) => ProfileRunRecord(
         profileId: profile,
@@ -850,12 +874,15 @@ void main() {
           'arm64-v8a',
           'armeabi-v7a',
         ]);
+        // Each folder exists, as when it's picked in the target editor.
         ProfileTarget target(String name, AndroidAbi abi) => ProfileTarget(
           id: name,
           name: name,
           abi: abi,
           keyProperties: p.join(keys.path, 'key.properties'),
-          outputDir: p.join(temp.path, 'out', name.toLowerCase()),
+          outputDir: (Directory(
+            p.join(temp.path, 'out', name.toLowerCase()),
+          )..createSync(recursive: true)).path,
         );
         final profiles = container.read(profilesProvider.notifier);
         profileId = profiles.create();
@@ -1016,6 +1043,25 @@ void main() {
           isEmpty,
         );
       });
+
+      test(
+        'a folder that does not exist stops the check before the keys',
+        () async {
+          Directory(p.join(temp.path, 'out', 'kiosk')).deleteSync();
+
+          final checked = await check();
+
+          expect(checked.canRun, isFalse);
+          expect(checked.plan.problems, [
+            'Kiosk: its output folder does not exist: '
+                '${p.join(temp.path, 'out', 'kiosk')}',
+          ]);
+          expect(
+            runner.calls.where((c) => c.arguments.contains('-list')),
+            isEmpty,
+          );
+        },
+      );
     });
   });
 

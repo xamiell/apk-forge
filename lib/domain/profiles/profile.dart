@@ -171,6 +171,18 @@ class SigningProfile {
   };
 }
 
+/// [name], or `<name> 2`, `<name> 3`… when [taken] already has it, ignoring
+/// case: two profiles that look the same in the list can't be told apart,
+/// nor asked for by name.
+String uniqueProfileName(String name, Iterable<String> taken) {
+  final names = {for (final other in taken) other.toLowerCase()};
+  if (!names.contains(name.toLowerCase())) return name;
+  for (var copy = 2; ; copy++) {
+    final candidate = '$name $copy';
+    if (!names.contains(candidate.toLowerCase())) return candidate;
+  }
+}
+
 /// The tokens a file name pattern can use.
 const fileNameTokens = [
   '{name}',
