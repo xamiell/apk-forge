@@ -6,3 +6,13 @@ const keystoreTypes = XTypeGroup(
   label: 'Keystores',
   extensions: ['jks', 'keystore', 'p12', 'pfx', 'ks'],
 );
+
+const keyPropertiesTypes = XTypeGroup(
+  label: 'key.properties',
+  extensions: ['properties'],
+);
+
+const profileTypes = XTypeGroup(
+  label: 'APK Forge profile',
+  extensions: ['json'],
+);

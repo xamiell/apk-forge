@@ -29,13 +29,15 @@ class ApkSplitService {
   final Directory Function()? temporaryDirectory;
 
   /// Splits [input] into a temporary folder, runs [use] with the splits,
-  /// then deletes them.
+  /// then deletes them. With [abis], only those ABIs get an APK.
   ///
   /// [use] gets an empty list when [input] has native code for one ABI or
-  /// none: there is nothing to split.
+  /// none: there is nothing to split. It fails when [input] has none of
+  /// [abis].
   Future<T> withSplits<T>(
     ToolExecutor executor, {
     required String input,
+    Set<String>? abis,
     required Future<T> Function(List<AbiSplitApk> splits) use,
   }) async {
     final name = host.path.basename(input);
@@ -48,12 +50,30 @@ class ApkSplitService {
       throw ToolFailure('Cannot read $name', details: [error.message]);
     }
 
-    final plan = planAbiSplit(ApkContents.fromEntries(entries));
+    final plan = planAbiSplit(ApkContents.fromEntries(entries), only: abis);
     if (plan.withoutEngine.isNotEmpty) {
       executor.log.warning(
         'Left out ${plan.withoutEngine.join(', ')}: native code but no '
         'Flutter engine, so that APK would crash at launch.',
       );
+    }
+    if (plan.noneChosen) {
+      throw ToolFailure(
+        '$name has none of the architectures chosen',
+        details: [
+          'It has ${plan.notChosen.join(', ')}; '
+              'chosen: ${plan.missing.isEmpty ? 'none' : plan.missing.join(', ')}.',
+        ],
+      );
+    }
+    if (plan.missing.isNotEmpty) {
+      executor.log.warning(
+        '$name has no ${plan.missing.join(', ')}: no APK for '
+        '${plan.missing.length == 1 ? 'it' : 'them'}.',
+      );
+    }
+    if (plan.notChosen.isNotEmpty) {
+      executor.log.info('Left out ${plan.notChosen.join(', ')}: not chosen.');
     }
     if (!plan.canSplit) {
       executor.log.info(

@@ -21,7 +21,7 @@ class BuildCard extends ConsumerWidget {
     final options = ref.watch(buildOptionsProvider);
     final notifier = ref.read(buildOptionsProvider.notifier);
     final host = ref.watch(hostProvider);
-    final signing = ref.watch(signingFormProvider);
+    final signingProblem = ref.watch(signingProblemProvider);
     final busy = ref.watch(taskProvider.select((task) => task.isRunning));
     final canBuild = ref.watch(
       toolchainProvider.select((t) => t.value?.canBuild ?? false),
@@ -30,8 +30,8 @@ class BuildCard extends ConsumerWidget {
     final problems = [
       if (!canBuild) 'flutter was not found. Set it in Tools.',
       ...buildProblems(options, host, ref.watch(fileProbeProvider)),
-      if (options.signAfterBuild && !signing.isReady)
-        'Signing: ${signing.problem}',
+      if (options.signAfterBuild && signingProblem != null)
+        'Signing: $signingProblem',
     ];
     final release = options.mode == BuildMode.release;
 
@@ -73,31 +73,15 @@ class BuildCard extends ConsumerWidget {
                 notifier.update((o) => o.copyWith(mode: selection.single)),
           ),
           const SizedBox(height: 14),
-          Row(
-            children: [
-              const Expanded(child: FieldLabel('Architectures')),
-              TextButton(
-                onPressed: () => notifier.update(
-                  (o) => o.copyWith(abis: AndroidAbi.values.toSet()),
-                ),
-                child: const Text('All'),
-              ),
-            ],
-          ),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              for (final abi in AndroidAbi.values)
-                Tooltip(
-                  message: abi.description,
-                  child: FilterChip(
-                    label: Text(abi.abiName),
-                    selected: options.abis.contains(abi),
-                    onSelected: (_) => notifier.toggleAbi(abi),
-                  ),
-                ),
-            ],
+          const FieldLabel('Architectures'),
+          FromDefaults(
+            options.abis.isEmpty
+                ? 'None chosen: Build needs one.'
+                : [
+                    for (final abi in AndroidAbi.values)
+                      if (options.abis.contains(abi)) abi.abiName,
+                  ].join(', '),
+            warning: options.abis.isEmpty,
           ),
           const SizedBox(height: 14),
           const FieldLabel('Output'),
@@ -111,7 +95,7 @@ class BuildCard extends ConsumerWidget {
                       packaging != ApkPackaging.splitPerAbi || options.canSplit,
                   tooltip:
                       packaging == ApkPackaging.splitPerAbi && !options.canSplit
-                      ? 'Select two or more architectures to split'
+                      ? 'Choose two or more architectures in Defaults to split'
                       : null,
                 ),
             ],
@@ -193,7 +177,7 @@ class BuildCard extends ConsumerWidget {
 
 String _outputSummary(BuildOptions options) {
   final count = options.abis.length;
-  if (count == 0) return 'Select an architecture.';
+  if (count == 0) return 'Choose an architecture in Defaults.';
   if (options.effectivePackaging == ApkPackaging.splitPerAbi) {
     return 'One APK per architecture: $count APKs.';
   }
@@ -203,7 +187,7 @@ String _outputSummary(BuildOptions options) {
   }
   return count == AndroidAbi.values.length
       ? 'One APK with every architecture.'
-      : 'One APK with the $count selected architectures.';
+      : 'One APK with the $count architectures in Defaults.';
 }
 
 /// The exact command the button runs, so nothing happens behind the user's

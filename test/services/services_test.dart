@@ -3,7 +3,11 @@ import 'dart:io';
 import 'package:apk_forge/core/process/command.dart';
 import 'package:apk_forge/core/process/process_runner.dart';
 import 'package:apk_forge/core/zip/zip_directory.dart';
+import 'package:apk_forge/domain/analysis/apk_report.dart';
 import 'package:apk_forge/domain/build/build_options.dart';
+import 'package:apk_forge/domain/profiles/profile.dart';
+import 'package:apk_forge/domain/profiles/profile_plan.dart';
+import 'package:apk_forge/domain/profiles/profile_run.dart';
 import 'package:apk_forge/domain/devices/device_info.dart';
 import 'package:apk_forge/domain/failure.dart';
 import 'package:apk_forge/domain/signing/keystore.dart';
@@ -14,6 +18,7 @@ import 'package:apk_forge/services/apk_analyzer.dart';
 import 'package:apk_forge/services/apk_split_service.dart';
 import 'package:apk_forge/services/flutter_build_service.dart';
 import 'package:apk_forge/services/installed_apk_service.dart';
+import 'package:apk_forge/services/profile_runner.dart';
 import 'package:apk_forge/services/signing_service.dart';
 import 'package:apk_forge/services/tool_executor.dart';
 import 'package:archive/archive.dart';
@@ -668,6 +673,53 @@ void main() {
       },
     );
 
+    test('only the ABIs asked for, with what is left out in the log', () async {
+      final input = apk('app.apk', universal());
+
+      final splits = await service().withSplits(
+        executor,
+        input: input,
+        abis: {'arm64-v8a', 'armeabi-v7a', 'riscv64'},
+        use: (splits) async => splits,
+      );
+
+      expect(splits.map((s) => s.abi), ['arm64-v8a', 'armeabi-v7a']);
+      expect(
+        log.lines,
+        containsAll([
+          'warning: app.apk has no riscv64: no APK for it.',
+          'info: Left out x86_64: not chosen.',
+        ]),
+      );
+      expect(splitDirectories(), isEmpty);
+    });
+
+    test('an APK with none of the ABIs asked for fails', () async {
+      final input = apk('app.apk', universal());
+
+      await expectLater(
+        service().withSplits(
+          executor,
+          input: input,
+          abis: {'riscv64'},
+          use: (splits) async => splits,
+        ),
+        throwsA(
+          isA<ToolFailure>()
+              .having(
+                (f) => f.title,
+                'title',
+                'app.apk has none of the architectures chosen',
+              )
+              .having(
+                (f) => f.details.single,
+                'details',
+                'It has arm64-v8a, armeabi-v7a, x86_64; chosen: riscv64.',
+              ),
+        ),
+      );
+    });
+
     test('the splits are deleted when using them fails', () async {
       final input = apk('app.apk', universal());
 
@@ -702,6 +754,342 @@ void main() {
               ),
         ),
       );
+    });
+  });
+
+  group('ProfileKeyService', () {
+    const store = 'st0re pass';
+    const key = 'k3y pass';
+    const testKeySha =
+        'b34c9445c5e411b045884f499034b5592ab109ec5cd1ca9cb584e54f582dcfa8';
+    late String properties;
+
+    void writeProperties(String content) =>
+        File(properties).writeAsStringSync(content);
+
+    setUp(() {
+      final folder = Directory(p.join(temp.path, 'keys'))..createSync();
+      File(p.join(folder.path, 'release.jks')).writeAsStringSync('keystore');
+      properties = p.join(folder.path, 'key.properties');
+      writeProperties(
+        'storePassword=$store\nkeyPassword=$key\n'
+        'keyAlias=forge-test\nstoreFile=release.jks\n',
+      );
+    });
+
+    bool isList(Command c) => c.arguments.contains('-list');
+    bool isCertreq(Command c) => c.arguments.contains('-certreq');
+
+    Future<Map<String, OpenedKey>> open() =>
+        const ProfileKeyService(host: macHost)
+            .open(executor, keytool: '/jdk/keytool', keyFiles: [properties]);
+
+    Future<void> expectCannot(String reason) => expectLater(
+      open(),
+      throwsA(
+        isA<ToolFailure>()
+            .having(
+              (f) => f.title,
+              'title',
+              'Cannot open the key in $properties',
+            )
+            .having((f) => f.details.join('\n'), 'details', contains(reason)),
+      ),
+    );
+
+    test(
+      'opens a key with both passwords, from the environment only',
+      () async {
+        runner
+          ..when(isList, (_) => ok(fixture('keytool_list.txt')))
+          ..when(isCertreq, (_) => ok(fixture('keytool_certreq_ok.txt')));
+
+        final opened = (await open())[properties]!;
+
+        expect(opened.alias, 'forge-test');
+        expect(opened.keystorePath, p.join(temp.path, 'keys', 'release.jks'));
+        expect(opened.sha256, testKeySha);
+        expect([opened.storePassword, opened.keyPassword], [store, key]);
+        final certreq = runner.calls.singleWhere(isCertreq);
+        expect(certreq.environment, {
+          keystorePasswordVariable: store,
+          keyPasswordVariable: key,
+        });
+        for (final call in runner.calls) {
+          expect(call.arguments.join(' '), isNot(contains('pass ')));
+        }
+        expect(
+          log.lines.join('\n'),
+          isNot(anyOf(contains(store), contains(key))),
+        );
+        expect('$opened', isNot(anyOf(contains(store), contains(key))));
+      },
+    );
+
+    test('a wrong key password stops it, naming the file', () async {
+      runner
+        ..when(isList, (_) => ok(fixture('keytool_list.txt')))
+        ..when(
+          isCertreq,
+          (_) => failed(
+            1,
+            stdout: fixture('keytool_certreq_wrong_key_password.txt'),
+          ),
+        );
+
+      await expectCannot('The key password (keyPassword) is wrong.');
+    });
+
+    test(
+      'a wrong keystore password: keytool\'s reason, and no key check',
+      () async {
+        runner.when(
+          isList,
+          (_) => failed(1, stdout: fixture('keytool_list_wrong_password.txt')),
+        );
+
+        await expectCannot('password was incorrect');
+        expect(runner.calls.where(isCertreq), isEmpty);
+      },
+    );
+
+    test('an alias the keystore lacks', () async {
+      writeProperties(
+        'storePassword=$store\nkeyPassword=$key\n'
+        'keyAlias=upload\nstoreFile=release.jks\n',
+      );
+      runner.when(isList, (_) => ok(fixture('keytool_list.txt')));
+
+      await expectCannot('The keystore has no key "upload" (its keyAlias).');
+    });
+
+    test('a missing file, field or keystore, before keytool runs', () async {
+      writeProperties('storeFile=release.jks\nstorePassword=$store\n');
+      await expectCannot('It has no keyAlias, keyPassword.');
+
+      writeProperties(
+        'storePassword=$store\nkeyPassword=$key\n'
+        'keyAlias=forge-test\nstoreFile=gone.jks\n',
+      );
+      await expectCannot('gone.jks (its storeFile) does not exist');
+
+      File(properties).deleteSync();
+      await expectCannot('The file does not exist.');
+      expect(runner.calls, isEmpty);
+    });
+  });
+
+  group('ProfileRunner', () {
+    const testKeySha =
+        'b34c9445c5e411b045884f499034b5592ab109ec5cd1ca9cb584e54f582dcfa8';
+    const key = OpenedKey(
+      keyProperties: '/keys/key.properties',
+      keystorePath: '/keys/release.jks',
+      alias: 'forge-test',
+      storePassword: 'hunter2',
+      keyPassword: 'hunter3',
+      sha256: testKeySha,
+    );
+
+    ProfileRunner service() => ProfileRunner(
+      host: macHost,
+      signing: ApkSigningService(host: macHost, temporaryDirectory: () => temp),
+      temporaryDirectory: () => temp,
+    );
+
+    /// A universal Flutter APK with arm64-v8a and armeabi-v7a.
+    Future<ApkReport> universal() async {
+      final archive = Archive()
+        ..add(ArchiveFile.string('AndroidManifest.xml', 'manifest'))
+        ..add(ArchiveFile.string('classes.dex', 'dex'));
+      for (final abi in ['arm64-v8a', 'armeabi-v7a']) {
+        archive
+          ..add(ArchiveFile.string('lib/$abi/libflutter.so', 'engine'))
+          ..add(ArchiveFile.string('lib/$abi/libapp.so', 'app'));
+      }
+      final path = p.join(temp.path, 'app-release.apk');
+      File(path).writeAsBytesSync(ZipEncoder().encode(archive));
+      return ApkReport(
+        path: path,
+        sizeBytes: File(path).lengthSync(),
+        md5: 'm',
+        sha256: 's',
+        contents: ApkContents.fromEntries(await readZipDirectory(path)),
+      );
+    }
+
+    /// apksigner writes what it signs to `--out`, and it verifies with the
+    /// test key.
+    void answerSigning() => runner
+      ..when((c) => c.arguments.first == 'sign', (c) {
+        final out = c.arguments[c.arguments.indexOf('--out') + 1];
+        File(out).writeAsStringSync('signed ${p.basename(c.arguments.last)}');
+        return ok();
+      })
+      ..whenFirstArg('verify', ok(fixture('apksigner_verify_test_key.txt')));
+
+    ProfileTarget target(String name, AndroidAbi abi) => ProfileTarget(
+      id: name,
+      name: name,
+      abi: abi,
+      keyProperties: '/keys/key.properties',
+      outputDir: p.join(temp.path, 'out', name.toLowerCase()),
+    );
+
+    ProfileRunPlan plan(ApkReport input, List<ProfileTarget> targets) =>
+        planProfileRun(
+          SigningProfile(id: 'p', name: 'Release', targets: targets),
+          [input],
+          defaultSchemes: const SigningSchemes.automatic(),
+          host: macHost,
+          date: DateTime(2026, 10, 18),
+        );
+
+    Iterable<String> leftovers() => temp
+        .listSync(recursive: true)
+        .map((entity) => p.basename(entity.path))
+        .where(
+          (name) => name.startsWith('apk_forge_') || name.endsWith('.partial'),
+        );
+
+    test(
+      'cuts, signs once per shared signing, and writes every target',
+      () async {
+        answerSigning();
+        final input = await universal();
+        final progress = <String>[];
+
+        final results = await service().run(
+          executor,
+          toolchain: _toolchain,
+          plan: plan(input, [
+            target('Phone', AndroidAbi.arm64V8a),
+            target('Tablet', AndroidAbi.arm64V8a),
+            target('Kiosk', AndroidAbi.armeabiV7a),
+          ]),
+          keys: {key.keyProperties: key},
+          onProgress: (p) => progress.add('${p.target} ${p.stage.name}'),
+        );
+
+        expect(results.map((r) => '${r.target} ${r.status.name}'), [
+          'Phone signed',
+          'Tablet signed',
+          'Kiosk signed',
+        ]);
+        // Phone and Tablet share the arm64-v8a signing.
+        final signs = runner.callsWithFirstArg('sign').toList();
+        expect(signs.map((c) => p.basename(c.arguments.last)), [
+          'app-release-arm64-v8a.apk',
+          'app-release-armeabi-v7a.apk',
+        ]);
+        expect(signs.first.environment[keystorePasswordVariable], 'hunter2');
+        expect(signs.first.environment[keyPasswordVariable], 'hunter3');
+        final phone = File(results.first.outputPath!);
+        expect(
+          phone.path,
+          p.join(temp.path, 'out', 'phone', 'app-release-Phone.apk'),
+        );
+        expect(phone.readAsStringSync(), 'signed app-release-arm64-v8a.apk');
+        expect(
+          File(results[1].outputPath!).readAsStringSync(),
+          phone.readAsStringSync(),
+        );
+        expect(results.first.signerSha256, testKeySha);
+        expect(results.first.sizeBytes, phone.lengthSync());
+        expect(
+          progress,
+          containsAllInOrder([
+            'Phone splitting',
+            'Phone signing',
+            'Phone writing',
+            'Phone finished',
+          ]),
+        );
+        expect(leftovers(), isEmpty);
+        expect(log.lines.join('\n'), isNot(contains('hunter')));
+        // The input is never touched.
+        expect(input.path, endsWith('app-release.apk'));
+        expect(File(input.path).lengthSync(), input.sizeBytes);
+      },
+    );
+
+    test('a failed target does not stop the others', () async {
+      // The first matching answer wins: Kiosk's signing fails.
+      runner.when(
+        (c) =>
+            c.arguments.first == 'sign' &&
+            c.arguments.last.endsWith('armeabi-v7a.apk'),
+        (_) => failed(1, stderr: ['Failed to load signer "signer #1"']),
+      );
+      answerSigning();
+      // Tablet's folder can't be made: a file is in the way.
+      final input = await universal();
+      final blocked = target('Tablet', AndroidAbi.arm64V8a);
+      File(blocked.outputDir)
+        ..parent.createSync(recursive: true)
+        ..writeAsStringSync('not a folder');
+
+      final results = await service().run(
+        executor,
+        toolchain: _toolchain,
+        plan: plan(input, [
+          target('Phone', AndroidAbi.arm64V8a),
+          blocked,
+          target('Kiosk', AndroidAbi.armeabiV7a),
+        ]),
+        keys: {key.keyProperties: key},
+      );
+
+      expect(results.map((r) => '${r.target} ${r.status.name}'), [
+        'Phone signed',
+        'Tablet failed',
+        'Kiosk failed',
+      ]);
+      expect(results[1].reason, startsWith('Could not write'));
+      expect(results[2].reason, startsWith('Signing failed'));
+      expect(leftovers(), isEmpty);
+    });
+
+    test('skipped targets are listed with the reason', () async {
+      answerSigning();
+      final input = await universal();
+
+      final results = await service().run(
+        executor,
+        toolchain: _toolchain,
+        plan: plan(input, [
+          target('Phone', AndroidAbi.arm64V8a),
+          target('Emulator', AndroidAbi.x8664),
+        ]),
+        keys: {key.keyProperties: key},
+      );
+
+      expect(results.first.target, 'Emulator');
+      expect(results.first.status, TargetStatus.skipped);
+      expect(results.first.reason, 'No native code for x86_64');
+      expect(results.last.status, TargetStatus.signed);
+    });
+
+    test('cancelled: what did not run is skipped, nothing partial', () async {
+      answerSigning();
+      final input = await universal();
+      final cancelled = ToolExecutor(
+        runner,
+        log,
+        cancelToken: CancelToken()..cancel(),
+      );
+
+      final results = await service().run(
+        cancelled,
+        toolchain: _toolchain,
+        plan: plan(input, [target('Phone', AndroidAbi.arm64V8a)]),
+        keys: {key.keyProperties: key},
+      );
+
+      expect(results.single.status, TargetStatus.skipped);
+      expect(results.single.reason, 'Cancelled before it ran');
+      expect(runner.calls, isEmpty);
+      expect(leftovers(), isEmpty);
     });
   });
 

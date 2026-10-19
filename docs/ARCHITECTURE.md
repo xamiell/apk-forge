@@ -77,7 +77,12 @@ A test covers each of these. Keep it that way when a new tool takes a secret.
   Builds, signings, key loading and installs go through it. Listing devices,
   analyzing an APK and reading an installed app don't: they change nothing.
 - **Forms** (`state/forms.dart`) persist their non-secret fields through
-  `SettingsStore` on every change.
+  `SettingsStore` on every change. What Build and Sign share, the
+  architectures and the signature schemes, lives once in `defaultsProvider`:
+  `BuildOptions.abis` follows it, and Sign passes its schemes to
+  `SigningForm.toRequest`. `migrateSettings` runs in `main()` before
+  anything reads the settings, and moves what older versions saved in Build
+  and Sign there.
 - **The log** (`state/log_notifier.dart`) is an append-only list with a
   revision number, capped at 5000 lines, so output doesn't copy the whole
   list per line.

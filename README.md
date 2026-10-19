@@ -15,8 +15,9 @@ the tool's own reason, not a generic error.
 
 | Panel | What it does |
 |---|---|
-| **Build** | Runs `flutter build apk` on any Flutter project. Choose release or debug, any mix of `armeabi-v7a`, `arm64-v8a` and `x86_64`, and one universal APK or one APK per ABI (`--split-per-abi`, offered when two or more ABIs are selected). Optional Dart obfuscation keeps the symbols you need to read crash traces. The command is previewed before you run it. |
-| **Sign** | Signs the APKs a build just produced, or any APK you pick (from CI, another machine, a store), with your `.jks`, `.keystore` or `.p12`. It checks the alignment first and fixes it if needed, writes `<name>-signed.apk` without touching the original, and verifies that the result carries exactly the key you chose. **Split per ABI and sign** turns a universal APK (one from CI, say) into one signed APK per ABI. |
+| **Defaults** | What Build and Sign share, set once at the top: the architectures (any mix of `armeabi-v7a`, `arm64-v8a` and `x86_64`) and the signature schemes (Auto, or the ones you mark). Build and Sign show what they take from it. It folds into one line. |
+| **Build** | Runs `flutter build apk` on any Flutter project, for the architectures in Defaults. Choose release or debug, and one universal APK or one APK per ABI (`--split-per-abi`, offered with two or more architectures). Optional Dart obfuscation keeps the symbols you need to read crash traces. The command is previewed before you run it. |
+| **Sign** | Signs the APK selected in Analyze APK, the APKs a build just produced, or any APK you pick (from CI, another machine, a store), with your `.jks`, `.keystore` or `.p12` and the schemes in Defaults. It checks the alignment first and fixes it if needed, writes `<name>-signed.apk` without touching the original, and verifies that the result carries exactly the key you chose. **Split per ABI and sign** turns a universal APK (one from CI, say) into one signed APK per architecture in Defaults. |
 | **Analyze APK** | For any APK: whether the signature verifies; the schemes it carries (v1 to v4); the signer certificate (DN, SHA-256, SHA-1), a rotated key's lineage, and whether it is **your key** or the Android debug key; release or debug (`debuggable`); package, version and SDK levels; native code per ABI, flagging an ABI with no Flutter engine; size, MD5 and SHA-256. **Compare with…** puts it next to another APK (a previous release, another build) or the app installed on the device, and lists every difference, worst first: another signer, a lower versionCode, a debug build, lost ABIs, new permissions. |
 | **Analyze device** | For the device on USB: maker, brand, model and codename; Android version, API level, security patch, build and build type; chip, ABIs, memory page size (16 KB pages are flagged), RAM, storage and screen; battery, locale and time zone. With an APK selected, it tells you which ABI the APK would run as, which version is installed, and whether installing would be a fresh install, an upgrade, a reinstall or a downgrade, or would be refused for another key. **Compare with the installed app** compares the two side by side. One click copies it all as text. |
 | **Install** | Installs the selected APK with `adb install -r` (optionally `-d` to allow a downgrade). It warns first when the APK has no native code for the device, or is signed with another key than the installed app, and explains the common install failures. |
@@ -77,13 +78,14 @@ xattr -dr com.apple.quarantine "/Applications/APK Forge.app"
 
 ### Build and sign a Flutter app
 
-1. **Build:** choose the project folder, release or debug, the
-   architectures and the output (universal or split per ABI). Turn on
-   obfuscation if you want it.
-2. **Sign:** choose your keystore, enter its password, press **Load keys**
+1. **Defaults:** choose the architectures, and the signature schemes if
+   you don't want apksigner to pick them. Fold the card once they're set.
+2. **Build:** choose the project folder, release or debug, and the output
+   (universal or split per ABI). Turn on obfuscation if you want it.
+3. **Sign:** choose your keystore, enter its password, press **Load keys**
    and pick the key. The panel shows the key's owner and SHA-256, so you can
    confirm it's the right one before signing.
-3. Press **Build and sign**. The build output streams into the log. Every
+4. Press **Build and sign**. The build output streams into the log. Every
    APK the build produced is then signed and verified, and the last one opens
    in **Analyze APK**.
 
@@ -92,19 +94,25 @@ signature: the debug key, or the project's `key.properties`.
 
 ### Re-sign an APK you already have
 
-Load a key in **Sign**, press **Sign APK files…** and pick one or more APKs.
-Each one is written next to the original as `<name>-signed.apk`, or to the
-output folder if you set one.
+Open the APK in **Analyze APK**, load a key in **Sign** and press
+**Sign `<name>`**: Sign works on the APK selected in Analyze APK. **Sign
+other APK files…** picks one or more APKs instead. Each one is written next
+to the original as `<name>-signed.apk`, or to the output folder if you set
+one.
 
 ### Split a universal APK per ABI
 
-When CI hands you one universal APK, press **Split per ABI and sign…** in
-**Sign** and pick it. It writes one signed APK per ABI the APK has native
-code for, `<name>-<abi>-signed.apk`, next to the original or to the output
-folder. Each one keeps everything but the other ABIs' `lib/` folders: for a
+When CI hands you one universal APK, open it in **Analyze APK** and press
+**Split `<name>` per ABI and sign** in **Sign**. It writes one signed APK per
+architecture in Defaults, `<name>-<abi>-signed.apk`, next to the original or
+to the output folder; the caption under the button says which ones before
+you press it. Each one keeps everything but the other ABIs' `lib/` folders: for a
 `flutter create` sample, the 42.1 MB universal APK gives 14.8 MB for
 `arm64-v8a`, 12.1 MB for `armeabi-v7a` and 16.1 MB for `x86_64`.
 
+- An architecture in Defaults that the APK has no native code for gets no
+  APK, and one the APK has but Defaults doesn't is left out. The log says
+  so.
 - An ABI with native code but no Flutter engine gets no APK: it would crash
   at launch. The log says so.
 - An APK with native code for one ABI or none is signed as it is.

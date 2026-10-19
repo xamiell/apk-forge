@@ -4,11 +4,15 @@ import 'dart:typed_data';
 
 import 'package:apk_forge/core/format/format.dart';
 import 'package:apk_forge/core/process/process_runner.dart';
+import 'package:apk_forge/core/system/host.dart';
 import 'package:apk_forge/core/system/shell_environment.dart';
 import 'package:apk_forge/core/zip/zip_directory.dart';
 import 'package:apk_forge/domain/failure.dart';
 import 'package:archive/archive.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+import '../helpers/fakes.dart';
+
 import 'package:path/path.dart' as p;
 
 void main() {
@@ -276,6 +280,19 @@ void main() {
   });
 
   group('format', () {
+    test('shortPath keeps the file and its folder', () {
+      expect(
+        shortPath('/a/long/way/out/phone/app.apk', macHost),
+        '…/phone/app.apk',
+      );
+      expect(shortPath('/out/app.apk', macHost), '/out/app.apk');
+      const windows = Host(os: HostOs.windows, environment: {});
+      expect(
+        shortPath(r'C:\work\out\kiosk\app.apk', windows),
+        r'…\kiosk\app.apk',
+      );
+    });
+
     test('formatBytes', () {
       expect(formatBytes(512), '512 B');
       expect(formatBytes(15728640), '15.0 MB');

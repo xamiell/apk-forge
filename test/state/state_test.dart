@@ -5,13 +5,17 @@ import 'package:apk_forge/core/process/process_runner.dart';
 import 'package:apk_forge/core/system/host.dart';
 import 'package:apk_forge/domain/analysis/comparison.dart';
 import 'package:apk_forge/domain/build/build_options.dart';
+import 'package:apk_forge/domain/profiles/profile.dart';
+import 'package:apk_forge/domain/profiles/profile_run.dart';
 import 'package:apk_forge/domain/signing/keystore.dart';
+import 'package:apk_forge/domain/signing/signing.dart';
 import 'package:apk_forge/domain/tools/toolchain.dart';
 import 'package:apk_forge/state/actions.dart';
 import 'package:apk_forge/state/apks.dart';
 import 'package:apk_forge/state/devices.dart';
 import 'package:apk_forge/state/forms.dart';
 import 'package:apk_forge/state/log_notifier.dart';
+import 'package:apk_forge/state/profiles.dart';
 import 'package:apk_forge/state/providers.dart';
 import 'package:apk_forge/state/task_notifier.dart';
 import 'package:apk_forge/state/toolchain_notifier.dart';
@@ -41,10 +45,12 @@ void main() {
   late MemorySettingsStore store;
   late Directory temp;
   late ProviderContainer container;
+  late List<String> revealed;
 
   setUp(() {
     runner = FakeProcessRunner();
     store = MemorySettingsStore();
+    revealed = [];
     temp = Directory.systemTemp.createTempSync('apk_forge_state_');
     final project = p.join(temp.path, 'app');
     Directory(p.join(project, 'android')).createSync(recursive: true);
@@ -60,6 +66,9 @@ void main() {
         processRunnerProvider.overrideWithValue(runner),
         settingsStoreProvider.overrideWithValue(store),
         toolchainProvider.overrideWith(_FixedToolchain.new),
+        fileRevealerProvider.overrideWithValue(
+          (path, host) async => revealed.add(path),
+        ),
       ],
     );
   });
@@ -320,7 +329,6 @@ void main() {
     store.values['build'] = {
       'projectDir': '/w/app',
       'mode': 'debug',
-      'abis': ['arm64-v8a'],
       'packaging': 'splitPerAbi',
       'obfuscate': true,
       'symbolsDir': '/w/sym',
@@ -331,9 +339,166 @@ void main() {
 
     expect(options.projectDir, '/w/app');
     expect(options.mode, BuildMode.debug);
-    expect(options.abis, {AndroidAbi.arm64V8a});
     expect(options.packaging, ApkPackaging.splitPerAbi);
     expect(options.signAfterBuild, isFalse);
+  });
+
+  group('Defaults', () {
+    test('saved, back after a restart, and Build follows its ABIs', () {
+      final defaults = container.read(defaultsProvider.notifier);
+      expect(container.read(buildOptionsProvider).abis, hasLength(3));
+
+      defaults
+        ..toggleAbi(AndroidAbi.x8664)
+        ..toggleAbi(AndroidAbi.armeabiV7a)
+        ..update(
+          (d) => d.copyWith(
+            schemes: const SigningSchemes(v1: false, v2: true, v3: true),
+            folded: true,
+          ),
+        );
+
+      expect(container.read(buildOptionsProvider).abis, {AndroidAbi.arm64V8a});
+      expect(store.values['defaults'], {
+        'abis': ['arm64-v8a'],
+        'schemes': {'v1': false, 'v2': true, 'v3': true, 'v4': null},
+        'folded': true,
+      });
+
+      final restarted = ProviderContainer.test(
+        overrides: [settingsStoreProvider.overrideWithValue(store)],
+      );
+      final back = restarted.read(defaultsProvider);
+      expect(back.abis, {AndroidAbi.arm64V8a});
+      expect(back.schemes.label, 'v2, v3');
+      expect(back.folded, isTrue);
+      expect(restarted.read(buildOptionsProvider).abis, {AndroidAbi.arm64V8a});
+    });
+
+    test('the ABIs and schemes saved in Build and Sign move here, once', () {
+      store.values['build'] = {
+        'projectDir': '/w/app',
+        'abis': ['arm64-v8a', 'x86_64'],
+      };
+      store.values['signing'] = {
+        'keystorePath': '/k.jks',
+        'schemes': {'v1': true, 'v2': true, 'v3': false, 'v4': false},
+      };
+
+      migrateSettings(store);
+      container.read(buildOptionsProvider.notifier).update((o) => o);
+      container.read(signingFormProvider.notifier).update((f) => f);
+
+      final defaults = container.read(defaultsProvider);
+      expect(defaults.abis, {AndroidAbi.arm64V8a, AndroidAbi.x8664});
+      expect(defaults.schemes.label, 'v1, v2');
+      expect(container.read(buildOptionsProvider).abis, defaults.abis);
+      // Build and Sign no longer save them.
+      expect(store.values['build']!.containsKey('abis'), isFalse);
+      expect(store.values['signing']!.containsKey('schemes'), isFalse);
+
+      // Once there, Defaults wins.
+      container.read(defaultsProvider.notifier).toggleAbi(AndroidAbi.x8664);
+      store.values['build'] = {
+        'abis': ['armeabi-v7a'],
+      };
+      migrateSettings(store);
+      expect(store.values['defaults']!['abis'], ['arm64-v8a']);
+    });
+
+    test('nothing saved before: nothing to move', () {
+      migrateSettings(store);
+
+      expect(store.values, isEmpty);
+      expect(container.read(defaultsProvider).abis, hasLength(3));
+      expect(container.read(defaultsProvider).schemes.isAutomatic, isTrue);
+    });
+
+    test('Sign writes the schemes in Defaults', () async {
+      runner.whenFirstArg(
+        'verify',
+        ok(fixture('apksigner_verify_test_key.txt')),
+      );
+      final apk = writeApk(p.join(temp.path, 'app.apk'), ['arm64-v8a']);
+      loadTestKey();
+      container
+          .read(defaultsProvider.notifier)
+          .update(
+            (d) => d.copyWith(
+              schemes: const SigningSchemes(
+                v1: false,
+                v2: true,
+                v3: true,
+                v4: false,
+              ),
+            ),
+          );
+
+      await container.read(actionsProvider).signFiles([apk]);
+
+      expect(container.read(taskProvider).failure, isNull);
+      expect(
+        runner.callsWithFirstArg('sign').single.arguments,
+        containsAllInOrder([
+          '--v1-signing-enabled', 'false', //
+          '--v2-signing-enabled', 'true',
+          '--v3-signing-enabled', 'true',
+          '--v4-signing-enabled', 'false',
+        ]),
+      );
+    });
+
+    test('schemes apksigner cannot sign with stop Sign first', () async {
+      final apk = writeApk(p.join(temp.path, 'app.apk'), ['arm64-v8a']);
+      loadTestKey();
+      container
+          .read(defaultsProvider.notifier)
+          .update(
+            (d) => d.copyWith(
+              schemes: const SigningSchemes(
+                v1: false,
+                v2: false,
+                v3: false,
+                v4: false,
+              ),
+            ),
+          );
+
+      await container.read(actionsProvider).signFiles([apk]);
+
+      expect(runner.calls, isEmpty);
+      expect(container.read(taskProvider).failure!.details, [
+        'Signature schemes in Defaults: Mark v1, v2 or v3.',
+      ]);
+    });
+
+    test('split and sign writes only the ABIs in Defaults', () async {
+      runner.whenFirstArg(
+        'verify',
+        ok(fixture('apksigner_verify_test_key.txt')),
+      );
+      final universal = writeApk(p.join(temp.path, 'ci', 'app-release.apk'), [
+        'arm64-v8a',
+        'armeabi-v7a',
+        'x86_64',
+      ]);
+      loadTestKey();
+      container.read(defaultsProvider.notifier).toggleAbi(AndroidAbi.x8664);
+
+      await container.read(actionsProvider).splitAndSignFiles([universal]);
+
+      expect(container.read(taskProvider).failure, isNull);
+      expect(
+        runner
+            .callsWithFirstArg('sign')
+            .map((c) => p.basename(c.arguments.last)),
+        ['app-release-arm64-v8a.apk', 'app-release-armeabi-v7a.apk'],
+      );
+      expect(
+        container.read(logProvider).entries.map((e) => e.text),
+        contains('Left out x86_64: not chosen.'),
+      );
+    });
   });
 
   test(
@@ -399,6 +564,16 @@ void main() {
 
     expect(container.read(installOptionsProvider).selectedSerial, isNull);
     expect(container.read(selectedDeviceProvider), isNull);
+  });
+
+  test('a list with APKs always has one selected', () {
+    final list = container.read(apkListProvider.notifier)
+      ..add('/out/a.apk', ApkOrigin.signed, select: false);
+    expect(container.read(apkListProvider).selectedPath, '/out/a.apk');
+
+    // Once something is selected, select: false keeps it.
+    list.add('/out/b.apk', ApkOrigin.signed, select: false);
+    expect(container.read(apkListProvider).selectedPath, '/out/a.apk');
   });
 
   test(
@@ -582,6 +757,265 @@ void main() {
 
       expect(warning, isNull);
       expect(runner.calls.where(isPmPath), isEmpty);
+    });
+  });
+
+  group('profiles', () {
+    test(
+      'created, edited, duplicated and deleted, and back after a restart',
+      () {
+        final profiles = container.read(profilesProvider.notifier);
+        final id = profiles.create();
+        profiles.update(
+          container
+              .read(profilesProvider)
+              .byId(id)!
+              .copyWith(
+                name: 'Release',
+                targets: const [
+                  ProfileTarget(
+                    id: 't1',
+                    name: 'Phone',
+                    abi: AndroidAbi.arm64V8a,
+                    keyProperties: '/keys/key.properties',
+                    outputDir: '/out/phone',
+                  ),
+                ],
+              ),
+        );
+        final copy = profiles.duplicate(id);
+
+        expect(container.read(profilesProvider).selectedId, copy);
+        expect(container.read(profilesProvider).profiles.map((p) => p.name), [
+          'Release',
+          'Release copy',
+        ]);
+
+        // A restart reads them back from the settings.
+        final restarted = ProviderContainer.test(
+          overrides: [settingsStoreProvider.overrideWithValue(store)],
+        );
+        final back = restarted.read(profilesProvider);
+        expect(back.profiles.map((p) => p.name), ['Release', 'Release copy']);
+        expect(
+          back.selected!.targets.single.keyProperties,
+          '/keys/key.properties',
+        );
+
+        profiles.delete(copy);
+        expect(container.read(profilesProvider).profiles.single.id, id);
+        expect(container.read(profilesProvider).selectedId, id);
+      },
+    );
+
+    test('the history keeps each profile\'s runs, newest first', () {
+      ProfileRunRecord run(String profile, int minute) => ProfileRunRecord(
+        profileId: profile,
+        profileName: profile,
+        startedAt: DateTime(2026, 10, 18, 11, minute),
+        finishedAt: DateTime(2026, 10, 18, 11, minute, 9),
+        inputs: const [],
+        results: const [],
+      );
+      final history = container.read(profileHistoryProvider.notifier)
+        ..add(run('a', 1))
+        ..add(run('b', 2))
+        ..add(run('a', 3));
+
+      expect(history.of('a').map((r) => r.startedAt.minute), [3, 1]);
+      history.clear('a');
+      expect(container.read(profileHistoryProvider).single.profileId, 'b');
+      expect(
+        ProviderContainer.test(
+          overrides: [settingsStoreProvider.overrideWithValue(store)],
+        ).read(profileHistoryProvider).single.profileId,
+        'b',
+      );
+    });
+
+    group('a run', () {
+      const storePassword = 'st0re pass';
+      const keyPassword = 'k3y pass';
+      late String input;
+      late String profileId;
+
+      setUp(() {
+        final keys = Directory(p.join(temp.path, 'keys'))..createSync();
+        File(p.join(keys.path, 'release.jks')).writeAsStringSync('keystore');
+        File(p.join(keys.path, 'key.properties')).writeAsStringSync(
+          'storePassword=$storePassword\nkeyPassword=$keyPassword\n'
+          'keyAlias=forge-test\nstoreFile=release.jks\n',
+        );
+        input = writeApk(p.join(temp.path, 'ci', 'app-release.apk'), [
+          'arm64-v8a',
+          'armeabi-v7a',
+        ]);
+        ProfileTarget target(String name, AndroidAbi abi) => ProfileTarget(
+          id: name,
+          name: name,
+          abi: abi,
+          keyProperties: p.join(keys.path, 'key.properties'),
+          outputDir: p.join(temp.path, 'out', name.toLowerCase()),
+        );
+        final profiles = container.read(profilesProvider.notifier);
+        profileId = profiles.create();
+        profiles.update(
+          container
+              .read(profilesProvider)
+              .byId(profileId)!
+              .copyWith(
+                name: 'Release',
+                input: const InputChecks(
+                  packageName: 'io.example.sample_app',
+                  mustBeUnsigned: true,
+                ),
+                targets: [
+                  target('Phone', AndroidAbi.arm64V8a),
+                  target('Kiosk', AndroidAbi.armeabiV7a),
+                  target('Emulator', AndroidAbi.x8664),
+                ],
+              ),
+        );
+
+        runner
+          ..when(
+            (c) => c.arguments.first == 'dump',
+            (_) => ok(fixture('aapt2_badging_release.txt')),
+          )
+          ..when(
+            (c) => c.arguments.first == 'verify',
+            (c) => ok(
+              fixture(
+                c.arguments.last == input
+                    ? 'apksigner_verify_unsigned.txt'
+                    : 'apksigner_verify_test_key.txt',
+              ),
+            ),
+          )
+          ..when((c) => c.arguments.first == 'sign', (c) {
+            final out = c.arguments[c.arguments.indexOf('--out') + 1];
+            File(out).writeAsStringSync('signed');
+            return ok();
+          })
+          ..when(
+            (c) => c.arguments.contains('-list'),
+            (_) => ok(fixture('keytool_list.txt')),
+          );
+      });
+
+      Future<ProfileRunCheck> check() async {
+        final provider = profileRunCheckProvider((
+          profileId: profileId,
+          inputs: input,
+        ));
+        container.listen(provider, (_, _) {});
+        return container.read(provider.future);
+      }
+
+      test('checked, then run: one APK per target, recorded, and no password '
+          'kept anywhere', () async {
+        runner.when(
+          (c) => c.arguments.contains('-certreq'),
+          (_) => ok(fixture('keytool_certreq_ok.txt')),
+        );
+
+        final checked = await check();
+        expect(checked.canRun, isTrue);
+        expect(checked.plan.skipped.single.reason, 'No native code for x86_64');
+
+        final profile = container.read(profilesProvider).byId(profileId)!;
+        final record = await container
+            .read(actionsProvider)
+            .runProfile(profile, checked);
+
+        expect(record!.summary, '2 signed · 1 skipped');
+        expect(
+          record.results
+              .where((r) => r.status == TargetStatus.signed)
+              .map((r) => p.relative(r.outputPath!, from: temp.path)),
+          [
+            'out/phone/app-release-Phone.apk',
+            'out/kiosk/app-release-Kiosk.apk',
+          ],
+        );
+        expect(
+          container.read(profileHistoryProvider).single.profileId,
+          profileId,
+        );
+        final run = container.read(profileRunProvider)!;
+        expect(run.running, isFalse);
+        expect(run.finished, 3);
+        final list = container.read(apkListProvider);
+        expect(
+          list.items.map((i) => p.basename(i.path)),
+          containsAll(['app-release-Phone.apk', 'app-release-Kiosk.apk']),
+        );
+        // The list had nothing selected: the panel needs one selected once
+        // it has APKs.
+        expect(list.selectedPath, isNotNull);
+        // The profile opens its output folders.
+        expect(revealed.map(p.basename), [
+          'app-release-Phone.apk',
+          'app-release-Kiosk.apk',
+        ]);
+        // The settings (profiles and history) and the log never saw a
+        // password.
+        final saved = store.values.toString();
+        final log = container
+            .read(logProvider)
+            .entries
+            .map((e) => e.text)
+            .join('\n');
+        for (final secret in [storePassword, keyPassword]) {
+          expect(saved, isNot(contains(secret)));
+          expect(log, isNot(contains(secret)));
+        }
+      });
+
+      test('a key that does not open: nothing is signed', () async {
+        runner.when(
+          (c) => c.arguments.contains('-certreq'),
+          (_) => failed(
+            1,
+            stdout: fixture('keytool_certreq_wrong_key_password.txt'),
+          ),
+        );
+
+        final checked = await check();
+
+        expect(checked.canRun, isFalse);
+        expect(
+          checked.keyFailure!.details.first,
+          'The key password (keyPassword) is wrong.',
+        );
+        final profile = container.read(profilesProvider).byId(profileId)!;
+        expect(
+          await container.read(actionsProvider).runProfile(profile, checked),
+          isNull,
+        );
+        expect(runner.callsWithFirstArg('sign'), isEmpty);
+      });
+
+      test('an input that fails the checks opens no key', () async {
+        final profiles = container.read(profilesProvider.notifier);
+        profiles.update(
+          container
+              .read(profilesProvider)
+              .byId(profileId)!
+              .copyWith(
+                input: const InputChecks(packageName: 'com.example.other'),
+              ),
+        );
+
+        final checked = await check();
+
+        expect(checked.canRun, isFalse);
+        expect(checked.plan.problems.single, contains('not com.example.other'));
+        expect(
+          runner.calls.where((c) => c.arguments.contains('-list')),
+          isEmpty,
+        );
+      });
     });
   });
 

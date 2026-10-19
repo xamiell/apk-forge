@@ -126,7 +126,7 @@ void main() {
           macHost,
           probe,
         ),
-        ['Select at least one architecture.'],
+        ['Choose at least one architecture in Defaults.'],
       );
       expect(
         buildProblems(
@@ -159,6 +159,22 @@ void main() {
         '--in',
         '/a b/app.apk',
         '--print-certs',
+      ]);
+    });
+
+    test('the key check reads both passwords from the environment', () {
+      expect(keytoolCertreqArguments('/keys/release.jks', 'upload'), [
+        '-J-Duser.language=en',
+        '-J-Duser.country=US',
+        '-certreq',
+        '-keystore',
+        '/keys/release.jks',
+        '-alias',
+        'upload',
+        '-storepass:env',
+        keystorePasswordVariable,
+        '-keypass:env',
+        keyPasswordVariable,
       ]);
     });
 
@@ -229,6 +245,34 @@ void main() {
         ).where((a) => a.contains('signing-enabled')),
         isEmpty,
       );
+    });
+
+    test('schemes: their label, their JSON, and what apksigner refuses', () {
+      const chosen = SigningSchemes(v1: false, v2: true, v3: true, v4: false);
+
+      expect(const SigningSchemes.automatic().label, 'Auto');
+      expect(chosen.label, 'v2, v3');
+      expect(
+        const SigningSchemes(v1: false, v2: false, v3: false, v4: false).label,
+        'none marked',
+      );
+      expect(SigningSchemes.fromJson(chosen.toJson()).label, 'v2, v3');
+      expect(SigningSchemes.fromJson(null).isAutomatic, isTrue);
+
+      // apksigner 36 writes an APK with no signature, and exits 0.
+      expect(
+        const SigningSchemes(v1: false, v2: false, v3: false).problem,
+        'Mark v1, v2 or v3.',
+      );
+      // It throws: v4 signing requires at least v2 or v3.
+      expect(
+        const SigningSchemes(v1: true, v2: false, v3: false, v4: true).problem,
+        'v4 needs v2 or v3.',
+      );
+      // A scheme left to apksigner: it signs with v2 and v3.
+      expect(const SigningSchemes(v1: false).problem, isNull);
+      expect(const SigningSchemes.automatic().problem, isNull);
+      expect(chosen.problem, isNull);
     });
 
     test(
