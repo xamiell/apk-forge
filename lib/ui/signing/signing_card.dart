@@ -29,11 +29,7 @@ class SigningCard extends ConsumerWidget {
     final entry = form.selectedEntry;
 
     final schemes = ref.watch(defaultsProvider.select((d) => d.schemes));
-    final problems = [
-      if (toolchain != null && !toolchain.canSign)
-        'apksigner was not found (Android SDK build-tools).',
-      ?ref.watch(signingProblemProvider),
-    ];
+    final problems = ref.watch(signProblemsProvider);
 
     void loadKeys() {
       if (form.canLoadKeys && !busy) ref.read(loadKeysActionProvider).run();

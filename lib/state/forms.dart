@@ -1,11 +1,13 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../domain/build/build_options.dart';
+import '../domain/build/flutter_build.dart';
 import '../domain/signing/abi_split.dart';
 import '../domain/signing/keystore.dart';
 import '../domain/signing/signing.dart';
 import 'apks.dart';
 import 'providers.dart';
+import 'toolchain_notifier.dart';
 
 // ---------------------------------------------------------------- Defaults
 
@@ -150,6 +152,27 @@ class BuildOptionsNotifier extends Notifier<BuildOptions> {
     );
   }
 }
+
+/// Why Build can't run yet: no flutter, the project or the options, or the
+/// signing when "Sign after build" is on. Empty when it can.
+final buildProblemsProvider = Provider<List<String>>((ref) {
+  final options = ref.watch(buildOptionsProvider);
+  // Until the tools are found, flutter counts as missing.
+  final canBuild = ref.watch(
+    toolchainProvider.select((t) => t.value?.canBuild ?? false),
+  );
+  final signingProblem = ref.watch(signingProblemProvider);
+  return [
+    if (!canBuild) 'flutter was not found. Set it in Tools.',
+    ...buildProblems(
+      options,
+      ref.watch(hostProvider),
+      ref.watch(fileProbeProvider),
+    ),
+    if (options.signAfterBuild && signingProblem != null)
+      'Signing: $signingProblem',
+  ];
+});
 
 // ---------------------------------------------------------------- Sign
 
@@ -339,6 +362,19 @@ final signingProblemProvider = Provider<String?>(
     NotReadyToSign(:final problem) => problem,
   },
 );
+
+/// Why Sign can't sign yet: no apksigner, its key, or the schemes in
+/// Defaults. Empty when it can.
+final signProblemsProvider = Provider<List<String>>((ref) {
+  // While the tools are being found, only the form speaks.
+  final canSign = ref.watch(
+    toolchainProvider.select((t) => t.value?.canSign ?? true),
+  );
+  return [
+    if (!canSign) 'apksigner was not found (Android SDK build-tools).',
+    ?ref.watch(signingProblemProvider),
+  ];
+});
 
 /// Whether Sign's "Split per ABI and sign" can run on the APK selected in
 /// Analyze APK, or, with none selected, on files picked then.

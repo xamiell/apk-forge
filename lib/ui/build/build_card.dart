@@ -9,7 +9,6 @@ import '../../state/actions/build_action.dart';
 import '../../state/forms.dart';
 import '../../state/providers.dart';
 import '../../state/task_notifier.dart';
-import '../../state/toolchain_notifier.dart';
 import '../common/widgets.dart';
 import '../theme.dart';
 
@@ -21,18 +20,8 @@ class BuildCard extends ConsumerWidget {
     final options = ref.watch(buildOptionsProvider);
     final notifier = ref.read(buildOptionsProvider.notifier);
     final host = ref.watch(hostProvider);
-    final signingProblem = ref.watch(signingProblemProvider);
     final busy = ref.watch(taskProvider.select((task) => task.isRunning));
-    final canBuild = ref.watch(
-      toolchainProvider.select((t) => t.value?.canBuild ?? false),
-    );
-
-    final problems = [
-      if (!canBuild) 'flutter was not found. Set it in Tools.',
-      ...buildProblems(options, host, ref.watch(fileProbeProvider)),
-      if (options.signAfterBuild && signingProblem != null)
-        'Signing: $signingProblem',
-    ];
+    final problems = ref.watch(buildProblemsProvider);
     final release = options.mode == BuildMode.release;
 
     return SectionCard(

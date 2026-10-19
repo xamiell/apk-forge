@@ -44,6 +44,12 @@ class _FixedToolchain extends ToolchainNotifier {
   );
 }
 
+/// No tool found.
+class _NoTools extends ToolchainNotifier {
+  @override
+  Future<Toolchain> build() async => const Toolchain();
+}
+
 void main() {
   late FakeProcessRunner runner;
   late MemorySettingsStore store;
@@ -203,6 +209,47 @@ void main() {
     expect(saved['alias'], 'forge-test');
     expect(saved.toString(), isNot(contains('hunter2')));
     expect(saved.toString(), isNot(contains('k3y')));
+  });
+
+  group('what stops Build and Sign', () {
+    test(
+      'Build: the project, then the key while Sign after build is on',
+      () async {
+        await container.read(toolchainProvider.future);
+
+        expect(container.read(buildProblemsProvider), [
+          'Choose the Flutter project folder.',
+          'Signing: Choose a keystore.',
+        ]);
+
+        container
+            .read(buildOptionsProvider.notifier)
+            .update(
+              (o) => o.copyWith(projectDir: project(), signAfterBuild: false),
+            );
+        expect(container.read(buildProblemsProvider), isEmpty);
+      },
+    );
+
+    test('without the tools: Build needs flutter and Sign apksigner', () async {
+      final bare = ProviderContainer.test(
+        overrides: [
+          environmentProvider.overrideWithValue(const {}),
+          settingsStoreProvider.overrideWithValue(MemorySettingsStore()),
+          toolchainProvider.overrideWith(_NoTools.new),
+        ],
+      );
+      await bare.read(toolchainProvider.future);
+
+      expect(
+        bare.read(buildProblemsProvider).first,
+        'flutter was not found. Set it in Tools.',
+      );
+      expect(bare.read(signProblemsProvider), [
+        'apksigner was not found (Android SDK build-tools).',
+        'Choose a keystore.',
+      ]);
+    });
   });
 
   group('signingSetup', () {
