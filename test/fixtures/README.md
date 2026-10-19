@@ -17,6 +17,11 @@ macOS with Flutter 3.47.5 and Android SDK build-tools 36.0.0.
 | `apksigner_verify_rotated_v31.txt` | the same | the same rotation with the default `--rotation-min-sdk-version` (33): v3.1 carries the new key, v3 the old one |
 | `apksigner_lineage_rotated.txt` | `apksigner lineage --in <apk> --print-certs` | either rotated APK (both print the same lineage) |
 | `apksigner_lineage_none.txt` | the same (exit code 1) | the old-key APK, which has no lineage |
+| `keytool_certreq_ok.txt` | `keytool -J-Duser.language=en -certreq` | a throwaway JKS whose key has its own password, both passwords right (captured 2026-10-18) |
+| `keytool_certreq_wrong_key_password.txt` | the same (exit code 1) | the same keystore, a wrong key password |
+| `keytool_certreq_wrong_store_password.txt` | the same (exit code 1) | the same keystore, a wrong keystore password |
+| `keytool_certreq_no_alias.txt` | the same (exit code 1) | the same keystore, an alias it doesn't have |
+| `keytool_list_wrong_password.txt` | `keytool -J-Duser.language=en -list -v` (exit code 1) | that keystore, a wrong keystore password: `-v` adds the stack trace |
 | `keytool_list.txt` | `keytool -J-Duser.language=en -list -v` | a throwaway JKS with an RSA and an EC key |
 | `adb_device_info_emulator.txt` | `adb shell "<deviceInfoScript()>"` | Pixel 8 emulator, API 33 (`persist.sys.timezone` and `vendor.qemu.timezone` set to `Etc/UTC`; they held the host's zone) |
 | `adb_pm_path_single.txt` | `adb shell pm path com.google.android.apps.meetings` | a phone, Android 13: an app installed from Play as one APK (captured 2026-10-18) |
@@ -26,5 +31,7 @@ macOS with Flutter 3.47.5 and Android SDK build-tools 36.0.0.
 | `flutter_build_debug.txt` | `flutter build apk --debug --target-platform android-arm64` | the sample |
 
 The test keystore's certificates (`CN=APK Forge Test`, `CN=Second Key`), the
-rotation's throwaway keys (`CN=APK Forge Old Key`, `CN=APK Forge New Key`)
-and the Android debug certificate are not secret.
+rotation's throwaway keys (`CN=APK Forge Old Key`, `CN=APK Forge New Key`),
+the key check's throwaway key (`CN=APK Forge Key Check`, whose certificate
+request is in `keytool_certreq_ok.txt`) and the Android debug certificate are
+not secret.

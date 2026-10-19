@@ -162,6 +162,22 @@ void main() {
       ]);
     });
 
+    test('the key check reads both passwords from the environment', () {
+      expect(keytoolCertreqArguments('/keys/release.jks', 'upload'), [
+        '-J-Duser.language=en',
+        '-J-Duser.country=US',
+        '-certreq',
+        '-keystore',
+        '/keys/release.jks',
+        '-alias',
+        'upload',
+        '-storepass:env',
+        keystorePasswordVariable,
+        '-keypass:env',
+        keyPasswordVariable,
+      ]);
+    });
+
     test('the passwords travel in the environment, never in the arguments', () {
       final arguments = apksignerSignArguments(
         request,

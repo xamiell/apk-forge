@@ -203,6 +203,39 @@ void main() {
     });
   });
 
+  group('parseKeyOpenFailure', () {
+    test('a certificate request printed: the key opens', () {
+      expect(parseKeyOpenFailure(fixture('keytool_certreq_ok.txt')), isNull);
+    });
+
+    test('says which password, or which alias, is wrong', () {
+      expect(
+        parseKeyOpenFailure(fixture('keytool_certreq_wrong_key_password.txt')),
+        'The key password (keyPassword) is wrong.',
+      );
+      expect(
+        parseKeyOpenFailure(
+          fixture('keytool_certreq_wrong_store_password.txt'),
+        ),
+        'The keystore password (storePassword) is wrong.',
+      );
+      expect(
+        parseKeyOpenFailure(fixture('keytool_certreq_no_alias.txt')),
+        'The keystore has no key "missing" (keyAlias).',
+      );
+    });
+
+    test('another keytool error keeps its message', () {
+      expect(
+        parseKeyOpenFailure([
+          'keytool error: java.lang.Exception: Keystore file does not exist: x',
+        ]),
+        'Keystore file does not exist: x',
+      );
+      expect(parseKeyOpenFailure(const []), 'keytool could not open the key.');
+    });
+  });
+
   group('parseKeytoolList', () {
     test('reads each alias with its first certificate', () {
       final entries = parseKeytoolList(fixture('keytool_list.txt'));

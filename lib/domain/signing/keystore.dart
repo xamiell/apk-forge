@@ -111,3 +111,47 @@ List<String> keytoolListArguments(String keystorePath) => [
   '-storepass:env',
   keystorePasswordVariable,
 ];
+
+/// `keytool` arguments that open [alias]'s private key with both passwords
+/// (from the environment) and print a certificate request: it fails on a
+/// wrong key password, which `-list` doesn't check. It writes nothing.
+List<String> keytoolCertreqArguments(String keystorePath, String alias) => [
+  '-J-Duser.language=en',
+  '-J-Duser.country=US',
+  '-certreq',
+  '-keystore',
+  keystorePath,
+  '-alias',
+  alias,
+  '-storepass:env',
+  keystorePasswordVariable,
+  '-keypass:env',
+  keyPasswordVariable,
+];
+
+/// Why `keytool -certreq` couldn't open the key, in plain words; `null`
+/// when it printed the request, so the key opens.
+String? parseKeyOpenFailure(Iterable<String> lines) {
+  final all = lines.map((line) => line.trim()).toList();
+  if (all.contains('-----BEGIN NEW CERTIFICATE REQUEST-----')) return null;
+  for (final line in all) {
+    if (line.contains('UnrecoverableKeyException')) {
+      return 'The key password (keyPassword) is wrong.';
+    }
+    if (line.contains('password was incorrect')) {
+      return 'The keystore password (storePassword) is wrong.';
+    }
+    final alias = _missingAlias.firstMatch(line);
+    if (alias != null) {
+      return 'The keystore has no key "${alias.group(1)}" (keyAlias).';
+    }
+    if (line.startsWith('keytool error: ')) {
+      final message = line.substring('keytool error: '.length);
+      final colon = message.indexOf(': ');
+      return colon >= 0 ? message.substring(colon + 2) : message;
+    }
+  }
+  return 'keytool could not open the key.';
+}
+
+final _missingAlias = RegExp(r'Alias <(.+)> does not exist');
