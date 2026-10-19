@@ -107,6 +107,22 @@ class BuildOptions {
   ApkPackaging get effectivePackaging =>
       canSplit ? packaging : ApkPackaging.universal;
 
+  /// What the build writes, in a line for the Build panel.
+  String get outputSummary {
+    final count = abis.length;
+    if (count == 0) return 'Choose an architecture in Defaults.';
+    if (effectivePackaging == ApkPackaging.splitPerAbi) {
+      return 'One APK per architecture: $count APKs.';
+    }
+    if (count == 1) {
+      return 'One APK for ${abis.single.abiName}. Split needs two or more '
+          'architectures.';
+    }
+    return count == AndroidAbi.values.length
+        ? 'One APK with every architecture.'
+        : 'One APK with the $count architectures in Defaults.';
+  }
+
   BuildOptions copyWith({
     String? projectDir,
     BuildMode? mode,

@@ -1,8 +1,10 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../domain/build/build_options.dart';
+import '../domain/signing/abi_split.dart';
 import '../domain/signing/keystore.dart';
 import '../domain/signing/signing.dart';
+import 'apks.dart';
 import 'providers.dart';
 
 // ---------------------------------------------------------------- Defaults
@@ -337,6 +339,19 @@ final signingProblemProvider = Provider<String?>(
     NotReadyToSign(:final problem) => problem,
   },
 );
+
+/// Whether Sign's "Split per ABI and sign" can run on the APK selected in
+/// Analyze APK, or, with none selected, on files picked then.
+final splitAvailabilityProvider = Provider<SplitAvailability>((ref) {
+  final chosen = ref.watch(defaultsProvider.select((d) => d.abiNames));
+  final selected = ref.watch(apkListProvider.select((l) => l.selectedPath));
+  return splitAvailability(
+    chosen,
+    contents: selected == null
+        ? null
+        : ref.watch(apkReportProvider(selected)).value?.contents,
+  );
+});
 
 // ---------------------------------------------------------------- Install
 

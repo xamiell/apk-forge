@@ -106,7 +106,7 @@ class BuildCard extends ConsumerWidget {
           ),
           const SizedBox(height: 6),
           Text(
-            _outputSummary(options),
+            options.outputSummary,
             style: TextStyle(fontSize: 12, color: context.status.muted),
           ),
           const SizedBox(height: 8),
@@ -173,21 +173,6 @@ class BuildCard extends ConsumerWidget {
       ),
     );
   }
-}
-
-String _outputSummary(BuildOptions options) {
-  final count = options.abis.length;
-  if (count == 0) return 'Choose an architecture in Defaults.';
-  if (options.effectivePackaging == ApkPackaging.splitPerAbi) {
-    return 'One APK per architecture: $count APKs.';
-  }
-  if (count == 1) {
-    return 'One APK for ${options.abis.single.abiName}. Split needs two or '
-        'more architectures.';
-  }
-  return count == AndroidAbi.values.length
-      ? 'One APK with every architecture.'
-      : 'One APK with the $count architectures in Defaults.';
 }
 
 /// The exact command the button runs, so nothing happens behind the user's

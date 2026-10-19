@@ -58,6 +58,34 @@ void main() {
       );
     });
 
+    test('the output summary says how many APKs, and with what', () {
+      const every = BuildOptions();
+      final two = every.copyWith(abis: {AndroidAbi.arm64V8a, AndroidAbi.x8664});
+
+      expect(every.outputSummary, 'One APK with every architecture.');
+      expect(
+        two.outputSummary,
+        'One APK with the 2 architectures in Defaults.',
+      );
+      expect(
+        two.copyWith(packaging: ApkPackaging.splitPerAbi).outputSummary,
+        'One APK per architecture: 2 APKs.',
+      );
+      expect(
+        every
+            .copyWith(
+              abis: {AndroidAbi.x8664},
+              packaging: ApkPackaging.splitPerAbi,
+            )
+            .outputSummary,
+        'One APK for x86_64. Split needs two or more architectures.',
+      );
+      expect(
+        every.copyWith(abis: {}).outputSummary,
+        'Choose an architecture in Defaults.',
+      );
+    });
+
     test('obfuscation adds the symbols folder', () {
       final options = const BuildOptions().copyWith(
         obfuscate: true,

@@ -204,9 +204,12 @@ class _SignActions extends ConsumerWidget {
     final sign = ref.read(signActionProvider);
     final split = ref.read(splitAndSignActionProvider);
     final selected = ref.watch(apkListProvider.select((list) => list.selected));
-    final defaults = ref.watch(defaultsProvider);
+    final availability = ref.watch(splitAvailabilityProvider);
+    final cannotSplit = switch (availability) {
+      CannotSplit(:final reason) => reason,
+      CanSplit() => null,
+    };
     final muted = TextStyle(fontSize: 12, color: context.status.muted);
-    final fewAbis = defaults.abis.length < 2;
 
     Future<void> pick(Future<void> Function(List<String>) action) async {
       final files = await openFiles(acceptedTypeGroups: const [apkTypes]);
@@ -224,11 +227,11 @@ class _SignActions extends ConsumerWidget {
           ),
           const SizedBox(height: 8),
           Tooltip(
-            message: fewAbis
-                ? 'Needs two or more architectures in Defaults.'
-                : _splitTooltip,
+            message: cannotSplit ?? _splitTooltip,
             child: OutlinedButton.icon(
-              onPressed: canSign && !fewAbis ? () => pick(split.run) : null,
+              onPressed: canSign && cannotSplit == null
+                  ? () => pick(split.run)
+                  : null,
               icon: const Icon(Icons.call_split),
               label: const Text('Split per ABI and sign…'),
             ),
@@ -243,26 +246,6 @@ class _SignActions extends ConsumerWidget {
     }
 
     final name = ref.watch(hostProvider).path.basename(selected.path);
-    final contents = ref
-        .watch(apkReportProvider(selected.path))
-        .value
-        ?.contents;
-    final plan = contents == null
-        ? null
-        : planAbiSplit(contents, only: defaults.abiNames);
-    final String? cannotSplit;
-    if (fewAbis) {
-      cannotSplit = 'Needs two or more architectures in Defaults.';
-    } else if (plan == null || plan.canSplit) {
-      cannotSplit = null;
-    } else if (plan.noneChosen) {
-      cannotSplit = 'It has none of the architectures in Defaults.';
-    } else {
-      cannotSplit = plan.abis.isEmpty
-          ? 'It has no native code: nothing to split.'
-          : 'It only has ${plan.abis.single}: nothing to split.';
-    }
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -292,7 +275,10 @@ class _SignActions extends ConsumerWidget {
           ),
         ),
         const SizedBox(height: 6),
-        Text(cannotSplit ?? _splitSummary(plan, defaults), style: muted),
+        Text(switch (availability) {
+          CanSplit(:final summary) => summary,
+          CannotSplit(:final reason) => reason,
+        }, style: muted),
         const SizedBox(height: 4),
         Align(
           alignment: Alignment.centerLeft,
@@ -304,20 +290,6 @@ class _SignActions extends ConsumerWidget {
         ),
       ],
     );
-  }
-
-  /// "Writes 3 signed APKs, one per architecture in Defaults: …".
-  static String _splitSummary(AbiSplitPlan? plan, WorkbenchDefaults defaults) {
-    final abis = plan?.abis ?? defaults.abiNames.toList();
-    final count = abis.length;
-    final writes = count == 1
-        ? 'Writes 1 signed APK, for ${abis.single}.'
-        : 'Writes $count signed APKs, one per architecture in Defaults: '
-              '${abis.join(', ')}.';
-    final missing = plan?.missing ?? const [];
-    return missing.isEmpty
-        ? writes
-        : '$writes It has no ${missing.join(', ')}.';
   }
 }
 
