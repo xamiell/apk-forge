@@ -46,6 +46,23 @@ class ProfileTabNotifier extends Notifier<ProfileTab> {
 class ProfilesState {
   const ProfilesState({this.profiles = const [], this.selectedId});
 
+  /// A selection that's gone falls back to the first profile.
+  factory ProfilesState.fromJson(Map<String, Object?> json) {
+    final profiles = [
+      for (final profile in json['profiles'] as List<Object?>? ?? const [])
+        if (profile is Map<String, Object?>) SigningProfile.fromJson(profile),
+    ];
+    final selected = json['selected'] as String?;
+    return ProfilesState(
+      profiles: profiles,
+      selectedId: profiles.any((profile) => profile.id == selected)
+          ? selected
+          : profiles.isEmpty
+          ? null
+          : profiles.first.id,
+    );
+  }
+
   final List<SigningProfile> profiles;
   final String? selectedId;
 
@@ -57,6 +74,11 @@ class ProfilesState {
     }
     return null;
   }
+
+  Map<String, Object?> toJson() => {
+    'profiles': [for (final profile in profiles) profile.toJson()],
+    'selected': selectedId,
+  };
 }
 
 /// The saved profiles. They hold paths and choices; the passwords stay in
@@ -66,32 +88,17 @@ final profilesProvider = NotifierProvider<ProfilesNotifier, ProfilesState>(
 );
 
 class ProfilesNotifier extends Notifier<ProfilesState> {
-  static const _key = 'profiles';
-
   @override
   ProfilesState build() {
-    final saved = ref.read(settingsStoreProvider).read(_key);
-    final profiles = [
-      for (final json in saved?['profiles'] as List<Object?>? ?? const [])
-        if (json is Map<String, Object?>) SigningProfile.fromJson(json),
-    ];
-    final selected = saved?['selected'] as String?;
-    return ProfilesState(
-      profiles: profiles,
-      selectedId: profiles.any((profile) => profile.id == selected)
-          ? selected
-          : profiles.isEmpty
-          ? null
-          : profiles.first.id,
-    );
+    final saved = ref.read(settingsStoreProvider).read(SettingsKey.profiles);
+    return saved == null
+        ? const ProfilesState()
+        : ProfilesState.fromJson(saved);
   }
 
   void _set(List<SigningProfile> profiles, String? selectedId) {
     state = ProfilesState(profiles: profiles, selectedId: selectedId);
-    ref.read(settingsStoreProvider).write(_key, {
-      'profiles': [for (final profile in profiles) profile.toJson()],
-      'selected': selectedId,
-    });
+    ref.read(settingsStoreProvider).write(SettingsKey.profiles, state.toJson());
   }
 
   /// A new id, unique among the profiles and their targets.
@@ -173,24 +180,26 @@ final profileHistoryProvider =
     );
 
 class ProfileHistoryNotifier extends Notifier<List<ProfileRunRecord>> {
-  static const _key = 'profile_history';
-
   /// The oldest runs go beyond this, so the settings stay small.
   static const limit = 200;
 
+  static const _runs = 'runs';
+
   @override
   List<ProfileRunRecord> build() {
-    final saved = ref.read(settingsStoreProvider).read(_key);
+    final saved = ref
+        .read(settingsStoreProvider)
+        .read(SettingsKey.profileHistory);
     return [
-      for (final json in saved?['runs'] as List<Object?>? ?? const [])
+      for (final json in saved?[_runs] as List<Object?>? ?? const [])
         if (json is Map<String, Object?>) ProfileRunRecord.fromJson(json),
     ];
   }
 
   void _set(List<ProfileRunRecord> runs) {
     state = runs.take(limit).toList();
-    ref.read(settingsStoreProvider).write(_key, {
-      'runs': [for (final run in state) run.toJson()],
+    ref.read(settingsStoreProvider).write(SettingsKey.profileHistory, {
+      _runs: [for (final run in state) run.toJson()],
     });
   }
 

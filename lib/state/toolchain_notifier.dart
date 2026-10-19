@@ -12,15 +12,12 @@ final toolOverridesProvider =
     );
 
 class ToolOverridesNotifier extends Notifier<ToolOverrides> {
-  static const _key = 'tools';
-
   @override
   ToolOverrides build() {
-    final saved = ref.read(settingsStoreProvider).read(_key);
-    return ToolOverrides(
-      flutterSdk: saved?['flutterSdk'] as String?,
-      androidSdk: saved?['androidSdk'] as String?,
-    );
+    final saved = ref.read(settingsStoreProvider).read(SettingsKey.tools);
+    return saved == null
+        ? const ToolOverrides()
+        : ToolOverrides.fromJson(saved);
   }
 
   void set({required String? flutterSdk, required String? androidSdk}) {
@@ -30,10 +27,7 @@ class ToolOverridesNotifier extends Notifier<ToolOverrides> {
       flutterSdk: clean(flutterSdk),
       androidSdk: clean(androidSdk),
     );
-    ref.read(settingsStoreProvider).write(_key, {
-      'flutterSdk': state.flutterSdk,
-      'androidSdk': state.androidSdk,
-    });
+    ref.read(settingsStoreProvider).write(SettingsKey.tools, state.toJson());
   }
 }
 

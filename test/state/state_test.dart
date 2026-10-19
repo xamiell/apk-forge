@@ -307,7 +307,7 @@ void main() {
           (f) => f.copyWith(keyUsesStorePassword: false, keyPassword: 'k3y'),
         );
 
-    final saved = store.values['signing']!;
+    final saved = store.values[SettingsKey.signing]!;
     expect(saved['keystorePath'], '/k.jks');
     expect(saved['alias'], 'forge-test');
     expect(saved.toString(), isNot(contains('hunter2')));
@@ -326,7 +326,7 @@ void main() {
   });
 
   test('build options come back from the settings', () {
-    store.values['build'] = {
+    store.values[SettingsKey.build] = {
       'projectDir': '/w/app',
       'mode': 'debug',
       'packaging': 'splitPerAbi',
@@ -359,7 +359,7 @@ void main() {
         );
 
       expect(container.read(buildOptionsProvider).abis, {AndroidAbi.arm64V8a});
-      expect(store.values['defaults'], {
+      expect(store.values[SettingsKey.defaults], {
         'abis': ['arm64-v8a'],
         'schemes': {'v1': false, 'v2': true, 'v3': true, 'v4': null},
         'folded': true,
@@ -376,11 +376,11 @@ void main() {
     });
 
     test('the ABIs and schemes saved in Build and Sign move here, once', () {
-      store.values['build'] = {
+      store.values[SettingsKey.build] = {
         'projectDir': '/w/app',
         'abis': ['arm64-v8a', 'x86_64'],
       };
-      store.values['signing'] = {
+      store.values[SettingsKey.signing] = {
         'keystorePath': '/k.jks',
         'schemes': {'v1': true, 'v2': true, 'v3': false, 'v4': false},
       };
@@ -394,16 +394,19 @@ void main() {
       expect(defaults.schemes.label, 'v1, v2');
       expect(container.read(buildOptionsProvider).abis, defaults.abis);
       // Build and Sign no longer save them.
-      expect(store.values['build']!.containsKey('abis'), isFalse);
-      expect(store.values['signing']!.containsKey('schemes'), isFalse);
+      expect(store.values[SettingsKey.build]!.containsKey('abis'), isFalse);
+      expect(
+        store.values[SettingsKey.signing]!.containsKey('schemes'),
+        isFalse,
+      );
 
       // Once there, Defaults wins.
       container.read(defaultsProvider.notifier).toggleAbi(AndroidAbi.x8664);
-      store.values['build'] = {
+      store.values[SettingsKey.build] = {
         'abis': ['armeabi-v7a'],
       };
       migrateSettings(store);
-      expect(store.values['defaults']!['abis'], ['arm64-v8a']);
+      expect(store.values[SettingsKey.defaults]!['abis'], ['arm64-v8a']);
     });
 
     test('nothing saved before: nothing to move', () {

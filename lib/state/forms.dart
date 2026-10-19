@@ -19,6 +19,13 @@ class WorkbenchDefaults {
     this.folded = false,
   });
 
+  factory WorkbenchDefaults.fromJson(Map<String, Object?> json) =>
+      WorkbenchDefaults(
+        abis: _abisFromJson(json['abis']) ?? const WorkbenchDefaults().abis,
+        schemes: SigningSchemes.fromJson(json['schemes']),
+        folded: json['folded'] as bool? ?? false,
+      );
+
   /// What Build targets, and the APKs "Split per ABI and sign" writes.
   final Set<AndroidAbi> abis;
 
@@ -43,6 +50,12 @@ class WorkbenchDefaults {
     schemes: schemes ?? this.schemes,
     folded: folded ?? this.folded,
   );
+
+  Map<String, Object?> toJson() => {
+    'abis': abiNames.toList(),
+    'schemes': schemes.toJson(),
+    'folded': folded,
+  };
 }
 
 final defaultsProvider = NotifierProvider<DefaultsNotifier, WorkbenchDefaults>(
@@ -50,26 +63,17 @@ final defaultsProvider = NotifierProvider<DefaultsNotifier, WorkbenchDefaults>(
 );
 
 class DefaultsNotifier extends Notifier<WorkbenchDefaults> {
-  static const _key = 'defaults';
-
   @override
   WorkbenchDefaults build() {
-    final saved = ref.read(settingsStoreProvider).read(_key);
-    if (saved == null) return const WorkbenchDefaults();
-    return WorkbenchDefaults(
-      abis: _abisFromJson(saved['abis']) ?? const WorkbenchDefaults().abis,
-      schemes: SigningSchemes.fromJson(saved['schemes']),
-      folded: saved['folded'] as bool? ?? false,
-    );
+    final saved = ref.read(settingsStoreProvider).read(SettingsKey.defaults);
+    return saved == null
+        ? const WorkbenchDefaults()
+        : WorkbenchDefaults.fromJson(saved);
   }
 
   void update(WorkbenchDefaults Function(WorkbenchDefaults defaults) change) {
     state = change(state);
-    ref.read(settingsStoreProvider).write(_key, {
-      'abis': state.abiNames.toList(),
-      'schemes': state.schemes.toJson(),
-      'folded': state.folded,
-    });
+    ref.read(settingsStoreProvider).write(SettingsKey.defaults, state.toJson());
   }
 
   void toggleAbi(AndroidAbi abi) => update((defaults) {
@@ -91,14 +95,18 @@ Set<AndroidAbi>? _abisFromJson(Object? json) => json is List
 /// the signature schemes, to Defaults. Runs once, before anything reads or
 /// writes the settings: Build and Sign no longer save them.
 void migrateSettings(SettingsStore store) {
-  if (store.read(DefaultsNotifier._key) != null) return;
-  final build = store.read(BuildOptionsNotifier._key);
-  final signing = store.read(SigningFormNotifier._key);
-  if (build?['abis'] == null && signing?['schemes'] == null) return;
-  store.write(DefaultsNotifier._key, {
-    'abis': build?['abis'],
-    'schemes': signing?['schemes'],
-  });
+  if (store.read(SettingsKey.defaults) != null) return;
+  // Where Build and Sign kept them, before Defaults.
+  final abis = store.read(SettingsKey.build)?['abis'];
+  final schemes = store.read(SettingsKey.signing)?['schemes'];
+  if (abis == null && schemes == null) return;
+  store.write(
+    SettingsKey.defaults,
+    WorkbenchDefaults(
+      abis: _abisFromJson(abis) ?? const WorkbenchDefaults().abis,
+      schemes: SigningSchemes.fromJson(schemes),
+    ).toJson(),
+  );
 }
 
 // ---------------------------------------------------------------- Build
@@ -109,39 +117,19 @@ final buildOptionsProvider =
     );
 
 class BuildOptionsNotifier extends Notifier<BuildOptions> {
-  static const _key = 'build';
-
   /// The architectures are the ones in Defaults, and change there.
   @override
   BuildOptions build() {
     final abis = ref.watch(defaultsProvider.select((d) => d.abis));
-    final saved = ref.read(settingsStoreProvider).read(_key);
-    if (saved == null) return BuildOptions(abis: abis);
-    const defaults = BuildOptions();
-    return BuildOptions(
-      projectDir: saved['projectDir'] as String? ?? '',
-      mode: BuildMode.values.asNameMap()[saved['mode']] ?? defaults.mode,
-      abis: abis,
-      packaging:
-          ApkPackaging.values.asNameMap()[saved['packaging']] ??
-          defaults.packaging,
-      obfuscate: saved['obfuscate'] as bool? ?? false,
-      symbolsDir: saved['symbolsDir'] as String? ?? '',
-      signAfterBuild:
-          saved['signAfterBuild'] as bool? ?? defaults.signAfterBuild,
-    );
+    final saved = ref.read(settingsStoreProvider).read(SettingsKey.build);
+    return saved == null
+        ? BuildOptions(abis: abis)
+        : BuildOptions.fromJson(saved, abis: abis);
   }
 
   void update(BuildOptions Function(BuildOptions options) change) {
     state = change(state);
-    ref.read(settingsStoreProvider).write(_key, {
-      'projectDir': state.projectDir,
-      'mode': state.mode.name,
-      'packaging': state.packaging.name,
-      'obfuscate': state.obfuscate,
-      'symbolsDir': state.symbolsDir,
-      'signAfterBuild': state.signAfterBuild,
-    });
+    ref.read(settingsStoreProvider).write(SettingsKey.build, state.toJson());
   }
 
   /// Picking a project also proposes `<project>/build/symbols` for the
@@ -173,6 +161,14 @@ class SigningForm {
     this.keyPassword = '',
     this.outputDir = '',
   });
+
+  /// What [toJson] saved: no password, and no key until they're loaded.
+  factory SigningForm.fromJson(Map<String, Object?> json) => SigningForm(
+    keystorePath: json['keystorePath'] as String? ?? '',
+    alias: json['alias'] as String?,
+    keyUsesStorePassword: json['keyUsesStorePassword'] as bool? ?? true,
+    outputDir: json['outputDir'] as String? ?? '',
+  );
 
   final String keystorePath;
 
@@ -242,6 +238,14 @@ class SigningForm {
     keyPassword: keyPassword ?? this.keyPassword,
     outputDir: outputDir ?? this.outputDir,
   );
+
+  /// Everything but the passwords, and the keys read with them.
+  Map<String, Object?> toJson() => {
+    'keystorePath': keystorePath,
+    'alias': alias,
+    'keyUsesStorePassword': keyUsesStorePassword,
+    'outputDir': outputDir,
+  };
 }
 
 final signingFormProvider = NotifierProvider<SigningFormNotifier, SigningForm>(
@@ -249,29 +253,15 @@ final signingFormProvider = NotifierProvider<SigningFormNotifier, SigningForm>(
 );
 
 class SigningFormNotifier extends Notifier<SigningForm> {
-  static const _key = 'signing';
-
   @override
   SigningForm build() {
-    final saved = ref.read(settingsStoreProvider).read(_key);
-    if (saved == null) return const SigningForm();
-    return SigningForm(
-      keystorePath: saved['keystorePath'] as String? ?? '',
-      alias: saved['alias'] as String?,
-      keyUsesStorePassword: saved['keyUsesStorePassword'] as bool? ?? true,
-      outputDir: saved['outputDir'] as String? ?? '',
-    );
+    final saved = ref.read(settingsStoreProvider).read(SettingsKey.signing);
+    return saved == null ? const SigningForm() : SigningForm.fromJson(saved);
   }
 
   void update(SigningForm Function(SigningForm form) change) {
     state = change(state);
-    // Everything but the passwords.
-    ref.read(settingsStoreProvider).write(_key, {
-      'keystorePath': state.keystorePath,
-      'alias': state.alias,
-      'keyUsesStorePassword': state.keyUsesStorePassword,
-      'outputDir': state.outputDir,
-    });
+    ref.read(settingsStoreProvider).write(SettingsKey.signing, state.toJson());
   }
 
   /// Another keystore: its keys and password are unknown again.
