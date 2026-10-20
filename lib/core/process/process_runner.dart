@@ -112,6 +112,11 @@ class IoProcessRunner implements ProcessRunner {
       onOutput?.call(OutputStream.stderr, reason);
       return CommandResult(exitCode: startFailureExitCode, stderr: [reason]);
     }
+    // No tool the app runs reads its input. With it closed, one that asks
+    // for something (apksigner, for a key password it wasn't given) fails
+    // at once instead of waiting forever. A process that already ended
+    // makes the close fail: nothing to do then.
+    process.stdin.close().ignore();
 
     final stdoutLines = <String>[];
     final stderrLines = <String>[];

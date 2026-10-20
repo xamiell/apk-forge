@@ -17,6 +17,9 @@ macOS with Flutter 3.47.5 and Android SDK build-tools 36.0.0.
 | `apksigner_verify_rotated_v31.txt` | the same | the same rotation with the default `--rotation-min-sdk-version` (33): v3.1 carries the new key, v3 the old one |
 | `apksigner_lineage_rotated.txt` | `apksigner lineage --in <apk> --print-certs` | either rotated APK (both print the same lineage) |
 | `apksigner_lineage_none.txt` | the same (exit code 1) | the old-key APK, which has no lineage |
+| `apksigner_sign_key_password_missing.txt` | `apksigner sign --ks … --ks-pass env:… --ks-key-alias upload --out … <apk>` with its input closed (exit code 2) | a throwaway JKS whose key has a password of its own (`CN=APK Forge Key Password`), without `--key-pass`: what it wrote to stderr. Its stdout was only the prompt `Key "upload" password for signer #1: ` (captured 2026-10-19 with build-tools 36.0.0) |
+| `apksigner_sign_wrong_key_password.txt` | the same with `--key-pass env:…` (exit code 2) | that keystore, a wrong key password: stderr |
+| `apksigner_sign_wrong_store_password.txt` | the same (exit code 2) | that keystore, a wrong keystore password: stderr |
 | `keytool_certreq_ok.txt` | `keytool -J-Duser.language=en -certreq` | a throwaway JKS whose key has its own password, both passwords right (captured 2026-10-18) |
 | `keytool_certreq_wrong_key_password.txt` | the same (exit code 1) | the same keystore, a wrong key password |
 | `keytool_certreq_wrong_store_password.txt` | the same (exit code 1) | the same keystore, a wrong keystore password |
@@ -33,5 +36,6 @@ macOS with Flutter 3.47.5 and Android SDK build-tools 36.0.0.
 The test keystore's certificates (`CN=APK Forge Test`, `CN=Second Key`), the
 rotation's throwaway keys (`CN=APK Forge Old Key`, `CN=APK Forge New Key`),
 the key check's throwaway key (`CN=APK Forge Key Check`, whose certificate
-request is in `keytool_certreq_ok.txt`) and the Android debug certificate are
-not secret.
+request is in `keytool_certreq_ok.txt`), the signing failures' throwaway key
+(`CN=APK Forge Key Password`) and the Android debug certificate are not
+secret.

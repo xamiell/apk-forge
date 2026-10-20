@@ -119,16 +119,46 @@ void main() {
       expect(File(aligned).parent.existsSync(), isFalse);
     });
 
-    test('a wrong password fails with apksigner\'s reason, masked', () async {
+    test(
+      'a key that does not open says which password, and what to do',
+      () async {
+        final cases = {
+          'apksigner_sign_key_password_missing.txt':
+              KeyLoadFailure.keyPasswordMissing,
+          'apksigner_sign_wrong_key_password.txt':
+              KeyLoadFailure.keyPasswordWrong,
+          'apksigner_sign_wrong_store_password.txt':
+              KeyLoadFailure.storePasswordWrong,
+        };
+        for (final MapEntry(key: name, value: expected) in cases.entries) {
+          final runner = FakeProcessRunner()
+            ..whenFirstArg('sign', failed(2, stderr: fixture(name)));
+
+          final future = service().sign(
+            ToolExecutor(runner, RecordingLog()),
+            toolchain: _toolchain,
+            input: p.join(temp.path, 'a.apk'),
+            request: request,
+          );
+
+          await expectLater(
+            future,
+            throwsA(
+              isA<ToolFailure>()
+                  .having((f) => f.title, 'title', expected.problem)
+                  .having((f) => f.details, 'details', [expected.fix]),
+            ),
+            reason: name,
+          );
+          expect(runner.callsWithFirstArg('verify'), isEmpty, reason: name);
+        }
+      },
+    );
+
+    test('another failure keeps apksigner\'s reason, masked', () async {
       runner.whenFirstArg(
         'sign',
-        failed(
-          1,
-          stderr: [
-            'Failed to load signer "signer #1"',
-            'java.io.IOException: Keystore was tampered with, or password was incorrect',
-          ],
-        ),
+        failed(1, stderr: ['ERROR: could not write out.apk for hunter2']),
       );
 
       final future = service().sign(
@@ -144,13 +174,12 @@ void main() {
           isA<ToolFailure>()
               .having((f) => f.title, 'title', 'Signing failed (exit code 1)')
               .having(
-                (f) => f.details.last,
+                (f) => f.details.single,
                 'reason',
-                contains('password was incorrect'),
+                'ERROR: could not write out.apk for ••••',
               ),
         ),
       );
-      expect(runner.callsWithFirstArg('verify'), isEmpty);
     });
 
     test('a failed signing leaves an earlier signed APK intact and no partial file', () async {

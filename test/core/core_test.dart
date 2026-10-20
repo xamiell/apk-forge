@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:apk_forge/core/format/format.dart';
+import 'package:apk_forge/core/process/command.dart';
 import 'package:apk_forge/core/process/process_runner.dart';
 import 'package:apk_forge/core/system/host.dart';
 import 'package:apk_forge/core/system/shell_environment.dart';
@@ -239,6 +240,25 @@ void main() {
     );
     expect(startsThroughShell(mac, '/opt/tools/flutter.bat'), isFalse);
   });
+
+  test(
+    'a tool that reads its input gets none, and ends instead of waiting',
+    () async {
+      final runner = IoProcessRunner(
+        Host(os: HostOs.macos, environment: Platform.environment),
+      );
+
+      // `cat` copies its input until it closes: with it left open, this
+      // never ends.
+      final result = await runner
+          .run(const Command('/bin/sh', ['-c', 'cat; echo "input closed"']))
+          .timeout(const Duration(seconds: 10));
+
+      expect(result.succeeded, isTrue);
+      expect(result.stdout, ['input closed']);
+    },
+    skip: Platform.isWindows ? 'needs a POSIX shell' : false,
+  );
 
   group('errorDetails', () {
     test('takes Gradle\'s "What went wrong" block without the advice', () {

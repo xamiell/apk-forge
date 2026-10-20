@@ -154,6 +154,52 @@ List<String> apksignerSignArguments(
   ];
 }
 
+/// Why `apksigner sign` couldn't open the key: which password, and what to
+/// do in Sign.
+enum KeyLoadFailure {
+  keyPasswordMissing(
+    'The key has a password of its own.',
+    'Untick "The key uses the keystore password" and enter the key password.',
+  ),
+  keyPasswordWrong(
+    'The key password is wrong.',
+    'Enter the key\'s own password, or tick "The key uses the keystore '
+        'password" if it has none.',
+  ),
+  storePasswordWrong(
+    'The keystore password is wrong.',
+    'Enter the keystore password again and load the keys.',
+  );
+
+  const KeyLoadFailure(this.problem, this.fix);
+
+  final String problem;
+  final String fix;
+}
+
+/// Why `apksigner sign` couldn't open the key, from its output; `null` when
+/// it failed for another reason.
+///
+/// Without `--key-pass` it asks for the key password on its input, which
+/// the app closes: "Failed to read … password …: standard input closed".
+KeyLoadFailure? parseKeyLoadFailure(Iterable<String> lines) {
+  for (final line in lines) {
+    if (line.contains(
+      'Keystore was tampered with, or password was incorrect',
+    )) {
+      return KeyLoadFailure.storePasswordWrong;
+    }
+    if (line.contains('Failed to obtain key with alias') ||
+        line.contains('UnrecoverableKeyException: Cannot recover key')) {
+      return KeyLoadFailure.keyPasswordWrong;
+    }
+    if (line.contains('Failed to read') && line.contains('password')) {
+      return KeyLoadFailure.keyPasswordMissing;
+    }
+  }
+  return null;
+}
+
 List<String> apksignerVerifyArguments(String apk) => [
   'verify',
   '--verbose',
