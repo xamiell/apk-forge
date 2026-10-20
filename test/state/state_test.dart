@@ -949,6 +949,26 @@ void main() {
       );
     });
 
+    test('the history tells a signed APK that is gone from one that is '
+        'there', () {
+      final container = ProviderContainer.test(
+        overrides: [
+          fileProbeProvider.overrideWithValue(
+            FakeFileProbe(files: {'/out/phone/app-Phone.apk'}),
+          ),
+        ],
+      );
+
+      expect(
+        container.read(signedApkGoneProvider('/out/phone/app-Phone.apk')),
+        isFalse,
+      );
+      expect(
+        container.read(signedApkGoneProvider('/out/kiosk/app-Kiosk.apk')),
+        isTrue,
+      );
+    });
+
     group('a run', () {
       const storePassword = 'st0re pass';
       const keyPassword = 'k3y pass';

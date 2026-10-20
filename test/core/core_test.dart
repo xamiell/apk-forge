@@ -353,6 +353,15 @@ void main() {
       );
     });
 
+    test('formatDuration counts seconds, then minutes, then hours', () {
+      expect(formatDuration(const Duration(seconds: 42)), '42 s');
+      expect(
+        formatDuration(const Duration(minutes: 2, seconds: 5)),
+        '2 min 5 s',
+      );
+      expect(formatDuration(const Duration(hours: 1, minutes: 3)), '1 h 3 min');
+    });
+
     test('shortPath keeps the file and its folder', () {
       expect(
         shortPath('/a/long/way/out/phone/app.apk', macHost),

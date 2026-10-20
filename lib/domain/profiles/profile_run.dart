@@ -329,6 +329,10 @@ class ProfileRunRecord {
   /// The build-tools whose apksigner and zipalign signed.
   final String? buildToolsVersion;
 
+  /// Whether it keeps how each target was signed. A record saved before
+  /// #14 has only the names, outputs and digests.
+  bool get hasDetails => fileNamePattern != null;
+
   int count(TargetStatus status) =>
       results.where((result) => result.status == status).length;
 

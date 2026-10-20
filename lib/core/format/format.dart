@@ -50,3 +50,12 @@ String formatDateTime(DateTime time) {
   return '${time.year}-${two(time.month)}-${two(time.day)} '
       '${two(time.hour)}:${two(time.minute)}';
 }
+
+/// `42 s`, `2 min 5 s`, `1 h 3 min`: how long a run took.
+String formatDuration(Duration duration) {
+  final seconds = duration.inSeconds.remainder(60);
+  final minutes = duration.inMinutes.remainder(60);
+  if (duration.inHours > 0) return '${duration.inHours} h $minutes min';
+  if (duration.inMinutes > 0) return '$minutes min $seconds s';
+  return '${duration.inSeconds} s';
+}

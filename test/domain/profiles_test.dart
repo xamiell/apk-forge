@@ -10,6 +10,7 @@ import 'package:apk_forge/domain/profiles/key_properties.dart';
 import 'package:apk_forge/domain/profiles/profile.dart';
 import 'package:apk_forge/domain/profiles/profile_plan.dart';
 import 'package:apk_forge/domain/profiles/profile_run.dart';
+import 'package:apk_forge/domain/profiles/run_report.dart';
 import 'package:apk_forge/domain/profiles/target_problems.dart';
 import 'package:apk_forge/domain/signing/signing.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -104,6 +105,117 @@ ProfileRunPlan _plan(
       ),
   date: _date,
 );
+
+/// A run with every detail #14 records: one target signed, one failed, one
+/// skipped.
+ProfileRunRecord _run() => ProfileRunRecord(
+  profileId: 'p1',
+  profileName: 'Release',
+  startedAt: _date,
+  finishedAt: _date.add(const Duration(seconds: 9)),
+  inputs: const [
+    RunInput(
+      name: 'app-release.apk',
+      sha256: 'abcd',
+      packageName: 'com.example.app',
+      versionName: '1.4.0',
+      versionCode: '140',
+      minSdk: 24,
+      unsigned: true,
+    ),
+  ],
+  results: const [
+    TargetResult(
+      target: 'Phone',
+      input: 'app-release.apk',
+      status: TargetStatus.signed,
+      outputPath: '/out/phone/app-Phone.apk',
+      sizeBytes: 14800000,
+      signerSha256: 'b34c',
+      setup: TargetSetup(
+        abi: 'arm64-v8a',
+        cut: true,
+        keyProperties: '/keys/key.properties',
+        keyAlias: 'upload',
+        schemes: SigningSchemes(v1: true, v2: true, v3: true, v4: true),
+        schemesFromDefaults: false,
+      ),
+      signerDistinguishedName: 'CN=APK Forge Test, O=Example, C=US',
+      verifiedSchemes: {
+        'v1': false,
+        'v2': true,
+        'v3': true,
+        'v3.1': false,
+        'v4': true,
+      },
+      hasJarSignature: true,
+      outputSha256: 'ef56',
+    ),
+    TargetResult(
+      target: 'Tablet',
+      input: 'app-release.apk',
+      status: TargetStatus.failed,
+      reason: '/out/tablet is not writable',
+      setup: TargetSetup(
+        abi: 'arm64-v8a',
+        cut: true,
+        keyProperties: '/keys/key.properties',
+        keyAlias: 'upload',
+        schemes: SigningSchemes(v1: true, v2: true, v3: true, v4: true),
+        schemesFromDefaults: false,
+        copiedFrom: 'Phone',
+      ),
+    ),
+    TargetResult(
+      target: 'Emulator',
+      input: 'app-release.apk',
+      status: TargetStatus.skipped,
+      reason: 'No Flutter engine for x86_64',
+      setup: TargetSetup(
+        abi: 'x86_64',
+        cut: false,
+        keyProperties: '/keys/other/key.properties',
+        schemes: SigningSchemes.automatic(),
+        schemesFromDefaults: true,
+      ),
+    ),
+  ],
+  fileNamePattern: '{name}-{target}',
+  inputChecks: const InputChecks(
+    packageName: 'com.example.app',
+    mustBeUnsigned: true,
+  ),
+  buildToolsVersion: '36.0.0',
+);
+
+/// A run as it was saved before #14.
+Map<String, Object?> _oldRun() => {
+  'profileId': 'p1',
+  'profileName': 'Release',
+  'startedAt': '2026-10-19T10:00:00.000',
+  'finishedAt': '2026-10-19T10:00:42.000',
+  'inputs': [
+    {
+      'name': 'app-release.apk',
+      'sha256': 'ab12',
+      'packageName': 'com.example.app',
+      'versionName': '1.2.0',
+      'versionCode': '12',
+    },
+  ],
+  'results': [
+    {
+      'target': 'Phone',
+      'input': 'app-release.apk',
+      'status': 'signed',
+      'outputPath': '/w/phone/app-release-Phone.apk',
+      'sizeBytes': 1024,
+      'signerSha256': 'cd34',
+      'reason': null,
+    },
+  ],
+  'cancelled': false,
+};
 
 void main() {
   group('key.properties', () {
@@ -715,78 +827,7 @@ void main() {
 
   group('run record', () {
     test('round-trips through JSON and sums up the results', () {
-      final record = ProfileRunRecord(
-        profileId: 'p1',
-        profileName: 'Release',
-        startedAt: _date,
-        finishedAt: _date.add(const Duration(seconds: 9)),
-        inputs: const [
-          RunInput(
-            name: 'app-release.apk',
-            sha256: 'abcd',
-            packageName: 'com.example.app',
-            versionName: '1.4.0',
-            versionCode: '140',
-            minSdk: 24,
-            unsigned: true,
-          ),
-        ],
-        results: const [
-          TargetResult(
-            target: 'Phone',
-            input: 'app-release.apk',
-            status: TargetStatus.signed,
-            outputPath: '/out/phone/app-Phone.apk',
-            sizeBytes: 14800000,
-            signerSha256: 'b34c',
-            setup: TargetSetup(
-              abi: 'arm64-v8a',
-              cut: true,
-              keyProperties: '/keys/key.properties',
-              keyAlias: 'upload',
-              schemes: SigningSchemes(v1: true, v2: true, v3: true, v4: true),
-              schemesFromDefaults: false,
-            ),
-            signerDistinguishedName: 'CN=APK Forge Test, O=Example, C=US',
-            verifiedSchemes: {
-              'v1': false,
-              'v2': true,
-              'v3': true,
-              'v3.1': false,
-              'v4': true,
-            },
-            hasJarSignature: true,
-            outputSha256: 'ef56',
-          ),
-          TargetResult(
-            target: 'Tablet',
-            input: 'app-release.apk',
-            status: TargetStatus.failed,
-            reason: '/out/tablet is not writable',
-            setup: TargetSetup(
-              abi: 'arm64-v8a',
-              cut: true,
-              keyProperties: '/keys/key.properties',
-              keyAlias: 'upload',
-              schemes: SigningSchemes.automatic(),
-              schemesFromDefaults: true,
-              copiedFrom: 'Phone',
-            ),
-          ),
-          TargetResult(
-            target: 'Emulator',
-            input: 'app-release.apk',
-            status: TargetStatus.skipped,
-            reason: 'No Flutter engine for x86_64',
-          ),
-        ],
-        fileNamePattern: '{name}-{target}',
-        inputChecks: const InputChecks(
-          packageName: 'com.example.app',
-          mustBeUnsigned: true,
-        ),
-        buildToolsVersion: '36.0.0',
-      );
+      final record = _run();
 
       final back = ProfileRunRecord.fromJson(
         jsonDecode(jsonEncode(record.toJson())) as Map<String, Object?>,
@@ -809,33 +850,7 @@ void main() {
 
     test('a record saved before the details were kept still loads; what it '
         'lacks stays null, never guessed', () {
-      final old = ProfileRunRecord.fromJson({
-        'profileId': 'p1',
-        'profileName': 'Release',
-        'startedAt': '2026-10-19T10:00:00.000',
-        'finishedAt': '2026-10-19T10:00:42.000',
-        'inputs': [
-          {
-            'name': 'app-release.apk',
-            'sha256': 'ab12',
-            'packageName': 'com.example.app',
-            'versionName': '1.2.0',
-            'versionCode': '12',
-          },
-        ],
-        'results': [
-          {
-            'target': 'Phone',
-            'input': 'app-release.apk',
-            'status': 'signed',
-            'outputPath': '/w/phone/app-release-Phone.apk',
-            'sizeBytes': 1024,
-            'signerSha256': 'cd34',
-            'reason': null,
-          },
-        ],
-        'cancelled': false,
-      });
+      final old = ProfileRunRecord.fromJson(_oldRun());
 
       final result = old.results.single;
       expect(result.signerSha256, 'cd34');
@@ -912,6 +927,161 @@ void main() {
         signatureError: 'apksigner was not found',
       );
       expect(RunInput.fromReport(unread, name: 'a.apk').unsigned, isNull);
+    });
+  });
+
+  group('run report', () {
+    List<String> lines(List<ReportLine> lines) => [
+      for (final line in lines) '$line',
+    ];
+
+    test('the run, its input, then how each target was signed', () {
+      final report = runReport(_run());
+
+      expect(report.title, 'Release, 2026-10-18 11:52');
+      expect(lines(report.run), [
+        'Outcome: Some failed',
+        'Results: 1 signed · 1 failed · 1 skipped',
+        'Started: 2026-10-18 11:52',
+        'Took: 9 s',
+        'Profile: Release',
+        'Build-tools: 36.0.0',
+        'File names: {name}-{target}',
+        'Input checks: Package com.example.app; must be unsigned',
+      ]);
+      expect(lines(report.inputs.single.lines), [
+        'Package: com.example.app',
+        'Version: 1.4.0 (140)',
+        'minSdk: 24',
+        'Signature: None: it was unsigned',
+        'SHA-256: abcd',
+      ]);
+      final [phone, tablet, emulator] = report.targets;
+      expect(phone.title, 'Phone');
+      expect(lines(phone.lines), [
+        'ABI: arm64-v8a: cut from the input',
+        'Key alias: upload',
+        'key.properties: /keys/key.properties',
+        'Schemes asked: v1, v2, v3, v4 (its own)',
+        'Schemes verified: v2, v3, v4; v1 there, not checked: apksigner '
+            'skips it from minSdk 24',
+        'Signer: CN=APK Forge Test, O=Example, C=US',
+        'Signer SHA-256: B3:4C',
+        'Output: /out/phone/app-Phone.apk',
+        'Size: 14.1 MB',
+        'Output SHA-256: ef56',
+      ]);
+      expect(lines(tablet.lines), [
+        'ABI: arm64-v8a',
+        'Key alias: upload',
+        'key.properties: /keys/key.properties',
+        'Schemes asked: v1, v2, v3, v4 (its own)',
+        'Signing: Shared with Phone: signed once, copied to each folder',
+        'Reason: /out/tablet is not writable',
+      ]);
+      expect(lines(emulator.lines), [
+        'ABI: x86_64',
+        'Key alias: Not opened',
+        'key.properties: /keys/other/key.properties',
+        'Schemes asked: Auto, apksigner\'s choice by minSdk (from Defaults)',
+        'Reason: No Flutter engine for x86_64',
+      ]);
+    });
+
+    test('a record saved before the details says "Not recorded" and '
+        'guesses nothing from the profile', () {
+      final report = runReport(ProfileRunRecord.fromJson(_oldRun()));
+
+      expect(lines(report.run).skip(5), [
+        'Build-tools: Not recorded',
+        'File names: Not recorded',
+        'Input checks: Not recorded',
+      ]);
+      expect(lines(report.inputs.single.lines), [
+        'Package: com.example.app',
+        'Version: 1.2.0 (12)',
+        'minSdk: Not recorded',
+        'Signature: Not recorded',
+        'SHA-256: ab12',
+      ]);
+      expect(lines(report.targets.single.lines), [
+        'ABI: Not recorded',
+        'Key alias: Not recorded',
+        'key.properties: Not recorded',
+        'Schemes asked: Not recorded',
+        'Schemes verified: Not recorded',
+        'Signer: Not recorded',
+        'Signer SHA-256: CD:34',
+        'Output: /w/phone/app-release-Phone.apk',
+        'Size: 1.0 KB',
+        'Output SHA-256: Not recorded',
+      ]);
+    });
+
+    test('several inputs: each target says which one it was', () {
+      final run = ProfileRunRecord.fromJson({
+        ..._oldRun(),
+        'inputs': [
+          {'name': 'app-release.apk', 'sha256': 'ab12'},
+          {'name': 'app-beta.apk', 'sha256': 'cd34'},
+        ],
+      });
+
+      expect(runReport(run).targets.single.title, 'Phone · app-release.apk');
+    });
+
+    test('a v1 signature apksigner did not check is never called missing', () {
+      const v2v3 = {
+        'v1': false,
+        'v2': true,
+        'v3': true,
+        'v3.1': false,
+        'v4': false,
+      };
+
+      expect(describeVerifiedSchemes(v2v3, hasJarSignature: false), 'v2, v3');
+      expect(
+        describeVerifiedSchemes(v2v3, hasJarSignature: true, minSdk: 24),
+        'v2, v3; v1 there, not checked: apksigner skips it from minSdk 24',
+      );
+      expect(
+        describeVerifiedSchemes(v2v3, hasJarSignature: true),
+        'v2, v3; v1 there, not checked by apksigner',
+      );
+      expect(
+        describeVerifiedSchemes(const {'v1': true, 'v2': true}, minSdk: 21),
+        'v1, v2',
+      );
+      expect(describeVerifiedSchemes(const {'v1': false, 'v2': false}), 'None');
+    });
+
+    test('the text says what the screen shows, and the file is named after '
+        'the run', () {
+      final report = runReport(_run());
+
+      final text = runReportText(report);
+
+      expect(text, startsWith('APK Forge run: Release, 2026-10-18 11:52\n'));
+      expect(text, contains('\nOutcome       Some failed\n'));
+      expect(text, contains('\nTarget Phone: Signed\n'));
+      expect(
+        text,
+        contains('\n  Schemes asked     v1, v2, v3, v4 (its own)\n'),
+      );
+      expect(text, contains('\nInput app-release.apk\n'));
+      for (final line in [
+        ...report.run,
+        for (final input in report.inputs) ...input.lines,
+        for (final target in report.targets) ...target.lines,
+      ]) {
+        expect(text, contains(' ${line.value}\n'));
+      }
+      expect(runReportFileName(_run()), 'Release run 2026-10-18 1152.txt');
+      final renamed = ProfileRunRecord.fromJson({
+        ..._run().toJson(),
+        'profileName': 'Release 1/2',
+      });
+      expect(runReportFileName(renamed), 'Release 1_2 run 2026-10-18 1152.txt');
     });
   });
 }
