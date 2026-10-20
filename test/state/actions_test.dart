@@ -16,6 +16,7 @@ import 'package:apk_forge/services/flutter_build_service.dart';
 import 'package:apk_forge/services/profile_runner.dart';
 import 'package:apk_forge/services/signing_service.dart';
 import 'package:apk_forge/state/actions/build_action.dart';
+import 'package:apk_forge/state/actions/create_folder_action.dart';
 import 'package:apk_forge/state/actions/install_action.dart';
 import 'package:apk_forge/state/actions/load_keys_action.dart';
 import 'package:apk_forge/state/actions/profile_run_action.dart';
@@ -438,6 +439,41 @@ void main() {
       expect(task.labels, isEmpty);
       expect(runner.calls, isEmpty);
     });
+  });
+
+  group('CreateFolderAction', () {
+    test('creates the folder, then the targets are checked again', () async {
+      final created = <String>[];
+      var checked = 0;
+
+      final failure = await CreateFolderAction(
+        create: (path) async => created.add(path),
+        onCreated: () => checked++,
+      ).run('/out/kiosk');
+
+      expect(failure, isNull);
+      expect(created, ['/out/kiosk']);
+      expect(checked, 1);
+    });
+
+    test(
+      'a folder that cannot be created says why, and nothing changes',
+      () async {
+        var checked = 0;
+
+        final failure = await CreateFolderAction(
+          create: (path) async => throw FileSystemException(
+            'Creation failed',
+            path,
+            const OSError('Permission denied', 13),
+          ),
+          onCreated: () => checked++,
+        ).run('/out/kiosk');
+
+        expect(failure, 'Could not create /out/kiosk: Permission denied');
+        expect(checked, 0);
+      },
+    );
   });
 
   group('ProfileRunAction', () {

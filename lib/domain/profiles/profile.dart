@@ -1,6 +1,5 @@
 import 'dart:convert';
 
-import '../../core/system/host.dart';
 import '../build/build_options.dart';
 import '../signing/signing.dart';
 
@@ -48,6 +47,20 @@ class ProfileTarget {
 
   /// [abi]'s folder name, or [universalAbiName].
   String get abiName => abi?.abiName ?? universalAbiName;
+
+  @override
+  bool operator ==(Object other) =>
+      other is ProfileTarget &&
+      other.id == id &&
+      other.name == name &&
+      other.abi == abi &&
+      other.keyProperties == keyProperties &&
+      other.schemes == schemes &&
+      other.outputDir == outputDir;
+
+  @override
+  int get hashCode =>
+      Object.hash(id, name, abi, keyProperties, schemes, outputDir);
 
   ProfileTarget copyWith({
     String? id,
@@ -252,18 +265,6 @@ SigningProfile importProfile(String text) {
   }
   return SigningProfile.fromJson(json['profile'] as Map<String, Object?>);
 }
-
-/// The `key.properties` files and output folders of [profile] that don't
-/// exist here: after an import from another machine, to pick again.
-List<String> missingProfilePaths(SigningProfile profile, FileProbe probe) => [
-  for (final file in profile.keyFiles)
-    if (!probe.fileExists(file)) file,
-  for (final folder in <String>{
-    for (final target in profile.targets)
-      if (target.outputDir.trim().isNotEmpty) target.outputDir.trim(),
-  })
-    if (!probe.directoryExists(folder)) folder,
-];
 
 /// What's wrong with a file name pattern: empty, or an unknown `{token}`.
 List<String> fileNamePatternProblems(String pattern) {

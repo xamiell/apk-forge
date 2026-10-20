@@ -5,11 +5,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../domain/build/build_options.dart';
 import '../../domain/profiles/key_properties.dart';
 import '../../domain/profiles/profile.dart';
+import '../../domain/profiles/target_problems.dart';
 import '../../state/forms.dart';
 import '../../state/profiles.dart';
 import '../common/file_types.dart';
 import '../common/widgets.dart';
 import '../theme.dart';
+import 'create_folder_button.dart';
 
 /// Edits [target] of [profile], or adds a new one, in a panel on the right.
 Future<void> showTargetSheet(
@@ -88,7 +90,14 @@ class _TargetSheetState extends ConsumerState<_TargetSheet> {
     final colors = context.status;
     final nameMissing = _draft.name.trim().isEmpty;
     final defaultSchemes = ref.watch(defaultsProvider.select((d) => d.schemes));
+    // Checked as the run check will: they don't stop saving, since a path
+    // can be fixed later.
+    final problems = ref.watch(targetProblemsProvider(_draft));
+    TargetProblem? problemOf(TargetField field) =>
+        problems.where((problem) => problem.field == field).firstOrNull;
+    final folderProblem = problemOf(TargetField.outputFolder);
     return Material(
+      key: const ValueKey('target-sheet'),
       elevation: 12,
       color: Theme.of(context).colorScheme.surfaceContainerHigh,
       child: SizedBox(
@@ -164,6 +173,7 @@ class _TargetSheetState extends ConsumerState<_TargetSheet> {
                     label: 'Key: key.properties file',
                     hint: 'storeFile, keyAlias, storePassword, keyPassword',
                     value: _draft.keyProperties,
+                    problem: problemOf(TargetField.key)?.message,
                     onChanged: (value) =>
                         _set(_draft.copyWith(keyProperties: value)),
                     onBrowse: () async {
@@ -212,6 +222,7 @@ class _TargetSheetState extends ConsumerState<_TargetSheet> {
                   PathField(
                     label: 'Output folder',
                     value: _draft.outputDir,
+                    problem: folderProblem?.message,
                     onChanged: (value) =>
                         _set(_draft.copyWith(outputDir: value)),
                     onBrowse: () async {
@@ -223,6 +234,11 @@ class _TargetSheetState extends ConsumerState<_TargetSheet> {
                       }
                     },
                   ),
+                  if (folderProblem?.missingPath case final missing?)
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: CreateFolderButton(path: missing),
+                    ),
                 ],
               ),
             ),
@@ -232,7 +248,10 @@ class _TargetSheetState extends ConsumerState<_TargetSheet> {
               child: Row(
                 children: [
                   Expanded(
-                    child: ProblemText([if (nameMissing) 'Give it a name.']),
+                    child: ProblemText([
+                      if (nameMissing) 'Give it a name.',
+                      for (final problem in problems) problem.message,
+                    ]),
                   ),
                   TextButton(
                     onPressed: () => Navigator.of(context).pop(),

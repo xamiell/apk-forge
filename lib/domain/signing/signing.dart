@@ -52,6 +52,17 @@ class SigningSchemes {
 
   Map<String, Object?> toJson() => {'v1': v1, 'v2': v2, 'v3': v3, 'v4': v4};
 
+  @override
+  bool operator ==(Object other) =>
+      other is SigningSchemes &&
+      other.v1 == v1 &&
+      other.v2 == v2 &&
+      other.v3 == v3 &&
+      other.v4 == v4;
+
+  @override
+  int get hashCode => Object.hash(v1, v2, v3, v4);
+
   SigningSchemes copyWith({bool? v1, bool? v2, bool? v3, bool? v4}) =>
       SigningSchemes(
         v1: v1 ?? this.v1,

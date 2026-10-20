@@ -3,6 +3,7 @@ import '../analysis/apk_report.dart';
 import '../build/build_options.dart';
 import '../signing/signing.dart';
 import 'profile.dart';
+import 'target_problems.dart';
 
 /// Where one target's signed APK goes.
 class PlannedOutput {
@@ -101,20 +102,9 @@ ProfileRunPlan planProfileRun(
     if (inputs.isEmpty) 'Pick an APK to run the profile on.',
     ...fileNamePatternProblems(profile.fileNamePattern),
     if (followsDefaults) ?defaultSchemesProblem(defaultSchemes),
-    for (final target in profile.targets) ...[
-      if (target.keyProperties.trim().isEmpty)
-        '${target.name}: choose its key.properties file.'
-      else if (!probe.fileExists(target.keyProperties.trim()))
-        '${target.name}: its key.properties does not exist: '
-            '${target.keyProperties.trim()}',
-      if (target.schemes?.problem case final problem?)
-        '${target.name}: $problem',
-      if (target.outputDir.trim().isEmpty)
-        '${target.name}: choose its output folder.'
-      else if (!probe.directoryExists(target.outputDir.trim()))
-        '${target.name}: its output folder does not exist: '
-            '${target.outputDir.trim()}',
-    ],
+    for (final target in profile.targets)
+      for (final problem in targetProblems(target, probe: probe))
+        describeTargetProblem(target, problem),
     for (final input in inputs) ..._inputProblems(profile.input, input, host),
   ];
 

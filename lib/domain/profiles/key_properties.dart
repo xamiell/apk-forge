@@ -165,14 +165,6 @@ class KeyFileSummary {
 
   bool get hasStorePassword => !missing.contains('storePassword');
   bool get hasKeyPassword => !missing.contains('keyPassword');
-
-  /// Why a run with this file won't start yet.
-  List<String> get problems => [
-    ?error,
-    if (missing.isNotEmpty) 'It has no ${missing.join(', ')}.',
-    if (keystorePath != null && !keystoreExists)
-      'The keystore $keystorePath does not exist.',
-  ];
 }
 
 /// [content], the `key.properties` at [path], summed up for the editor.

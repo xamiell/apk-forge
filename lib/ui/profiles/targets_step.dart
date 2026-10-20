@@ -3,10 +3,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/format/format.dart';
 import '../../domain/profiles/profile.dart';
+import '../../domain/profiles/target_problems.dart';
 import '../../state/forms.dart';
 import '../../state/profiles.dart';
 import '../../state/providers.dart';
+import '../common/widgets.dart';
 import '../theme.dart';
+import 'create_folder_button.dart';
 import 'target_sheet.dart';
 
 /// The Targets step: a table of the profile's targets, each one opened in
@@ -42,8 +45,12 @@ class TargetsStep extends ConsumerWidget {
             scrollDirection: Axis.horizontal,
             child: DataTable(
               headingRowHeight: 36,
+              // Narrow enough that Edit and Remove stay in view with a
+              // problem written out under two fields.
+              columnSpacing: 24,
               dataRowMinHeight: 44,
-              dataRowMaxHeight: 56,
+              // A problem is written out under the value.
+              dataRowMaxHeight: double.infinity,
               columns: const [
                 DataColumn(label: Text('Target')),
                 DataColumn(label: Text('ABI')),
@@ -63,14 +70,19 @@ class TargetsStep extends ConsumerWidget {
                         ),
                       ),
                       DataCell(Text(target.abiName)),
-                      DataCell(_KeyCell(path: target.keyProperties)),
+                      DataCell(_KeyCell(target: target)),
                       DataCell(
-                        Text(
-                          target.schemes?.label ??
+                        _FieldCell(
+                          value:
+                              target.schemes?.label ??
                               'Defaults (${defaultSchemes.label})',
+                          problems: _messages(
+                            ref.watch(targetProblemsProvider(target)),
+                            TargetField.schemes,
+                          ),
                         ),
                       ),
-                      DataCell(_FolderCell(path: target.outputDir.trim())),
+                      DataCell(_FolderCell(target: target)),
                       DataCell(
                         Row(
                           mainAxisSize: MainAxisSize.min,
@@ -127,86 +139,112 @@ class TargetsStep extends ConsumerWidget {
   }
 }
 
-/// A target's output folder, flagged when it doesn't exist on this machine
-/// (a profile imported from another one).
-class _FolderCell extends ConsumerWidget {
-  const _FolderCell({required this.path});
+List<String> _messages(List<TargetProblem> problems, TargetField field) => [
+  for (final problem in problems)
+    if (problem.field == field) problem.message,
+];
 
-  final String path;
+/// One field of a target in the table: its value, then what stops it from
+/// running, written out with the warning icon, or else a muted detail.
+class _FieldCell extends StatelessWidget {
+  const _FieldCell({
+    required this.value,
+    this.strong = false,
+    this.detail,
+    this.problems = const [],
+    this.tooltip,
+    this.action,
+  });
+
+  final String value;
+  final bool strong;
+  final String? detail;
+  final List<String> problems;
+  final String? tooltip;
+  final Widget? action;
+
+  @override
+  Widget build(BuildContext context) {
+    final cell = Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            value,
+            style: strong ? const TextStyle(fontWeight: FontWeight.w600) : null,
+          ),
+          if (problems.isNotEmpty)
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 200),
+              child: ProblemText(problems),
+            )
+          else if (detail != null)
+            Text(
+              detail!,
+              style: TextStyle(fontSize: 11.5, color: context.status.muted),
+            ),
+          ?action,
+        ],
+      ),
+    );
+    return tooltip == null ? cell : Tooltip(message: tooltip!, child: cell);
+  }
+}
+
+/// The key's alias, read from its `key.properties`, and what's wrong with
+/// it.
+class _KeyCell extends ConsumerWidget {
+  const _KeyCell({required this.target});
+
+  final ProfileTarget target;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final colors = context.status;
-    if (path.isEmpty) {
-      return Text('Not set', style: TextStyle(color: colors.warning));
-    }
-    final missing = !ref.watch(fileProbeProvider).directoryExists(path);
-    final name = ref.watch(hostProvider).path.basename(path);
-    return Tooltip(
-      message: missing ? '$path\nDoes not exist on this machine.' : path,
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (missing)
-            Padding(
-              padding: const EdgeInsets.only(right: 6),
-              child: Icon(
-                Icons.warning_amber_rounded,
-                size: 16,
-                color: colors.warning,
-              ),
-            ),
-          Text(name),
-        ],
+    final path = target.keyProperties.trim();
+    final summary = path.isEmpty
+        ? null
+        : ref.watch(keyFileSummaryProvider(path)).value;
+    final short = shortPath(path, ref.watch(hostProvider));
+    // The alias once the file is read; until then, or without one, where
+    // the file is.
+    final alias = summary?.alias;
+    return _FieldCell(
+      value: path.isEmpty ? 'Not set' : alias ?? short,
+      strong: alias != null,
+      detail: alias == null ? null : short,
+      problems: _messages(
+        ref.watch(targetProblemsProvider(target)),
+        TargetField.key,
       ),
+      tooltip: path.isEmpty ? null : path,
     );
   }
 }
 
-/// The key's alias, read from its `key.properties`, or what's wrong with it.
-class _KeyCell extends ConsumerWidget {
-  const _KeyCell({required this.path});
+/// A target's output folder, and what's wrong with it. A folder that
+/// doesn't exist on this machine can be created from here.
+class _FolderCell extends ConsumerWidget {
+  const _FolderCell({required this.target});
 
-  final String path;
+  final ProfileTarget target;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final colors = context.status;
-    if (path.isEmpty) {
-      return Text('Not set', style: TextStyle(color: colors.warning));
-    }
-    final summary = ref.watch(keyFileSummaryProvider(path)).value;
-    final problems = summary?.problems ?? const [];
-    return Tooltip(
-      message: problems.isEmpty ? path : '$path\n${problems.join('\n')}',
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (problems.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(right: 6),
-              child: Icon(
-                Icons.warning_amber_rounded,
-                size: 16,
-                color: colors.warning,
-              ),
-            ),
-          Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                summary?.alias ?? '?',
-                style: const TextStyle(fontWeight: FontWeight.w600),
-              ),
-              Text(
-                shortPath(path, ref.watch(hostProvider)),
-                style: TextStyle(fontSize: 11.5, color: colors.muted),
-              ),
-            ],
-          ),
-        ],
-      ),
+    final path = target.outputDir.trim();
+    final problems = [
+      for (final problem in ref.watch(targetProblemsProvider(target)))
+        if (problem.field == TargetField.outputFolder) problem,
+    ];
+    final missing = problems.firstOrNull?.missingPath;
+    return _FieldCell(
+      value: path.isEmpty
+          ? 'Not set'
+          : ref.watch(hostProvider).path.basename(path),
+      problems: [for (final problem in problems) problem.message],
+      tooltip: path.isEmpty ? null : path,
+      action: missing == null ? null : CreateFolderButton(path: missing),
     );
   }
 }

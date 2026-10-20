@@ -78,6 +78,7 @@ class SyncedTextField extends StatefulWidget {
     this.onSubmitted,
     this.suffix,
     this.enabled = true,
+    this.problem,
   });
 
   final String value;
@@ -88,6 +89,9 @@ class SyncedTextField extends StatefulWidget {
   final ValueChanged<String>? onSubmitted;
   final Widget? suffix;
   final bool enabled;
+
+  /// Shown under the field, as [ProblemText] shows it.
+  final String? problem;
 
   @override
   State<SyncedTextField> createState() => _SyncedTextFieldState();
@@ -156,6 +160,7 @@ class _SyncedTextFieldState extends State<SyncedTextField> {
       decoration: InputDecoration(
         labelText: widget.label,
         hintText: widget.hint,
+        helper: widget.problem == null ? null : ProblemText([widget.problem!]),
         suffixIcon: (reveal == null && widget.suffix == null)
             ? null
             : Row(
@@ -179,6 +184,7 @@ class PathField extends StatelessWidget {
     required this.onBrowse,
     this.hint,
     this.enabled = true,
+    this.problem,
   });
 
   final String label;
@@ -187,6 +193,7 @@ class PathField extends StatelessWidget {
   final VoidCallback onBrowse;
   final String? hint;
   final bool enabled;
+  final String? problem;
 
   @override
   Widget build(BuildContext context) {
@@ -195,6 +202,7 @@ class PathField extends StatelessWidget {
       hint: hint,
       value: value,
       enabled: enabled,
+      problem: problem,
       onChanged: onChanged,
       suffix: IconButton(
         tooltip: 'Browse…',
@@ -221,7 +229,9 @@ class FieldLabel extends StatelessWidget {
   );
 }
 
-/// Why a button is disabled, in the warning color.
+/// What stops something from running, or why a button is disabled: each
+/// one with the warning icon, in the warning color. Every screen shows a
+/// problem this way.
 class ProblemText extends StatelessWidget {
   const ProblemText(this.problems, {super.key});
 
@@ -240,7 +250,7 @@ class ProblemText extends StatelessWidget {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(Icons.info_outline, size: 14, color: color),
+                Icon(Icons.warning_amber_rounded, size: 14, color: color),
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text(
@@ -252,6 +262,35 @@ class ProblemText extends StatelessWidget {
             ),
           ),
       ],
+    );
+  }
+}
+
+/// "2 problems" with the warning icon, and the problems in its tooltip:
+/// for a list where there's no room to write them out.
+class ProblemCount extends StatelessWidget {
+  const ProblemCount(this.problems, {super.key});
+
+  final List<String> problems;
+
+  @override
+  Widget build(BuildContext context) {
+    if (problems.isEmpty) return const SizedBox.shrink();
+    final color = context.status.warning;
+    final count = problems.length;
+    return Tooltip(
+      message: problems.join('\n'),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.warning_amber_rounded, size: 14, color: color),
+          const SizedBox(width: 4),
+          Text(
+            '$count problem${count == 1 ? '' : 's'}',
+            style: TextStyle(fontSize: 12, color: color),
+          ),
+        ],
+      ),
     );
   }
 }

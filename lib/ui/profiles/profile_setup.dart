@@ -34,11 +34,13 @@ class _ProfileSetupState extends ConsumerState<ProfileSetup> {
       int number,
       String title,
       String summary,
-      Widget body,
-    ) => _StepTile(
+      Widget body, {
+      List<String> problems = const [],
+    }) => _StepTile(
       number: number,
       title: title,
       summary: summary,
+      problems: problems,
       open: _open == id,
       onToggle: () => setState(() => _open = _open == id ? null : id),
       child: body,
@@ -68,6 +70,7 @@ class _ProfileSetupState extends ConsumerState<ProfileSetup> {
                     'target${profile.targets.length == 1 ? '' : 's'} · '
                     '$keys key${keys == 1 ? '' : 's'}',
           TargetsStep(profile: profile, onChanged: update),
+          problems: ref.watch(profileProblemsProvider(profile.id)),
         ),
         step(
           _Step.fileName,
@@ -96,11 +99,15 @@ class _StepTile extends StatelessWidget {
     required this.open,
     required this.onToggle,
     required this.child,
+    this.problems = const [],
   });
 
   final int number;
   final String title;
   final String summary;
+
+  /// Counted after the summary, so a closed step still shows them.
+  final List<String> problems;
   final bool open;
   final VoidCallback onToggle;
   final Widget child;
@@ -152,11 +159,21 @@ class _StepTile extends StatelessWidget {
                       ),
                     ),
                     Expanded(
-                      child: Text(
-                        summary,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(color: context.status.muted),
+                      child: Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              summary,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(color: context.status.muted),
+                            ),
+                          ),
+                          if (problems.isNotEmpty) ...[
+                            const SizedBox(width: 12),
+                            ProblemCount(problems),
+                          ],
+                        ],
                       ),
                     ),
                     AnimatedRotation(

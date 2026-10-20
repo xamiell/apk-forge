@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -43,6 +44,15 @@ typedef FileRevealer = Future<void> Function(String path, Host host);
 /// Overridden in tests, so they open no window.
 final fileRevealerProvider = Provider<FileRevealer>(
   (ref) => revealInFileManager,
+);
+
+/// Creates the folder at a path, and the folders above it.
+typedef FolderCreator = Future<void> Function(String path);
+
+/// Overridden in tests, so they write nothing.
+final folderCreatorProvider = Provider<FolderCreator>(
+  (ref) =>
+      (path) => Directory(path).create(recursive: true),
 );
 
 final flutterBuildServiceProvider = Provider(

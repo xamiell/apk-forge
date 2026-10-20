@@ -8,7 +8,6 @@ import '../../core/format/format.dart';
 import '../../domain/profiles/profile.dart';
 import '../../domain/profiles/profile_run.dart';
 import '../../state/profiles.dart';
-import '../../state/providers.dart';
 import '../../state/task_notifier.dart';
 import '../common/file_types.dart';
 import '../common/widgets.dart';
@@ -65,9 +64,9 @@ class _ProfileList extends ConsumerWidget {
       // A name already in the list gets a number.
       final id = notifier.add(profile);
       final name = ref.read(profilesProvider).byId(id)!.name;
-      final missing = missingProfilePaths(profile, ref.read(fileProbeProvider));
+      final problems = ref.read(profileProblemsProvider(id));
       if (!context.mounted) return;
-      if (missing.isEmpty) {
+      if (problems.isEmpty) {
         _snack(context, 'Imported $name.');
       } else {
         await showDialog<void>(
@@ -81,12 +80,11 @@ class _ProfileList extends ConsumerWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text(
-                    'These don\'t exist on this machine. Pick them again in '
-                    'each target before running it:',
+                    'It can\'t run on this machine yet. Fix these in each '
+                    'target first:',
                   ),
                   const SizedBox(height: 10),
-                  for (final path in missing)
-                    SelectableText('• $path', style: monospace),
+                  ProblemText(problems),
                 ],
               ),
             ),
@@ -131,14 +129,22 @@ class _ProfileList extends ConsumerWidget {
                       profile.name,
                       style: const TextStyle(fontWeight: FontWeight.w600),
                     ),
-                    subtitle: Text(
-                      _profileLine(
-                        profile,
-                        history
-                            .where((r) => r.profileId == profile.id)
-                            .firstOrNull,
-                      ),
-                      style: const TextStyle(fontSize: 12),
+                    subtitle: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _profileLine(
+                            profile,
+                            history
+                                .where((r) => r.profileId == profile.id)
+                                .firstOrNull,
+                          ),
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                        ProblemCount(
+                          ref.watch(profileProblemsProvider(profile.id)),
+                        ),
+                      ],
                     ),
                     onTap: () => notifier.select(profile.id),
                   ),
