@@ -10,7 +10,8 @@ and that the code which actually starts the tools is thin.
 
 ```
 lib/
-  core/       Process running, the host OS, ZIP reading and copying, formatting, log types.
+  core/       Process running, the host OS, ZIP reading and copying, file digests,
+              formatting, log types.
   domain/     Models, command builders, output parsers, findings. Pure.
   services/   One class per tool job; runs commands through a ProcessRunner.
   state/      Riverpod notifiers (forms, the current task, the log) and the
@@ -60,6 +61,8 @@ features calling each other.
 - `Command.secrets` lists them; the log and `ToolFailure.fromResult` mask
   them.
 - `SettingsStore` receives explicit maps without them.
+- A profile run's record (§7) keeps a key's alias and its `key.properties`
+  path, never what's in the file.
 
 A test covers each of these. Keep it that way when a new tool takes a secret.
 
@@ -143,6 +146,8 @@ A test covers each of these. Keep it that way when a new tool takes a secret.
    copy is written to a temporary folder first.
 2. `apksigner sign` writes `<name>-signed.apk.partial`.
 3. `apksigner verify` must say it verifies, with the selected key's SHA-256.
+   When v4 signing wrote an `.idsig`, verify is given it
+   (`--v4-signature-file`): apksigner doesn't check v4 without it.
 4. Only then is the `.partial` (and its `.idsig`) renamed over
    `<name>-signed.apk`. On any failure the `.partial` files are deleted, and
    an earlier signed APK stays as it was.
@@ -167,6 +172,25 @@ The input is never modified or overwritten (`signedApkPath`).
 
 The splits keep the universal APK's manifest, `versionCode` included:
 changing it would mean rewriting the binary manifest.
+
+### A profile run and its history
+
+`ProfileRunner` signs what `planProfileRun` decided, and returns one
+`TargetResult` per target and input. Each one keeps how it was signed
+(`TargetSetup`: the ABI and whether the input was cut, the key's alias and
+`key.properties`, the schemes asked and whether they came from Defaults,
+the target it shares a signing with), what `apksigner verify` said of each
+scheme, whether the APK carries a JAR signature (read from its files,
+since apksigner skips v1 from minSdk 24), the signer and the output's
+SHA-256. `ProfileRunAction` adds the inputs, the file name pattern, the
+input checks and the build-tools version, and saves the record.
+
+The record is the only account of a run: the profile can change or go
+after it. `runReport` (`domain/profiles/run_report.dart`) turns it into
+the report the History tab shows, and `runReportText` into the text Copy
+and Export write. A record saved before a field existed loads with it
+`null`, and the report says "Not recorded" rather than reading today's
+profile.
 
 ## 8. Comparing APKs
 
@@ -208,6 +232,7 @@ test follows are in [TESTING.md](TESTING.md).
 | Function as a dependency | `clockProvider`, `FileRevealer`, `ToolchainSource`, the actions' readers (`BuildOptions Function()`…) | A dependency with one call is a function type. One with two or more is an interface (`TaskRunner`, `ApkSink`, `ProfileRunProgress`). |
 | Closed set | `SettingsKey`; the sealed `SigningSetup` and `SplitAvailability`; enums such as `TargetStatus` | A new case doesn't compile until every `switch` handles it. |
 | Model owns its JSON | `fromJson`/`toJson` next to each other on each saved model | One place per field name. `settings_test` pins what this version saves. |
+| One report, every way out | `runReport` (`domain/profiles/run_report.dart`) | History's detail, Copy as text and Export say a run the same way: the text is `runReportText` of the same report. |
 | One rule, every screen | `targetProblems` (`domain/profiles/target_problems.dart`), through `targetProblemsProvider` and `profileProblemsProvider` | The run check, the import dialog, the Profiles list, the Targets table and Edit target say what's wrong with a target in the same words, so they can't disagree. |
 | Observer | Riverpod notifiers and providers | The UI rebuilds from the state; it shows rules, it doesn't hold them. |
 
@@ -253,4 +278,3 @@ deviations, with the reason.
 | Since | Rule | Where | Why, and until when |
 |---|---|---|---|
 | 2026-10-19 (#11) | Feature-first folders, the default of the owner's mobile-app-architecture rules | `lib/` is layer-first (§1) | The app is small and its steps run in sequence. Layers split by area read better than features calling each other. Moving to features was left out of #11; it needs its own decision (§12). |
-| 2026-10-19 (#11) | No boundary or rule in a widget | `ui/profiles/profile_history.dart` (`_RunResults`) asks the `FileProbe` whether a signed APK is still there | #14 reworks the history. |

@@ -191,8 +191,8 @@ device.
 
 - **apksigner and v1.** For an APK with minSdk 24 or higher, `apksigner
   verify` reports `v1: false` even when a v1 signature is there, because
-  Android 7+ ignores it. Analyze APK reads the APK's files too, and shows
-  "v1 present".
+  Android 7+ ignores it. Analyze APK, Compare and a profile run's History
+  read the APK's files too, and show "v1 present".
 - **A rotated signing key.** With APK Signature Scheme v3 an app can move
   to a new key and still update over installs signed with the old one.
   `apksigner verify` shows only the new key, so on its own a rotated key
@@ -201,7 +201,9 @@ device.
   report lists one signer per API range.
 - **v4 signatures** go in a separate `<apk>.idsig` file next to the APK.
   apksigner writes it on its own when its defaults call for it. You only need
-  it for `adb install --incremental`.
+  it for `adb install --incremental`. `apksigner verify` checks v4 only when
+  it's given that file, so Sign and a profile run pass it. Analyze APK reads
+  the APK alone, so it shows v4 as not verified.
 - **`--target-platform` only filters the Flutter engine.** A plugin's own
   `.so` files can still make the APK advertise an ABI you left out. A device
   that picks that ABI crashes at launch. Analyze APK flags it as "No Flutter
@@ -240,7 +242,7 @@ APK_FORGE_SMOKE_PASS=… dart run tool/smoke.dart <flutter project> <keystore> <
 
 ```
 lib/
-  core/       process running, host OS, ZIP reading and copying, formatting, log types
+  core/       process running, host OS, ZIP reading and copying, file digests, formatting, log types
   domain/     models, command builders, output parsers, checks (pure Dart)
   services/   one class per tool job, through a ProcessRunner
   state/      Riverpod notifiers (forms, the current task, the log) and the actions
