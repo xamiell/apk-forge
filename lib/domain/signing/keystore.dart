@@ -129,6 +129,40 @@ List<String> keytoolCertreqArguments(String keystorePath, String alias) => [
   keyPasswordVariable,
 ];
 
+/// `keytool` arguments that make a keystore at [keystorePath] with one new
+/// RSA key, [alias], both passwords read from the environment. A PKCS12
+/// keystore keeps one password for the store and its key; a `JKS` one can
+/// give the key its own. The app doesn't make keys: `tool/smoke.dart` makes
+/// throwaway ones with it.
+List<String> keytoolGenerateKeyArguments(
+  String keystorePath,
+  String alias, {
+  required String distinguishedName,
+  String storeType = 'PKCS12',
+}) => [
+  '-J-Duser.language=en',
+  '-J-Duser.country=US',
+  '-genkeypair',
+  '-keystore',
+  keystorePath,
+  '-storetype',
+  storeType,
+  '-storepass:env',
+  keystorePasswordVariable,
+  '-keypass:env',
+  keyPasswordVariable,
+  '-alias',
+  alias,
+  '-keyalg',
+  'RSA',
+  '-keysize',
+  '2048',
+  '-validity',
+  '365',
+  '-dname',
+  distinguishedName,
+];
+
 /// Why `keytool -certreq` couldn't open the key, in plain words; `null`
 /// when it printed the request, so the key opens.
 String? parseKeyOpenFailure(Iterable<String> lines) {
