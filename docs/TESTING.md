@@ -13,7 +13,7 @@ boundaries and real tool output captured once.
 | `domain/` | Unit tests: parsers against real captured output, command builders, findings, comparisons, plans, the models' JSON. | `test/domain` |
 | `services/` | Each service over `FakeProcessRunner`, with real captured output as the tools' answers. | `test/services` |
 | `state/` | Each action built directly with fakes (`actions_test`). The notifiers and the providers' wiring through a `ProviderContainer` (`state_test`). What each setting saves (`settings_test`). | `test/state` |
-| `ui/` | Not unit-tested. Every screen a change touches is checked by hand on macOS. | |
+| `ui/` | Checked by hand on macOS, every screen a change touches. Widget tests only where one rule must show the same way on several screens: a target's problems in the Profiles list, the Targets step and table, and Edit target. | `test/ui` |
 | The real tools | `tool/smoke.dart`, end to end against a throwaway project and keystore (see the README's Development section). | `tool/` |
 
 ## Rules for every test
@@ -54,6 +54,8 @@ There is no mocking library: every double is a small fake, in
 | The APK list | `RecordingApkSink` records what was listed and selected. |
 | A profile run's progress | `_RecordingProgress` in `test/state/actions_test.dart`. |
 | The OS file manager | An override of `fileRevealerProvider`, or a function given to the action. |
+| Creating a folder | An override of `folderCreatorProvider` that adds the path to a `FakeFileProbe`. |
+| A `key.properties` read | `keyFileSummaryProvider.overrideWith((ref, path) async => KeyFileSummary(…))`. |
 
 ## Recipes
 
@@ -76,6 +78,12 @@ There is no mocking library: every double is a small fake, in
 - **A new setting.** Add it to `savedByThisVersion()` in
   `test/state/settings_test.dart`. Its tests check that the setting comes
   back and saves to the same map.
+- **A widget test.** Pump the real view in a `ProviderScope` with the
+  boundaries overridden, inside a `MaterialApp` with `buildTheme`. Set
+  `tester.view.physicalSize` to a desktop window and reset it in
+  `addTearDown`. Call `tester.ensureVisible` before tapping something a list
+  or table may have scrolled away. Look for text inside one panel with
+  `find.descendant` and a `ValueKey` on that panel.
 - **A secret.** Assert that the password is in none of these: the log, the
   settings, the history or the error (`isNot(contains(secret))`).
 

@@ -202,6 +202,7 @@ test follows are in [TESTING.md](TESTING.md).
 | Function as a dependency | `clockProvider`, `FileRevealer`, `ToolchainSource`, the actions' readers (`BuildOptions Function()`…) | A dependency with one call is a function type. One with two or more is an interface (`TaskRunner`, `ApkSink`, `ProfileRunProgress`). |
 | Closed set | `SettingsKey`; the sealed `SigningSetup` and `SplitAvailability`; enums such as `TargetStatus` | A new case doesn't compile until every `switch` handles it. |
 | Model owns its JSON | `fromJson`/`toJson` next to each other on each saved model | One place per field name. `settings_test` pins what this version saves. |
+| One rule, every screen | `targetProblems` (`domain/profiles/target_problems.dart`), through `targetProblemsProvider` and `profileProblemsProvider` | The run check, the import dialog, the Profiles list, the Targets table and Edit target say what's wrong with a target in the same words, so they can't disagree. |
 | Observer | Riverpod notifiers and providers | The UI rebuilds from the state; it shows rules, it doesn't hold them. |
 
 ## 11. Every change
@@ -246,5 +247,4 @@ deviations, with the reason.
 | Since | Rule | Where | Why, and until when |
 |---|---|---|---|
 | 2026-10-19 (#11) | Feature-first folders, the default of the owner's mobile-app-architecture rules | `lib/` is layer-first (§1) | The app is small and its steps run in sequence. Layers split by area read better than features calling each other. Moving to features was left out of #11; it needs its own decision (§12). |
-| 2026-10-19 (#11) | No boundary or rule in a widget | `ui/profiles/targets_step.dart` (`_FolderCell`, `_KeyCell`) and the import dialog in `ui/profiles/profiles_view.dart` read the `FileProbe` or a key file's summary themselves | The checks they call are in `domain/` and tested. #13 gathers a target's problems in one domain function that every screen uses. |
 | 2026-10-19 (#11) | No boundary or rule in a widget | `ui/profiles/profile_history.dart` (`_RunResults`) asks the `FileProbe` whether a signed APK is still there | #14 reworks the history. |
