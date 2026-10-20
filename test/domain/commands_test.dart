@@ -221,6 +221,41 @@ void main() {
       ]);
     });
 
+    test('a throwaway key for the smoke test: both passwords from the '
+        'environment', () {
+      expect(
+        keytoolGenerateKeyArguments(
+          '/tmp/kiosk.jks',
+          'kiosk',
+          distinguishedName: 'CN=Kiosk, O=Example, C=US',
+          storeType: 'JKS',
+        ),
+        [
+          '-J-Duser.language=en',
+          '-J-Duser.country=US',
+          '-genkeypair',
+          '-keystore',
+          '/tmp/kiosk.jks',
+          '-storetype',
+          'JKS',
+          '-storepass:env',
+          keystorePasswordVariable,
+          '-keypass:env',
+          keyPasswordVariable,
+          '-alias',
+          'kiosk',
+          '-keyalg',
+          'RSA',
+          '-keysize',
+          '2048',
+          '-validity',
+          '365',
+          '-dname',
+          'CN=Kiosk, O=Example, C=US',
+        ],
+      );
+    });
+
     test('the passwords travel in the environment, never in the arguments', () {
       final arguments = apksignerSignArguments(
         request,
