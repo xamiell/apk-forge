@@ -348,6 +348,11 @@ class ProfileRunRecord {
         : RunOutcome.allSigned;
   }
 
+  /// What it signed, each once: `1.4.0 (140)`, or an input's file name
+  /// when its version wasn't read.
+  List<String> get versions =>
+      {for (final input in inputs) input.version ?? input.name}.toList();
+
   /// The targets it ran, each once, in the order of the results.
   List<String> get targets =>
       {for (final result in results) result.target}.toList();

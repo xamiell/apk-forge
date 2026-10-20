@@ -900,6 +900,27 @@ void main() {
       expect(run([signed, failed]).targets, ['T0', 'T1']);
     });
 
+    test('the versions a run signed, each once', () {
+      final run = ProfileRunRecord.fromJson({
+        ..._oldRun(),
+        'inputs': [
+          {
+            'name': 'app-release.apk',
+            'versionName': '1.2.0',
+            'versionCode': '12',
+          },
+          {
+            'name': 'app-arm64.apk',
+            'versionName': '1.2.0',
+            'versionCode': '12',
+          },
+          {'name': 'unread.apk'},
+        ],
+      });
+
+      expect(run.versions, ['1.2.0 (12)', 'unread.apk']);
+    });
+
     test('an input remembers its minSdk, and whether it was unsigned when '
         'that could be checked', () {
       final unsigned = RunInput.fromReport(_input(), name: 'app-release.apk');

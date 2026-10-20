@@ -139,9 +139,6 @@ class _RunTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.status;
-    final versions = {
-      for (final input in run.inputs) input.version ?? input.name,
-    }.join(', ');
     return ListTile(
       selected: selected,
       selectedTileColor: Theme.of(context).colorScheme.primaryContainer
@@ -161,7 +158,7 @@ class _RunTile extends StatelessWidget {
       subtitle: Padding(
         padding: const EdgeInsets.only(top: 4),
         child: Text(
-          '$versions\n${run.targets.join(', ')}',
+          '${run.versions.join(', ')}\n${run.targets.join(', ')}',
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
           style: const TextStyle(fontSize: 12),
