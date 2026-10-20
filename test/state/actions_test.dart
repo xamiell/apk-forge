@@ -392,6 +392,10 @@ void main() {
   });
 
   group('InstallAction', () {
+    late int installed;
+
+    setUp(() => installed = 0);
+
     const pixel = AndroidDevice(
       serial: 'SER1',
       state: 'device',
@@ -410,6 +414,7 @@ void main() {
       options: () => InstallOptions(allowDowngrade: allowDowngrade),
       adb: const AdbService(),
       host: macHost,
+      onInstalled: () => installed++,
     );
 
     test('installs the APK on the device, downgrade if allowed', () async {
@@ -430,6 +435,16 @@ void main() {
         '/out/app.apk',
       ]);
       expect(task.log.lines.last, 'success: Installed app.apk on Pixel 8.');
+      expect(installed, 1);
+    });
+
+    test('a failed install leaves what was read about the device', () async {
+      runner.when((c) => c.arguments.contains('install'), (_) => failed(1));
+
+      await action().run();
+
+      expect(task.failure, isNotNull);
+      expect(installed, 0);
     });
 
     test('without an APK or a device, nothing runs', () async {
@@ -438,6 +453,7 @@ void main() {
 
       expect(task.labels, isEmpty);
       expect(runner.calls, isEmpty);
+      expect(installed, 0);
     });
   });
 

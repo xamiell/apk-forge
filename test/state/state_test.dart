@@ -522,6 +522,44 @@ void main() {
   );
 
   test(
+    'after an install, the installed version is read again without a refresh',
+    () async {
+      var installed = false;
+      runner
+        ..whenFirstArg(
+          'devices',
+          ok(['List of devices attached', 'SER1 device model:Pixel_8']),
+        )
+        ..when((c) => c.arguments.contains('install'), (_) {
+          installed = true;
+          return ok(['Success']);
+        })
+        ..when(
+          (c) => c.arguments.last.contains('dumpsys package'),
+          // grep matches nothing until the app is there.
+          (_) => installed
+              ? ok(fixture('adb_installed_package_settings.txt'))
+              : failed(1),
+        );
+      await container.read(devicesProvider.notifier).refresh();
+      container.read(installOptionsProvider.notifier).select('SER1');
+      container
+          .read(apkListProvider.notifier)
+          .add('/out/settings.apk', ApkOrigin.opened);
+      const app = (serial: 'SER1', package: 'com.android.settings');
+      expect(
+        await container.read(installedPackageProvider(app).future),
+        isNull,
+      );
+
+      await container.read(installActionProvider).run();
+
+      final after = await container.read(installedPackageProvider(app).future);
+      expect(after?.versionCode, 34);
+    },
+  );
+
+  test(
     'refresh selects the first ready device, and keeps a listed one',
     () async {
       runner.whenFirstArg(
