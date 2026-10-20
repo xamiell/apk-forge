@@ -22,6 +22,7 @@ class InstallAction {
     required this.options,
     required this.adb,
     required this.host,
+    required this.onInstalled,
   });
 
   final TaskRunner task;
@@ -31,6 +32,10 @@ class InstallAction {
   final InstallOptions Function() options;
   final AdbService adb;
   final Host host;
+
+  /// After a successful install: what was read about the apps on the
+  /// device is stale.
+  final void Function() onInstalled;
 
   /// Nothing happens without an APK and a device selected.
   Future<void> run() async {
@@ -49,6 +54,7 @@ class InstallAction {
         apk: apk,
         allowDowngrade: options.allowDowngrade,
       );
+      onInstalled();
       executor.log.success(
         'Installed ${host.path.basename(apk)} on ${device.displayName}.',
       );
@@ -65,5 +71,11 @@ final installActionProvider = Provider(
     options: () => ref.read(installOptionsProvider),
     adb: ref.watch(adbServiceProvider),
     host: ref.watch(hostProvider),
+    // The installed version, the signer and the comparison are read again
+    // on the next look, as after a refresh of the devices.
+    onInstalled: () {
+      ref.invalidate(installedPackageProvider);
+      ref.invalidate(installedApkProvider);
+    },
   ),
 );

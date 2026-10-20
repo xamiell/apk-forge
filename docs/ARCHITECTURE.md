@@ -112,7 +112,10 @@ A test covers each of these. Keep it that way when a new tool takes a secret.
   one must be validated first: a package name read from an APK passes
   `isValidPackageName` before `installedPackageScript` uses it.
 - `deviceInfoProvider` and `installedPackageProvider` cache per serial (and
-  package) until the device list is refreshed. The Install and Device panels
+  package) until the device list is refreshed. A successful install also
+  forgets what was read about the installed apps (`InstallAction`'s
+  `onInstalled`), so the panels show the version just installed. The
+  Install and Device panels
   share one selected device (`installOptionsProvider.selectedSerial`); a
   refresh keeps it while it's listed, else selects the first ready device.
 - **An installed app is read like any APK** (`InstalledApkService`):
@@ -127,7 +130,7 @@ A test covers each of these. Keep it that way when a new tool takes a secret.
 
   A `base.apk` that can't be copied fails; a split that can't leaves the
   native code unread, with the reason. `installedApkProvider` caches the
-  result per serial and package until a refresh.
+  result per serial and package until a refresh or an install.
 
 ## 7. Signing
 
