@@ -200,12 +200,17 @@ KeyLoadFailure? parseKeyLoadFailure(Iterable<String> lines) {
   return null;
 }
 
-List<String> apksignerVerifyArguments(String apk) => [
-  'verify',
-  '--verbose',
-  '--print-certs',
-  apk,
-];
+/// `apksigner verify` arguments. [v4SignatureFile] is the `.idsig` that v4
+/// signing wrote next to [apk]: without it, apksigner doesn't check v4 and
+/// reports it as not verified.
+List<String> apksignerVerifyArguments(String apk, {String? v4SignatureFile}) =>
+    [
+      'verify',
+      '--verbose',
+      '--print-certs',
+      if (v4SignatureFile != null) ...['--v4-signature-file', v4SignatureFile],
+      apk,
+    ];
 
 /// `apksigner lineage` arguments that print [apk]'s key rotation, which
 /// `verify` doesn't show.

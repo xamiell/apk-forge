@@ -36,6 +36,28 @@ ApkReport _report({
 );
 
 void main() {
+  test('describeSchemes never calls a v1 signature apksigner skipped '
+      'missing', () {
+    const v2v3 = {
+      'v1': false,
+      'v2': true,
+      'v3': true,
+      'v3.1': false,
+      'v4': false,
+    };
+
+    expect(describeSchemes(v2v3, hasJarSignature: false), 'v2, v3');
+    expect(describeSchemes(v2v3, hasJarSignature: true), 'v2, v3, v1 present');
+    expect(
+      describeSchemes(const {'v1': true, 'v2': true}, hasJarSignature: true),
+      'v1, v2',
+    );
+    expect(
+      describeSchemes(const {'v1': false, 'v2': false}, hasJarSignature: false),
+      'None',
+    );
+  });
+
   group('ApkContents', () {
     test('groups native libraries by ABI and spots a release Flutter app', () {
       final contents = _contents([

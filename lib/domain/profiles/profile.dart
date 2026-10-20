@@ -238,9 +238,14 @@ String profileFileName(
       .replaceAll('{versionName}', versionName ?? 'unknown')
       .replaceAll('{versionCode}', versionCode ?? 'unknown')
       .replaceAll('{date}', '${date.year}${two(date.month)}${two(date.day)}');
-  final safe = filled.replaceAll(RegExp(r'[\\/:*?"<>|\x00-\x1f]'), '_').trim();
+  final safe = safeFileName(filled);
   return safe.toLowerCase().endsWith('.apk') ? safe : '$safe.apk';
 }
+
+/// [name] with each character a file name can't hold on any OS turned
+/// into `_`.
+String safeFileName(String name) =>
+    name.replaceAll(RegExp(r'[\\/:*?"<>|\x00-\x1f]'), '_').trim();
 
 const _exportFormat = 'apk-forge-profile';
 

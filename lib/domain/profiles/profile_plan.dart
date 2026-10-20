@@ -46,11 +46,16 @@ class SkippedTarget {
   const SkippedTarget({
     required this.input,
     required this.target,
+    required this.schemes,
     required this.reason,
   });
 
   final ApkReport input;
   final ProfileTarget target;
+
+  /// What it would have been signed with: its own, or [planProfileRun]'s
+  /// defaults.
+  final SigningSchemes schemes;
   final String reason;
 }
 
@@ -112,10 +117,16 @@ ProfileRunPlan planProfileRun(
   final skipped = <SkippedTarget>[];
   for (final input in inputs) {
     for (final target in profile.targets) {
+      final schemes = target.schemes ?? defaultSchemes;
       final source = _source(input.contents, target.abi);
       if (source.skip != null) {
         skipped.add(
-          SkippedTarget(input: input, target: target, reason: source.skip!),
+          SkippedTarget(
+            input: input,
+            target: target,
+            schemes: schemes,
+            reason: source.skip!,
+          ),
         );
         continue;
       }
@@ -134,7 +145,6 @@ ProfileRunPlan planProfileRun(
           ),
         ),
       );
-      final schemes = target.schemes ?? defaultSchemes;
       final key = [
         input.path,
         source.cut?.abiName,
@@ -188,6 +198,7 @@ List<String> _inputProblems(InputChecks checks, ApkReport input, Host host) {
   final expected = checks.packageName;
   final package = input.badging?.packageName;
   final signature = input.signature;
+  final signer = signature?.signers.firstOrNull;
   return [
     if (input.contentsError != null) '$name: ${input.contentsError}',
     if (expected != null && package == null)
@@ -199,11 +210,9 @@ List<String> _inputProblems(InputChecks checks, ApkReport input, Host host) {
     if (checks.mustBeUnsigned && signature == null)
       '$name: its signature could not be checked '
           '(${input.signatureError ?? 'apksigner printed nothing'}).',
-    if (checks.mustBeUnsigned &&
-        signature != null &&
-        (signature.signers.isNotEmpty || input.hasJarSignature))
+    if (checks.mustBeUnsigned && input.isSigned == true)
       '$name is already signed'
-          '${signature.signers.isEmpty ? '' : ' by ${signature.signers.first.distinguishedName ?? 'an unknown signer'}'}'
+          '${signer == null ? '' : ' by ${signer.distinguishedName ?? 'an unknown signer'}'}'
           '; the profile wants an unsigned APK.',
   ];
 }

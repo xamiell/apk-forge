@@ -1,11 +1,14 @@
 import 'dart:io';
 
+import '../core/files/file_digests.dart';
 import '../core/format/format.dart';
 import '../core/process/command.dart';
 import '../core/system/host.dart';
 import '../core/zip/zip_directory.dart';
+import '../domain/analysis/apk_report.dart';
 import '../domain/failure.dart';
 import '../domain/profiles/key_properties.dart';
+import '../domain/profiles/profile.dart';
 import '../domain/profiles/profile_plan.dart';
 import '../domain/profiles/profile_run.dart';
 import '../domain/signing/abi_split.dart';
@@ -219,6 +222,21 @@ class ProfileRunner {
       );
     }
 
+    TargetSetup setupOf(
+      ProfileTarget target,
+      SigningSchemes schemes, {
+      bool cut = false,
+      String? copiedFrom,
+    }) => TargetSetup(
+      abi: target.abiName,
+      cut: cut,
+      keyProperties: target.keyProperties,
+      keyAlias: keys[target.keyProperties]?.alias,
+      schemes: schemes,
+      schemesFromDefaults: target.schemes == null,
+      copiedFrom: copiedFrom,
+    );
+
     for (final skipped in plan.skipped) {
       finish(
         TargetResult(
@@ -226,6 +244,7 @@ class ProfileRunner {
           input: host.path.basename(skipped.input.path),
           status: TargetStatus.skipped,
           reason: skipped.reason,
+          setup: setupOf(skipped.target, skipped.schemes),
         ),
       );
     }
@@ -244,12 +263,22 @@ class ProfileRunner {
         }
       }
 
+      // The first target of a job is signed; the others get a copy.
+      TargetSetup setup(PlannedOutput output) => setupOf(
+        output.target,
+        job.schemes,
+        cut: job.abi != null,
+        copiedFrom: output == job.outputs.first
+            ? null
+            : job.outputs.first.target.name,
+      );
       TargetResult skippedAs(PlannedOutput output, String reason) =>
           TargetResult(
             target: output.target.name,
             input: input,
             status: TargetStatus.skipped,
             reason: reason,
+            setup: setup(output),
           );
       TargetResult failedAs(PlannedOutput output, String reason) =>
           TargetResult(
@@ -257,6 +286,7 @@ class ProfileRunner {
             input: input,
             status: TargetStatus.failed,
             reason: reason,
+            setup: setup(output),
           );
 
       if (executor.isCancelled) {
@@ -304,6 +334,9 @@ class ProfileRunner {
           request: key.request(schemes: job.schemes, outputDir: directory.path),
           expectedSha256: key.sha256,
         );
+        // Every target of the job gets a copy of the same file.
+        final outputSha256 = (await fileDigests(signed.path)).sha256;
+        final hasJarSignature = await _hasJarSignature(signed.path);
 
         for (final output in job.outputs) {
           if (executor.isCancelled) {
@@ -323,6 +356,11 @@ class ProfileRunner {
                 outputPath: output.path,
                 sizeBytes: await File(output.path).length(),
                 signerSha256: signed.signer?.sha256,
+                setup: setup(output),
+                signerDistinguishedName: signed.signer?.distinguishedName,
+                verifiedSchemes: signed.verifiedSchemes,
+                hasJarSignature: hasJarSignature,
+                outputSha256: outputSha256,
               ),
             );
           } on FileSystemException catch (error) {
@@ -352,6 +390,17 @@ class ProfileRunner {
       }
     }
     return results;
+  }
+
+  /// Whether [apk] carries a v1 (JAR) signature, which apksigner doesn't
+  /// verify from minSdk 24. `null` when its files can't be read.
+  static Future<bool?> _hasJarSignature(String apk) async {
+    try {
+      return ApkContents.fromEntries(await readZipDirectory(apk))
+          .hasJarSignature;
+    } on ZipFormatException {
+      return null;
+    }
   }
 
   /// Copies [from] to [to], and its v4 `.idsig` when it has one.

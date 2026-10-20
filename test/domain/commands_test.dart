@@ -175,13 +175,28 @@ void main() {
       keyPassword: 'k3y-pass',
     );
 
-    test('verify prints the certificates; lineage prints the rotation', () {
+    test('verify prints the certificates, and checks v4 with its .idsig; '
+        'lineage prints the rotation', () {
       expect(apksignerVerifyArguments('/a b/app.apk'), [
         'verify',
         '--verbose',
         '--print-certs',
         '/a b/app.apk',
       ]);
+      expect(
+        apksignerVerifyArguments(
+          '/a b/app.apk',
+          v4SignatureFile: '/a b/app.apk.idsig',
+        ),
+        [
+          'verify',
+          '--verbose',
+          '--print-certs',
+          '--v4-signature-file',
+          '/a b/app.apk.idsig',
+          '/a b/app.apk',
+        ],
+      );
       expect(apksignerLineageArguments('/a b/app.apk'), [
         'lineage',
         '--in',
@@ -204,6 +219,41 @@ void main() {
         '-keypass:env',
         keyPasswordVariable,
       ]);
+    });
+
+    test('a throwaway key for the smoke test: both passwords from the '
+        'environment', () {
+      expect(
+        keytoolGenerateKeyArguments(
+          '/tmp/kiosk.jks',
+          'kiosk',
+          distinguishedName: 'CN=Kiosk, O=Example, C=US',
+          storeType: 'JKS',
+        ),
+        [
+          '-J-Duser.language=en',
+          '-J-Duser.country=US',
+          '-genkeypair',
+          '-keystore',
+          '/tmp/kiosk.jks',
+          '-storetype',
+          'JKS',
+          '-storepass:env',
+          keystorePasswordVariable,
+          '-keypass:env',
+          keyPasswordVariable,
+          '-alias',
+          'kiosk',
+          '-keyalg',
+          'RSA',
+          '-keysize',
+          '2048',
+          '-validity',
+          '365',
+          '-dname',
+          'CN=Kiosk, O=Example, C=US',
+        ],
+      );
     });
 
     test('the passwords travel in the environment, never in the arguments', () {

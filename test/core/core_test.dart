@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:apk_forge/core/files/file_digests.dart';
 import 'package:apk_forge/core/format/format.dart';
 import 'package:apk_forge/core/process/command.dart';
 import 'package:apk_forge/core/process/process_runner.dart';
@@ -327,12 +328,38 @@ void main() {
     );
   });
 
+  test(
+    'fileDigests reads a file\'s MD5 and SHA-256 in lowercase hex',
+    () async {
+      final temp = Directory.systemTemp.createTempSync('apk_forge_digests_');
+      addTearDown(() => temp.deleteSync(recursive: true));
+      final file = File(p.join(temp.path, 'abc.txt'))..writeAsStringSync('abc');
+
+      final digests = await fileDigests(file.path);
+
+      expect(digests.md5, '900150983cd24fb0d6963f7d28e17f72');
+      expect(
+        digests.sha256,
+        'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad',
+      );
+    },
+  );
+
   group('format', () {
     test('formatDateTime shows the moment to the minute', () {
       expect(
         formatDateTime(DateTime(2026, 3, 7, 9, 5, 59)),
         '2026-03-07 09:05',
       );
+    });
+
+    test('formatDuration counts seconds, then minutes, then hours', () {
+      expect(formatDuration(const Duration(seconds: 42)), '42 s');
+      expect(
+        formatDuration(const Duration(minutes: 2, seconds: 5)),
+        '2 min 5 s',
+      );
+      expect(formatDuration(const Duration(hours: 1, minutes: 3)), '1 h 3 min');
     });
 
     test('shortPath keeps the file and its folder', () {

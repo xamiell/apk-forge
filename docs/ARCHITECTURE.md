@@ -10,7 +10,8 @@ and that the code which actually starts the tools is thin.
 
 ```
 lib/
-  core/       Process running, the host OS, ZIP reading and copying, formatting, log types.
+  core/       Process running, the host OS, ZIP reading and copying, file digests,
+              formatting, log types.
   domain/     Models, command builders, output parsers, findings. Pure.
   services/   One class per tool job; runs commands through a ProcessRunner.
   state/      Riverpod notifiers (forms, the current task, the log) and the
@@ -53,13 +54,32 @@ features calling each other.
 
 ## 3. Secrets
 
-- Passwords live only in memory: in `SigningForm`, in the `SigningRequest`
-  built from it for a task (`ReadyToSign`), and in `Command.environment`.
+Passwords come from two places: what you type in Sign, and the
+`key.properties` files a signing profile points to (§7).
+
+- Typed passwords live only in memory: in `SigningForm`, in the
+  `SigningRequest` built from it for a task (`ReadyToSign`), and in
+  `Command.environment`.
+- A profile holds a `key.properties` path, never what's in it.
+  - The file is read when a run's check opens the keys
+    (`ProfileKeyService.open`). Its passwords then live in that check's
+    `OpenedKey`s (`ProfileRunCheck.keys`), only while the Run dialog is
+    open, and in the `SigningRequest`s and commands of the run.
+  - The target editor reads the file too (`KeyFileSummary`), but keeps
+    only whether each password is there.
 - They are passed to tools through environment variables, never arguments:
-  `apksigner --ks-pass env:APK_FORGE_KS_PASS`, `keytool -storepass:env …`.
+  - `APK_FORGE_KS_PASS` holds the keystore password, and `APK_FORGE_KEY_PASS`
+    holds a key password of its own;
+  - for example `apksigner --ks-pass env:APK_FORGE_KS_PASS --key-pass
+    env:APK_FORGE_KEY_PASS`, and `keytool -storepass:env … -keypass:env …`.
 - `Command.secrets` lists them; the log and `ToolFailure.fromResult` mask
-  them.
-- `SettingsStore` receives explicit maps without them.
+  them. `KeyProperties` and `OpenedKey` leave them out of `toString`.
+- `SettingsStore` receives explicit maps without them: the forms, the
+  profiles and the history.
+- An exported profile is the profile's JSON, so it holds paths and choices
+  only.
+- A profile run's record (§7) keeps a key's alias and its `key.properties`
+  path, never what's in the file.
 
 A test covers each of these. Keep it that way when a new tool takes a secret.
 
@@ -143,6 +163,8 @@ A test covers each of these. Keep it that way when a new tool takes a secret.
    copy is written to a temporary folder first.
 2. `apksigner sign` writes `<name>-signed.apk.partial`.
 3. `apksigner verify` must say it verifies, with the selected key's SHA-256.
+   When v4 signing wrote an `.idsig`, verify is given it
+   (`--v4-signature-file`): apksigner doesn't check v4 without it.
 4. Only then is the `.partial` (and its `.idsig`) renamed over
    `<name>-signed.apk`. On any failure the `.partial` files are deleted, and
    an earlier signed APK stays as it was.
@@ -167,6 +189,77 @@ The input is never modified or overwritten (`signedApkPath`).
 
 The splits keep the universal APK's manifest, `versionCode` included:
 changing it would mean rewriting the binary manifest.
+
+### Signing profiles
+
+A profile (`SigningProfile`, `domain/profiles/profile.dart`) saves the
+steps to turn one APK into a signed APK per device. It holds:
+- what the input must be (`InputChecks`);
+- the targets, each with its ABI, its `key.properties`, its schemes (or
+  Defaults') and its output folder;
+- a file name pattern;
+- what to do after the run.
+
+A run goes through three steps, each in its layer:
+
+1. **The plan** (`planProfileRun`, `domain/profiles/profile_plan.dart`) is
+   pure, made from the inputs' reports.
+   - It lists what stops the run: an input that fails the checks, a
+     target's problems, or two targets that would write the same file.
+     A target's problems come from `targetProblems` (§10), such as a
+     `key.properties` or folder missing on this machine, through
+     `FileProbe`.
+   - It skips a target the input has no native code or Flutter engine
+     for.
+   - It groups the targets that share the input, the ABI, the key and the
+     schemes into one `SignJob`: signed once, then copied to each folder.
+2. **The check** (`profileRunCheckProvider`, `state/profiles.dart`) runs
+   while the Run dialog is open.
+   - It reads the inputs (`ApkAnalyzer`) and makes the plan.
+   - Only when the plan has no problem, it opens the keys the jobs use
+     (`ProfileKeyService`, `services/profile_runner.dart`): `keytool -list`
+     checks the keystore password and the alias, then `keytool -certreq`
+     checks the key password, which `-list` doesn't.
+   - A key that doesn't open stops the run before anything is signed.
+3. **The run** (`ProfileRunAction`, `state/actions/profile_run_action.dart`)
+   is one task, through `ProfileRunner` (`services/profile_runner.dart`).
+   - Each job cuts the input to its ABI with `copyZipEntries`, as a split
+     does.
+   - It signs the cut APK with `ApkSigningService` (aligned, signed, then
+     verified against the key's SHA-256).
+   - It copies the signed APK to each target's folder through a `.partial`
+     file.
+   - A failed job doesn't stop the others, and cancelling skips what
+     hasn't run.
+   - The progress goes to `ProfileRunProgress`, and each signed APK to the
+     APK list.
+
+`exportProfile` and `importProfile` write and read a profile as JSON. An
+imported profile whose name is taken gets a number ("Release 2"). Its
+targets' problems show at once, because its paths may not exist on this
+machine.
+
+#### A run's record
+
+`ProfileRunner` returns one `TargetResult` per target and input. Each one
+keeps:
+- how it was signed (`TargetSetup`): the ABI and whether the input was cut,
+  the key's alias and `key.properties`, the schemes asked and whether they
+  came from Defaults, and the target it shares a signing with;
+- what `apksigner verify` said of each scheme;
+- whether the APK carries a JAR signature, read from its files, since
+  apksigner skips v1 from minSdk 24;
+- the signer and the output's SHA-256.
+
+`ProfileRunAction` adds the inputs, the file name pattern, the input
+checks and the build-tools version, and saves the record.
+
+The record is the only account of a run: the profile can change or go
+after it. `runReport` (`domain/profiles/run_report.dart`) turns it into
+the report the History tab shows, and `runReportText` into the text Copy
+and Export write. A record saved before a field existed loads with it
+`null`, and the report says "Not recorded" rather than reading today's
+profile.
 
 ## 8. Comparing APKs
 
@@ -208,6 +301,7 @@ test follows are in [TESTING.md](TESTING.md).
 | Function as a dependency | `clockProvider`, `FileRevealer`, `ToolchainSource`, the actions' readers (`BuildOptions Function()`…) | A dependency with one call is a function type. One with two or more is an interface (`TaskRunner`, `ApkSink`, `ProfileRunProgress`). |
 | Closed set | `SettingsKey`; the sealed `SigningSetup` and `SplitAvailability`; enums such as `TargetStatus` | A new case doesn't compile until every `switch` handles it. |
 | Model owns its JSON | `fromJson`/`toJson` next to each other on each saved model | One place per field name. `settings_test` pins what this version saves. |
+| One report, every way out | `runReport` (`domain/profiles/run_report.dart`) | History's detail, Copy as text and Export say a run the same way: the text is `runReportText` of the same report. |
 | One rule, every screen | `targetProblems` (`domain/profiles/target_problems.dart`), through `targetProblemsProvider` and `profileProblemsProvider` | The run check, the import dialog, the Profiles list, the Targets table and Edit target say what's wrong with a target in the same words, so they can't disagree. |
 | Observer | Riverpod notifiers and providers | The UI rebuilds from the state; it shows rules, it doesn't hold them. |
 
@@ -253,4 +347,3 @@ deviations, with the reason.
 | Since | Rule | Where | Why, and until when |
 |---|---|---|---|
 | 2026-10-19 (#11) | Feature-first folders, the default of the owner's mobile-app-architecture rules | `lib/` is layer-first (§1) | The app is small and its steps run in sequence. Layers split by area read better than features calling each other. Moving to features was left out of #11; it needs its own decision (§12). |
-| 2026-10-19 (#11) | No boundary or rule in a widget | `ui/profiles/profile_history.dart` (`_RunResults`) asks the `FileProbe` whether a signed APK is still there | #14 reworks the history. |

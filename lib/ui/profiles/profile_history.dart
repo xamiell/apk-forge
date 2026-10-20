@@ -1,17 +1,22 @@
+import 'dart:convert';
+
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/format/format.dart';
-import '../../core/system/host.dart';
 import '../../domain/profiles/profile.dart';
 import '../../domain/profiles/profile_run.dart';
+import '../../domain/profiles/run_report.dart';
 import '../../state/apks.dart';
 import '../../state/profiles.dart';
 import '../../state/providers.dart';
+import '../common/file_types.dart';
 import '../common/widgets.dart';
 import '../theme.dart';
 
-/// The History tab: the profile's runs, newest first, and the results of
+/// The History tab: the profile's runs, newest first, and the report of
 /// the one selected.
 class ProfileHistory extends ConsumerStatefulWidget {
   const ProfileHistory({super.key, required this.profile});
@@ -82,29 +87,9 @@ class _ProfileHistoryState extends ConsumerState<ProfileHistory> {
                   padding: const EdgeInsets.all(8),
                   children: [
                     for (final (index, run) in runs.indexed)
-                      ListTile(
+                      _RunTile(
+                        run: run,
                         selected: run == selected,
-                        selectedTileColor: Theme.of(context)
-                            .colorScheme
-                            .primaryContainer
-                            .withValues(alpha: 0.35),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        title: Text(
-                          formatDateTime(run.startedAt),
-                          style: const TextStyle(fontWeight: FontWeight.w600),
-                        ),
-                        subtitle: Text(
-                          '${run.inputs.map(_inputLine).join(', ')}\n${run.summary}',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: run.count(TargetStatus.failed) > 0
-                                ? colors.error
-                                : null,
-                          ),
-                        ),
-                        isThreeLine: true,
                         onTap: () => setState(() => _selected = index),
                       ),
                   ],
@@ -124,74 +109,148 @@ class _ProfileHistoryState extends ConsumerState<ProfileHistory> {
           ),
         ),
         const VerticalDivider(width: 1),
-        Expanded(child: _RunResults(run: selected)),
+        Expanded(child: _RunDetail(run: selected)),
       ],
     );
   }
-
-  static String _inputLine(RunInput input) => [
-    input.name,
-    if (input.versionName != null)
-      '${input.versionName} (${input.versionCode})',
-  ].join(' · ');
 }
 
-class _RunResults extends ConsumerWidget {
-  const _RunResults({required this.run});
+Color _outcomeColor(RunOutcome outcome, StatusColors colors) =>
+    switch (outcome) {
+      RunOutcome.allSigned || RunOutcome.someSkipped => colors.ok,
+      RunOutcome.someFailed || RunOutcome.cancelled => colors.warning,
+      RunOutcome.failed => colors.error,
+      RunOutcome.nothingSigned => colors.muted,
+    };
+
+/// A run in the list: when, its outcome, the versions it signed and its
+/// targets.
+class _RunTile extends StatelessWidget {
+  const _RunTile({
+    required this.run,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final ProfileRunRecord run;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.status;
+    return ListTile(
+      selected: selected,
+      selectedTileColor: Theme.of(context).colorScheme.primaryContainer
+          .withValues(alpha: 0.35),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      title: Row(
+        children: [
+          Expanded(
+            child: Text(
+              formatDateTime(run.startedAt),
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+          ),
+          Pill(run.outcome.label, color: _outcomeColor(run.outcome, colors)),
+        ],
+      ),
+      subtitle: Padding(
+        padding: const EdgeInsets.only(top: 4),
+        child: Text(
+          '${run.versions.join(', ')}\n${run.targets.join(', ')}',
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(fontSize: 12),
+        ),
+      ),
+      isThreeLine: true,
+      onTap: onTap,
+    );
+  }
+}
+
+/// The selected run's report, with Copy and Export.
+class _RunDetail extends ConsumerWidget {
+  const _RunDetail({required this.run});
 
   final ProfileRunRecord run;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final colors = context.status;
-    final probe = ref.watch(fileProbeProvider);
-    final host = ref.watch(hostProvider);
-    final duration = run.finishedAt.difference(run.startedAt);
+    final report = runReport(run);
+    final theme = Theme.of(context);
+
+    void snack(String message) => ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), behavior: SnackBarBehavior.floating),
+    );
+
+    Future<void> copy() async {
+      await Clipboard.setData(ClipboardData(text: runReportText(report)));
+      if (context.mounted) snack('Copied the run\'s report.');
+    }
+
+    Future<void> export() async {
+      final location = await getSaveLocation(
+        suggestedName: runReportFileName(run),
+        acceptedTypeGroups: const [textTypes],
+      );
+      if (location == null) return;
+      await XFile.fromData(
+        utf8.encode(runReportText(report)),
+        mimeType: 'text/plain',
+      ).saveTo(location.path);
+      if (context.mounted) snack('Exported to ${location.path}.');
+    }
+
+    Widget heading(String text) => Padding(
+      padding: const EdgeInsets.fromLTRB(0, 18, 0, 6),
+      child: Text(
+        text,
+        style: theme.textTheme.titleSmall?.copyWith(
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
 
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        Text(
-          formatDateTime(run.startedAt),
-          style: Theme.of(context).textTheme.titleMedium,
+        Row(
+          children: [
+            Expanded(
+              child: Text(report.title, style: theme.textTheme.titleMedium),
+            ),
+            TextButton.icon(
+              onPressed: copy,
+              icon: const Icon(Icons.copy_rounded, size: 16),
+              label: const Text('Copy as text'),
+            ),
+            const SizedBox(width: 4),
+            OutlinedButton.icon(
+              onPressed: export,
+              icon: const Icon(Icons.save_alt_rounded, size: 16),
+              label: const Text('Export…'),
+            ),
+          ],
         ),
-        const SizedBox(height: 2),
-        Text(
-          [
-            for (final input in run.inputs)
-              [
-                input.name,
-                ?input.packageName,
-                if (input.versionName != null)
-                  '${input.versionName} (${input.versionCode})',
-                if (input.sha256.isNotEmpty)
-                  'SHA-256 ${shortDigest(input.sha256)}',
-              ].join(' · '),
-            'took ${duration.inSeconds} s',
-          ].join('\n'),
-          style: TextStyle(fontSize: 12.5, color: colors.muted),
-        ),
-        const SizedBox(height: 12),
-        SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: DataTable(
-            headingRowHeight: 36,
-            dataRowMinHeight: 40,
-            dataRowMaxHeight: 56,
-            columnSpacing: 24,
-            columns: const [
-              DataColumn(label: Text('Target')),
-              DataColumn(label: Text('Status')),
-              DataColumn(label: Text('Output or reason')),
-              DataColumn(label: Text('Size')),
-              DataColumn(label: SizedBox.shrink()),
-            ],
-            rows: [
-              for (final result in run.results)
-                _row(context, ref, result, probe, host, colors),
-            ],
+        const SizedBox(height: 8),
+        _Lines(report.run),
+        if (!run.hasDetails)
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Text(
+              'Saved by an earlier version, which kept only the outputs and '
+              'their signer. What it didn\'t keep says "$notRecorded".',
+              style: TextStyle(fontSize: 12, color: colors.muted),
+            ),
           ),
-        ),
+        heading(report.inputs.length == 1 ? 'Input' : 'Inputs'),
+        for (final input in report.inputs)
+          _Block(title: input.input.name, child: _Lines(input.lines)),
+        heading('Targets'),
+        for (final target in report.targets) _TargetBlock(target: target),
         const SizedBox(height: 10),
         Text(
           'Kept across restarts, newest first. Holds names, versions, paths '
@@ -201,103 +260,126 @@ class _RunResults extends ConsumerWidget {
       ],
     );
   }
+}
 
-  DataRow _row(
-    BuildContext context,
-    WidgetRef ref,
-    TargetResult result,
-    FileProbe probe,
-    Host host,
-    StatusColors colors,
-  ) {
-    final missing =
-        result.status == TargetStatus.signed &&
-        !probe.fileExists(result.outputPath!);
-    final (label, color) = missing
+/// One target of the report: its status, its lines, and its APK's
+/// actions while the APK is where the run wrote it.
+class _TargetBlock extends ConsumerWidget {
+  const _TargetBlock({required this.target});
+
+  final TargetReport target;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final colors = context.status;
+    final result = target.result;
+    final output = result.outputPath;
+    final signed = result.status == TargetStatus.signed && output != null;
+    final gone = signed && ref.watch(signedApkGoneProvider(output));
+    final (label, color) = gone
         ? ('Missing', colors.warning)
         : switch (result.status) {
             TargetStatus.signed => ('Signed', colors.ok),
             TargetStatus.failed => ('Failed', colors.error),
             TargetStatus.skipped => ('Skipped', colors.muted),
           };
-    return DataRow(
-      cells: [
-        DataCell(
-          Text(
-            result.target,
-            style: const TextStyle(fontWeight: FontWeight.w600),
+
+    return _Block(
+      title: target.title,
+      trailing: [
+        Pill(label, color: color),
+        if (signed && !gone) ...[
+          const SizedBox(width: 4),
+          IconButton(
+            tooltip: 'Show in its folder',
+            icon: const Icon(Icons.folder_open_outlined, size: 18),
+            onPressed: () =>
+                ref.read(fileRevealerProvider)(output, ref.read(hostProvider)),
           ),
-        ),
-        DataCell(Pill(label, color: color)),
-        DataCell(
-          SizedBox(
-            width: 300,
-            child: Tooltip(
-              message: result.outputPath ?? '',
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    missing
-                        ? '${shortPath(result.outputPath!, host)} was moved or '
-                              'deleted since'
-                        : result.outputPath == null
-                        ? result.reason ?? ''
-                        : shortPath(result.outputPath!, host),
-                    style: TextStyle(
-                      fontSize: 12.5,
-                      color: result.status == TargetStatus.failed
-                          ? colors.error
-                          : null,
-                    ),
-                  ),
-                  if (result.signerSha256 != null)
-                    Text(
-                      'Signer SHA-256 ${shortDigest(result.signerSha256!)}',
-                      style: monospace.copyWith(
-                        fontSize: 11.5,
-                        color: colors.muted,
-                      ),
-                    ),
-                ],
+          IconButton(
+            tooltip: 'Analyze',
+            icon: const Icon(Icons.manage_search_rounded, size: 18),
+            onPressed: () {
+              ref.read(apkListProvider.notifier).add(output, ApkOrigin.signed);
+              ref.read(appViewProvider.notifier).show(AppView.workbench);
+            },
+          ),
+        ],
+      ],
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (gone)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Text(
+                'It was moved or deleted since the run.',
+                style: TextStyle(fontSize: 12.5, color: colors.warning),
               ),
             ),
-          ),
-        ),
-        DataCell(
-          Text(result.sizeBytes == null ? '' : formatBytes(result.sizeBytes!)),
-        ),
-        DataCell(
-          result.status == TargetStatus.signed && !missing
-              ? Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    IconButton(
-                      tooltip: 'Show in its folder',
-                      icon: const Icon(Icons.folder_open_outlined, size: 18),
-                      onPressed: () => ref.read(fileRevealerProvider)(
-                        result.outputPath!,
-                        ref.read(hostProvider),
-                      ),
-                    ),
-                    IconButton(
-                      tooltip: 'Analyze',
-                      icon: const Icon(Icons.manage_search_rounded, size: 18),
-                      onPressed: () {
-                        ref
-                            .read(apkListProvider.notifier)
-                            .add(result.outputPath!, ApkOrigin.signed);
-                        ref
-                            .read(appViewProvider.notifier)
-                            .show(AppView.workbench);
-                      },
-                    ),
-                  ],
-                )
-              : const SizedBox.shrink(),
-        ),
-      ],
+          _Lines(target.lines),
+        ],
+      ),
     );
   }
+}
+
+/// A titled, outlined group of lines.
+class _Block extends StatelessWidget {
+  const _Block({
+    required this.title,
+    required this.child,
+    this.trailing = const [],
+  });
+
+  final String title;
+  final Widget child;
+  final List<Widget> trailing;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    margin: const EdgeInsets.only(bottom: 10),
+    padding: const EdgeInsets.fromLTRB(12, 6, 8, 8),
+    decoration: BoxDecoration(
+      border: Border.all(color: Theme.of(context).dividerColor),
+      borderRadius: BorderRadius.circular(10),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SizedBox(
+          height: 36,
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+              ),
+              ...trailing,
+            ],
+          ),
+        ),
+        child,
+      ],
+    ),
+  );
+}
+
+class _Lines extends StatelessWidget {
+  const _Lines(this.lines);
+
+  final List<ReportLine> lines;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      for (final line in lines)
+        InfoRow(line.label, line.value, mono: line.mono),
+    ],
+  );
 }

@@ -1,5 +1,7 @@
+import 'dart:convert';
 import 'dart:io';
 
+import 'package:apk_forge/core/files/file_digests.dart';
 import 'package:apk_forge/core/process/command.dart';
 import 'package:apk_forge/core/process/process_runner.dart';
 import 'package:apk_forge/core/zip/zip_directory.dart';
@@ -229,6 +231,63 @@ void main() {
       expect(signed.path, earlier.path);
       expect(earlier.readAsStringSync(), 'new');
       expect(File('${earlier.path}.partial').existsSync(), isFalse);
+    });
+
+    test(
+      'a v4 signing is verified with its .idsig, which goes along',
+      () async {
+        final input = p.join(temp.path, 'app.apk');
+        runner
+          ..when((c) => c.arguments.first == 'sign', (c) {
+            final out = c.arguments[c.arguments.indexOf('--out') + 1];
+            File(out).writeAsStringSync('signed');
+            File('$out.idsig').writeAsStringSync('v4');
+            return ok();
+          })
+          ..whenFirstArg(
+            'verify',
+            ok(fixture('apksigner_verify_all_schemes.txt')),
+          );
+
+        final signed = await service().sign(
+          executor,
+          toolchain: _toolchain,
+          input: input,
+          request: const SigningRequest(
+            keystorePath: '/k.jks',
+            storePassword: 'hunter2',
+            alias: 'upload',
+            schemes: SigningSchemes(v1: true, v2: true, v3: true, v4: true),
+          ),
+        );
+
+        final verify = runner.callsWithFirstArg('verify').single.arguments;
+        final idsig = verify[verify.indexOf('--v4-signature-file') + 1];
+        expect(idsig, '${verify.last}.idsig');
+        expect(signed.verifiedSchemes['v4'], isTrue);
+        expect(signed.verifiedSchemes['v1'], isFalse);
+        expect(File('${signed.path}.idsig').readAsStringSync(), 'v4');
+      },
+    );
+
+    test('without an .idsig, verify is not told of one', () async {
+      runner.whenFirstArg(
+        'verify',
+        ok(fixture('apksigner_verify_test_key.txt')),
+      );
+
+      final signed = await service().sign(
+        executor,
+        toolchain: _toolchain,
+        input: p.join(temp.path, 'app.apk'),
+        request: request,
+      );
+
+      expect(
+        runner.callsWithFirstArg('verify').single.arguments,
+        isNot(contains('--v4-signature-file')),
+      );
+      expect(signed.verifiedSchemes, containsPair('v4', false));
     });
 
     test('fails when the signed APK carries another signer', () async {
@@ -957,27 +1016,35 @@ void main() {
       })
       ..whenFirstArg('verify', ok(fixture('apksigner_verify_test_key.txt')));
 
-    ProfileTarget target(String name, AndroidAbi abi) => ProfileTarget(
+    ProfileTarget target(
+      String name,
+      AndroidAbi abi, {
+      SigningSchemes? schemes,
+    }) => ProfileTarget(
       id: name,
       name: name,
       abi: abi,
       keyProperties: '/keys/key.properties',
+      schemes: schemes,
       outputDir: p.join(temp.path, 'out', name.toLowerCase()),
     );
 
-    ProfileRunPlan plan(ApkReport input, List<ProfileTarget> targets) =>
-        planProfileRun(
-          SigningProfile(id: 'p', name: 'Release', targets: targets),
-          [input],
-          defaultSchemes: const SigningSchemes.automatic(),
-          host: macHost,
-          // The runner makes the folders; the plan only checks they exist.
-          probe: FakeFileProbe(
-            files: {for (final t in targets) t.keyProperties},
-            directories: {for (final t in targets) t.outputDir},
-          ),
-          date: DateTime(2026, 10, 18),
-        );
+    ProfileRunPlan plan(
+      ApkReport input,
+      List<ProfileTarget> targets, {
+      SigningSchemes defaults = const SigningSchemes.automatic(),
+    }) => planProfileRun(
+      SigningProfile(id: 'p', name: 'Release', targets: targets),
+      [input],
+      defaultSchemes: defaults,
+      host: macHost,
+      // The runner makes the folders; the plan only checks they exist.
+      probe: FakeFileProbe(
+        files: {for (final t in targets) t.keyProperties},
+        directories: {for (final t in targets) t.outputDir},
+      ),
+      date: DateTime(2026, 10, 18),
+    );
 
     Iterable<String> leftovers() => temp
         .listSync(recursive: true)
@@ -1046,6 +1113,88 @@ void main() {
         expect(File(input.path).lengthSync(), input.sizeBytes);
       },
     );
+
+    test('each result says how its target was signed and what apksigner '
+        'verified, and holds no password', () async {
+      // The key that signed the fixture's APK.
+      const schemesKey = OpenedKey(
+        keyProperties: '/keys/key.properties',
+        keystorePath: '/keys/release.jks',
+        alias: 'upload',
+        storePassword: 'hunter2',
+        keyPassword: 'hunter3',
+        sha256:
+            'b8679d21059e8cb277c82ad59d5325bc8efc1d1a726313d762c3461f16022b8c',
+      );
+      // apksigner writes a v1-signed copy of what it signs, and its .idsig.
+      runner
+        ..when((c) => c.arguments.first == 'sign', (c) {
+          final out = c.arguments[c.arguments.indexOf('--out') + 1];
+          final archive = Archive()
+            ..add(ArchiveFile.string('AndroidManifest.xml', 'manifest'))
+            ..add(ArchiveFile.string('META-INF/MANIFEST.MF', 'jar'))
+            ..add(ArchiveFile.string('META-INF/UPLOAD.RSA', 'block'))
+            ..add(ArchiveFile.string('from', p.basename(c.arguments.last)));
+          File(out).writeAsBytesSync(ZipEncoder().encode(archive));
+          File('$out.idsig').writeAsStringSync('v4');
+          return ok();
+        })
+        ..whenFirstArg(
+          'verify',
+          ok(fixture('apksigner_verify_all_schemes.txt')),
+        );
+      const defaults = SigningSchemes(v2: true, v3: true);
+      const own = SigningSchemes(v1: true, v2: true, v3: true, v4: true);
+      final input = await universal();
+
+      final results = await service().run(
+        executor,
+        toolchain: _toolchain,
+        plan: plan(input, [
+          target('Phone', AndroidAbi.arm64V8a),
+          target('Tablet', AndroidAbi.arm64V8a),
+          target('Kiosk', AndroidAbi.armeabiV7a, schemes: own),
+          target('Emulator', AndroidAbi.x8664),
+        ], defaults: defaults),
+        keys: {schemesKey.keyProperties: schemesKey},
+      );
+
+      final [emulator, phone, tablet, kiosk] = results;
+      expect(phone.setup!.abi, 'arm64-v8a');
+      expect(phone.setup!.cut, isTrue);
+      expect(phone.setup!.keyProperties, '/keys/key.properties');
+      expect(phone.setup!.keyAlias, 'upload');
+      expect(phone.setup!.schemes, defaults);
+      expect(phone.setup!.schemesFromDefaults, isTrue);
+      expect(phone.setup!.copiedFrom, isNull);
+      expect(tablet.setup!.copiedFrom, 'Phone');
+      expect(kiosk.setup!.schemes, own);
+      expect(kiosk.setup!.schemesFromDefaults, isFalse);
+      expect(emulator.status, TargetStatus.skipped);
+      expect(emulator.setup!.abi, 'x86_64');
+      expect(emulator.setup!.schemes, defaults);
+
+      // apksigner doesn't check v1 from minSdk 24; the files say it's there.
+      expect(phone.verifiedSchemes, {
+        'v1': false,
+        'v2': true,
+        'v3': true,
+        'v3.1': false,
+        'v4': true,
+      });
+      expect(phone.hasJarSignature, isTrue);
+      expect(
+        phone.signerDistinguishedName,
+        'CN=APK Forge Schemes, O=Example, C=US',
+      );
+      expect(phone.outputSha256, (await fileDigests(phone.outputPath!)).sha256);
+      expect(tablet.outputSha256, phone.outputSha256);
+      expect(kiosk.outputSha256, isNot(phone.outputSha256));
+      expect(File('${kiosk.outputPath}.idsig').existsSync(), isTrue);
+
+      final saved = jsonEncode([for (final result in results) result.toJson()]);
+      expect(saved, isNot(contains('hunter')));
+    });
 
     test('a failed target does not stop the others', () async {
       // The first matching answer wins: Kiosk's signing fails.

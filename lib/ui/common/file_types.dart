@@ -16,3 +16,5 @@ const profileTypes = XTypeGroup(
   label: 'APK Forge profile',
   extensions: ['json'],
 );
+
+const textTypes = XTypeGroup(label: 'Text', extensions: ['txt']);

@@ -46,9 +46,10 @@ class ProfileRunAction {
     final startedAt = clock();
 
     return task.run('Run profile ${profile.name}', (executor) async {
+      final tools = await toolchain();
       final results = await runner.run(
         executor,
-        toolchain: await toolchain(),
+        toolchain: tools,
         plan: check.plan,
         keys: check.keys!,
         onProgress: progress.update,
@@ -60,16 +61,13 @@ class ProfileRunAction {
         finishedAt: clock(),
         inputs: [
           for (final input in check.inputs)
-            RunInput(
-              name: host.path.basename(input.path),
-              sha256: input.sha256,
-              packageName: input.badging?.packageName,
-              versionName: input.badging?.versionName,
-              versionCode: input.badging?.versionCode,
-            ),
+            RunInput.fromReport(input, name: host.path.basename(input.path)),
         ],
         results: results,
         cancelled: executor.isCancelled,
+        fileNamePattern: profile.fileNamePattern,
+        inputChecks: profile.input,
+        buildToolsVersion: tools.buildToolsVersion,
       );
       addToHistory(record);
       progress.finish(record);

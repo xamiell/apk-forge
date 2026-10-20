@@ -18,6 +18,7 @@ the tool's own reason, not a generic error.
 | **Defaults** | What Build and Sign share, set once at the top: the architectures (any mix of `armeabi-v7a`, `arm64-v8a` and `x86_64`) and the signature schemes (Auto, or the ones you mark). Build and Sign show what they take from it. It folds into one line. |
 | **Build** | Runs `flutter build apk` on any Flutter project, for the architectures in Defaults. Choose release or debug, and one universal APK or one APK per ABI (`--split-per-abi`, offered with two or more architectures). Optional Dart obfuscation keeps the symbols you need to read crash traces. The command is previewed before you run it. |
 | **Sign** | Signs the APK selected in Analyze APK, the APKs a build just produced, or any APK you pick (from CI, another machine, a store), with your `.jks`, `.keystore` or `.p12` and the schemes in Defaults. It checks the alignment first and fixes it if needed, writes `<name>-signed.apk` without touching the original, and verifies that the result carries exactly the key you chose. **Split per ABI and sign** turns a universal APK (one from CI, say) into one signed APK per architecture in Defaults. |
+| **Signing profiles** | Saves the steps to turn one APK into a signed APK per device, each with its ABI, its key (a `key.properties` file) and its folder, and runs them in one go. Every run is kept as a report you can copy or export. |
 | **Analyze APK** | For any APK: whether the signature verifies; the schemes it carries (v1 to v4); the signer certificate (DN, SHA-256, SHA-1), a rotated key's lineage, and whether it is **your key** or the Android debug key; release or debug (`debuggable`); package, version and SDK levels; native code per ABI, flagging an ABI with no Flutter engine; size, MD5 and SHA-256. **Compare with…** puts it next to another APK (a previous release, another build) or the app installed on the device, and lists every difference, worst first: another signer, a lower versionCode, a debug build, lost ABIs, new permissions. |
 | **Analyze device** | For the device on USB: maker, brand, model and codename; Android version, API level, security patch, build and build type; chip, ABIs, memory page size (16 KB pages are flagged), RAM, storage and screen; battery, locale and time zone. With an APK selected, it tells you which ABI the APK would run as, which version is installed, and whether installing would be a fresh install, an upgrade, a reinstall or a downgrade, or would be refused for another key. **Compare with the installed app** compares the two side by side. One click copies it all as text. |
 | **Install** | Installs the selected APK with `adb install -r` (optionally `-d` to allow a downgrade). It warns first when the APK has no native code for the device, or is signed with another key than the installed app, and explains the common install failures. |
@@ -28,9 +29,9 @@ the tool's own reason, not a generic error.
 | Tool | Used by | Where it comes from |
 |---|---|---|
 | Flutter SDK | Build | [flutter.dev](https://docs.flutter.dev/get-started/install), on your `PATH` or set in Tools |
-| Android SDK build-tools: `apksigner`, `zipalign`, `aapt2` | Sign, Analyze APK | Android Studio → SDK Manager |
+| Android SDK build-tools: `apksigner`, `zipalign`, `aapt2` | Sign, signing profiles, Analyze APK | Android Studio → SDK Manager |
 | Android SDK platform-tools: `adb` | Analyze device, Install, comparing with the installed app | Android Studio → SDK Manager |
-| A JDK: `keytool`, and Java for `apksigner` | Sign | Android Studio's bundled JDK works |
+| A JDK: `keytool`, and Java for `apksigner` | Sign, signing profiles | Android Studio's bundled JDK works |
 
 You don't configure paths by hand. At startup the app reads your login
 shell's environment, the same one your terminal has. An app opened from
@@ -121,6 +122,94 @@ you press it. Each one keeps everything but the other ABIs' `lib/` folders: for 
   publish an App Bundle there, or build with **Split per ABI** in **Build**,
   which adds an offset per ABI.
 
+### Signing profiles
+
+When one APK has to go out signed for several devices, each with its own
+ABI, key or folder, a profile saves those steps and runs them in one go.
+Open **Profiles** in the left rail, or **Run profile…** in **Sign**.
+
+- **A profile** holds:
+  - an input check: the package the APK must be, and whether it must be
+    unsigned;
+  - its targets;
+  - a file name pattern;
+  - what to do after a run: open the output folders, or nothing.
+- **A target** is one APK the profile writes, usually one per device. It
+  has:
+  - a name;
+  - an ABI, or universal;
+  - a key;
+  - the signature schemes: its own, or the ones in Defaults when the
+    profile runs;
+  - an output folder.
+- **A key** is a Gradle `key.properties` file, like a Flutter project's
+  `android/key.properties`:
+
+  ```properties
+  storePassword=…
+  keyPassword=…
+  keyAlias=upload
+  storeFile=upload-keystore.jks
+  ```
+
+  `storeFile` can be relative to the file. The profile saves only the
+  file's path. **Edit target** shows what the file says (the keystore, the
+  alias, whether both passwords are there) without showing the passwords.
+
+**Create one.** Press **New profile**, then fill its steps:
+1. **Input**: the input checks.
+2. **Targets**: **Add target** for each one.
+3. **File name**: the tokens are `{name}`, `{target}`, `{abi}`,
+   `{versionName}`, `{versionCode}` and `{date}`, with a preview.
+4. **After**: what to do once the run is done.
+
+Targets with the same ABI, key and schemes are signed once and copied to
+each folder. **Duplicate** copies a profile ("Release copy"). A name
+already in the list gets a number ("New profile 2").
+
+**Run it.** **Run…** opens the run dialog. Add the APK, or use the one
+selected in **Analyze APK**. Before anything is signed, the dialog:
+- reads the APK and checks it against the input checks;
+- opens every key. A wrong keystore or key password, or an alias the
+  keystore doesn't have, stops the run here and names the file;
+- shows the plan: each target's ABI, key and the file it writes, and which
+  targets are skipped and why (no native code for their ABI, say).
+
+Press **Run**. Each target is cut to its ABI from a universal APK, signed,
+verified against its key and written. The input is never modified, and a
+target that fails doesn't stop the others. The signed APKs join the list in
+**Analyze APK**.
+
+**The history.** The **History** tab keeps every run, newest first, with
+its outcome, versions and targets. A run's report says, for each target:
+- the ABI, and whether the input was cut;
+- the key: its alias and its `key.properties`;
+- the schemes asked, next to the ones apksigner verified;
+- the signer;
+- the output, with its size and SHA-256, or why the target failed or was
+  skipped.
+
+**Copy as text** and **Export…** give the same report as text, for a
+release note or a ticket. Editing the profile later doesn't change its
+history; deleting the profile deletes it. A run saved by an older version
+says "Not recorded" for what that version didn't keep.
+
+**Share one.** **Export…** writes the profile to a `.json` file, with
+paths and choices only. **Import profile…** reads one, and a name already
+in the list gets a number. The paths come from the machine that exported
+it:
+- A `key.properties` or output folder that doesn't exist on this machine is
+  flagged in the import dialog, in the Profiles list and on the target.
+- It stops the run until you pick another file or folder in **Edit
+  target**. For a folder, **Create folder** creates it.
+
+**No password is saved.** The passwords stay in each `key.properties`:
+- they're read when the run dialog opens the keys, and kept in memory only
+  while the dialog is open;
+- they go to `keytool` and `apksigner` through environment variables;
+- they're never written to the settings, the history, an exported profile,
+  the log or an error.
+
 ### Check an APK
 
 Press **Open APK…** in **Analyze APK**. The checks at the top of the report
@@ -180,7 +269,9 @@ device.
   so they don't show up in `ps`. Any output line that contains one is masked
   in the log and in error messages.
 - **The app saves only paths and choices** (project folder, keystore path,
-  key alias, architectures…), in the OS's standard app preferences.
+  key alias, architectures…), in the OS's standard app preferences. A
+  signing profile saves the path of each `key.properties`; the passwords
+  stay in the file.
 - **Reading a device changes nothing on it.** It runs `getprop`, `wm size`,
   `dumpsys battery`, `pm path` and similar read-only commands. A package name
   taken from an APK is validated before it goes into a device shell command.
@@ -191,8 +282,8 @@ device.
 
 - **apksigner and v1.** For an APK with minSdk 24 or higher, `apksigner
   verify` reports `v1: false` even when a v1 signature is there, because
-  Android 7+ ignores it. Analyze APK reads the APK's files too, and shows
-  "v1 present".
+  Android 7+ ignores it. Analyze APK, Compare and a profile run's History
+  read the APK's files too, and show "v1 present".
 - **A rotated signing key.** With APK Signature Scheme v3 an app can move
   to a new key and still update over installs signed with the old one.
   `apksigner verify` shows only the new key, so on its own a rotated key
@@ -201,7 +292,9 @@ device.
   report lists one signer per API range.
 - **v4 signatures** go in a separate `<apk>.idsig` file next to the APK.
   apksigner writes it on its own when its defaults call for it. You only need
-  it for `adb install --incremental`.
+  it for `adb install --incremental`. `apksigner verify` checks v4 only when
+  it's given that file, so Sign and a profile run pass it. Analyze APK reads
+  the APK alone, so it shows v4 as not verified.
 - **`--target-platform` only filters the Flutter engine.** A plugin's own
   `.so` files can still make the APK advertise an ABI you left out. A device
   that picks that ABI crashes at launch. Analyze APK flags it as "No Flutter
@@ -230,7 +323,9 @@ output captured from `apksigner`, `aapt2`, `keytool`, `adb` and
 `tool/smoke.dart` runs the real tools end to end against a throwaway
 project and keystore: reading the keys, a split and obfuscated build,
 signing, analysis, splitting a universal build per ABI and signing the
-splits, and a wrong password.
+splits, a signing profile with two targets and two throwaway keys of its
+own (one with a key password of its own), and a wrong password. It makes
+and deletes those two keys itself.
 
 ```bash
 APK_FORGE_SMOKE_PASS=… dart run tool/smoke.dart <flutter project> <keystore> <alias> <output dir>
@@ -240,7 +335,7 @@ APK_FORGE_SMOKE_PASS=… dart run tool/smoke.dart <flutter project> <keystore> <
 
 ```
 lib/
-  core/       process running, host OS, ZIP reading and copying, formatting, log types
+  core/       process running, host OS, ZIP reading and copying, file digests, formatting, log types
   domain/     models, command builders, output parsers, checks (pure Dart)
   services/   one class per tool job, through a ProcessRunner
   state/      Riverpod notifiers (forms, the current task, the log) and the actions

@@ -162,8 +162,14 @@ ApkComparison compareApks(ApkReport reference, ApkReport candidate) {
       ComparedField(
         'Signature',
         'Schemes',
-        _schemes(referenceSignature, reference.hasJarSignature),
-        _schemes(candidateSignature, candidate.hasJarSignature),
+        describeSchemes(
+          referenceSignature.schemes,
+          hasJarSignature: reference.hasJarSignature,
+        ),
+        describeSchemes(
+          candidateSignature.schemes,
+          hasJarSignature: candidate.hasJarSignature,
+        ),
       ),
     );
     fields.addAll(
@@ -685,16 +691,6 @@ List<ComparedField> _contentFields(
 }
 
 String _yesNo(bool value) => value ? 'Yes' : 'No';
-
-String _schemes(SignatureReport signature, bool hasJarSignature) {
-  final verified = [
-    for (final MapEntry(key: name, value: ok) in signature.schemes.entries)
-      if (ok) name,
-  ];
-  // apksigner skips v1 for minSdk 24+; a v1 it didn't check still counts.
-  if (hasJarSignature && !signature.scheme('v1')) verified.add('v1 present');
-  return verified.isEmpty ? 'None' : verified.join(', ');
-}
 
 String? _digest(String? digest) => digest == null ? null : colonDigest(digest);
 

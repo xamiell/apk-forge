@@ -1,7 +1,6 @@
 import 'dart:io';
 
-import 'package:crypto/crypto.dart';
-
+import '../core/files/file_digests.dart';
 import '../core/process/command.dart';
 import '../core/zip/zip_directory.dart';
 import '../domain/analysis/apk_report.dart';
@@ -30,7 +29,7 @@ class ApkAnalyzer {
       throw ToolFailure('File not found', details: [path]);
     }
     final size = await file.length();
-    final digests = await _digests(file);
+    final digests = await fileDigests(path);
 
     ApkContents contents = const ApkContents();
     String? contentsError;
@@ -110,29 +109,4 @@ class ApkAnalyzer {
       signatureError: signatureError,
     );
   }
-
-  /// MD5 (what TMS and store consoles show) and SHA-256, in one read.
-  static Future<({String md5, String sha256})> _digests(File file) async {
-    final md5Sink = _DigestSink();
-    final sha256Sink = _DigestSink();
-    final md5Input = md5.startChunkedConversion(md5Sink);
-    final sha256Input = sha256.startChunkedConversion(sha256Sink);
-    await for (final chunk in file.openRead()) {
-      md5Input.add(chunk);
-      sha256Input.add(chunk);
-    }
-    md5Input.close();
-    sha256Input.close();
-    return (md5: md5Sink.value.toString(), sha256: sha256Sink.value.toString());
-  }
-}
-
-class _DigestSink implements Sink<Digest> {
-  late Digest value;
-
-  @override
-  void add(Digest data) => value = data;
-
-  @override
-  void close() {}
 }

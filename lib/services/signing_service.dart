@@ -45,10 +45,18 @@ class KeystoreService {
 
 /// The outcome of signing one APK.
 class SignedApk {
-  const SignedApk({required this.path, required this.signer});
+  const SignedApk({
+    required this.path,
+    required this.signer,
+    this.verifiedSchemes = const {},
+  });
 
   final String path;
   final SignerCertificate? signer;
+
+  /// What `apksigner verify` said of each scheme (`v2` → true). See
+  /// [SignatureReport.schemes] for why v1 can be false while it's there.
+  final Map<String, bool> verifiedSchemes;
 }
 
 class ApkSigningService {
@@ -113,8 +121,15 @@ class ApkSigningService {
         }
       }
 
+      final idsig = '$partial.idsig';
       final verify = await executor.run(
-        Command(apksigner, apksignerVerifyArguments(partial)),
+        Command(
+          apksigner,
+          apksignerVerifyArguments(
+            partial,
+            v4SignatureFile: await File(idsig).exists() ? idsig : null,
+          ),
+        ),
         echoOutput: false,
       );
       final report = parseApksignerVerify(verify.allLines);
@@ -137,7 +152,7 @@ class ApkSigningService {
 
       await _replace(partial, output);
       // v4 writes its signature next to the APK, named after it.
-      await _replace('$partial.idsig', '$output.idsig');
+      await _replace(idsig, '$output.idsig');
 
       final schemes = report.schemes.entries
           .where((entry) => entry.value)
@@ -148,7 +163,11 @@ class ApkSigningService {
         '(schemes: ${schemes.isEmpty ? 'none' : schemes}; '
         'SHA-256 ${signer?.sha256 == null ? '?' : shortDigest(signer!.sha256!)})',
       );
-      return SignedApk(path: output, signer: signer);
+      return SignedApk(
+        path: output,
+        signer: signer,
+        verifiedSchemes: report.schemes,
+      );
     } finally {
       for (final leftover in [partial, '$partial.idsig']) {
         final file = File(leftover);

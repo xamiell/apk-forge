@@ -213,6 +213,12 @@ class ProfileHistoryNotifier extends Notifier<List<ProfileRunRecord>> {
       state.where((run) => run.profileId == profileId).toList();
 }
 
+/// Whether a signed APK a run wrote is no longer where it was written:
+/// moved or deleted since.
+final signedApkGoneProvider = Provider.autoDispose.family<bool, String>(
+  (ref, path) => !ref.watch(fileProbeProvider).fileExists(path),
+);
+
 /// What the target editor shows about a `key.properties`, read again when
 /// the editor opens.
 final keyFileSummaryProvider = FutureProvider.autoDispose
