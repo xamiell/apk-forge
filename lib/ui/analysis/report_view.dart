@@ -293,28 +293,21 @@ class _SignatureDetails extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = context.status;
     Widget scheme(String name) {
-      final verified = signature.scheme(name);
-      // apksigner skips v1 for minSdk 24+, so show a v1 it didn't check.
-      final presentOnly = name == 'v1' && !verified && hasJarSignature;
+      final status = schemeStatus(
+        signature,
+        name,
+        hasJarSignature: hasJarSignature,
+      );
+      final (color, icon) = switch (status.state) {
+        SchemeState.verified => (colors.ok, Icons.check_rounded),
+        SchemeState.presentOnly => (colors.info, Icons.remove_rounded),
+        SchemeState.absent => (colors.muted, Icons.close_rounded),
+        SchemeState.unchecked => (colors.muted, Icons.question_mark_rounded),
+        SchemeState.failed => (colors.warning, Icons.close_rounded),
+      };
       return Tooltip(
-        message: presentOnly
-            ? 'A v1 signature is present; apksigner did not need it for this minSdk.'
-            : verified
-            ? 'Verified'
-            : 'Not present',
-        child: Pill(
-          presentOnly ? 'v1 present' : name,
-          color: verified
-              ? colors.ok
-              : presentOnly
-              ? colors.info
-              : colors.muted,
-          icon: verified
-              ? Icons.check_rounded
-              : presentOnly
-              ? Icons.remove_rounded
-              : Icons.close_rounded,
-        ),
+        message: status.description,
+        child: Pill(status.label, color: color, icon: icon),
       );
     }
 
@@ -329,6 +322,14 @@ class _SignatureDetails extends StatelessWidget {
               scheme(name),
           ],
         ),
+        if (signature.v4Problem case final problem?)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(
+              'v4: $problem',
+              style: TextStyle(fontSize: 12.5, color: colors.warning),
+            ),
+          ),
         const SizedBox(height: 10),
         for (final signer in signature.signers) ...[
           InfoRow(

@@ -1542,6 +1542,113 @@ void main() {
       },
     );
 
+    group('v4', () {
+      late String idsig;
+      setUp(() => idsig = '$apk.idsig');
+
+      Future<ApkReport> analyze() => const ApkAnalyzer().analyze(
+        executor,
+        toolchain: _toolchain,
+        path: apk,
+      );
+
+      List<List<String>> verifyCalls() => [
+        for (final call in runner.callsWithFirstArg('verify')) call.arguments,
+      ];
+
+      test('verify is given the .idsig next to the APK', () async {
+        File(idsig).writeAsStringSync('v4');
+        runner.whenFirstArg(
+          'verify',
+          ok(fixture('apksigner_verify_all_schemes.txt')),
+        );
+
+        final report = await analyze();
+
+        expect(verifyCalls(), [
+          [
+            'verify',
+            '--verbose',
+            '--print-certs',
+            '--v4-signature-file',
+            idsig,
+            apk,
+          ],
+        ]);
+        expect(report.signature!.v4SignatureFile, idsig);
+        expect(report.signature!.scheme('v4'), isTrue);
+      });
+
+      test('without an .idsig, verify reads the APK alone, as an app '
+          'copied from a device', () async {
+        runner.whenFirstArg(
+          'verify',
+          ok(fixture('apksigner_verify_test_key.txt')),
+        );
+
+        final report = await analyze();
+
+        expect(verifyCalls(), [
+          ['verify', '--verbose', '--print-certs', apk],
+        ]);
+        expect(report.signature!.v4SignatureFile, isNull);
+        expect(report.signature!.v4Problem, isNull);
+      });
+
+      test('an .idsig that does not match keeps the verdict, and v4 says '
+          'why', () async {
+        File(idsig).writeAsStringSync('another APK\'s');
+        runner.whenFirstArg(
+          'verify',
+          ok(fixture('apksigner_verify_v4_idsig_mismatch.txt')),
+        );
+
+        final report = await analyze();
+
+        expect(verifyCalls(), hasLength(1));
+        expect(report.signature!.verifies, isTrue);
+        expect(report.signature!.v4Problem, contains("doesn't match"));
+      });
+
+      test('a corrupt .idsig keeps the rest of the signature, with the '
+          'reason', () async {
+        File(idsig).writeAsBytesSync([1, 2, 3]);
+        runner
+          ..when(
+            (c) => c.arguments.contains('--v4-signature-file'),
+            (_) => failed(
+              1,
+              stderr: fixture('apksigner_verify_v4_idsig_corrupt.txt'),
+            ),
+          )
+          ..whenFirstArg(
+            'verify',
+            ok(fixture('apksigner_verify_test_key.txt')),
+          );
+
+        final report = await analyze();
+
+        expect(verifyCalls(), [
+          [
+            'verify',
+            '--verbose',
+            '--print-certs',
+            '--v4-signature-file',
+            idsig,
+            apk,
+          ],
+          ['verify', '--verbose', '--print-certs', apk],
+        ]);
+        expect(report.signatureError, isNull);
+        expect(report.signature!.verifies, isTrue);
+        expect(
+          report.signature!.v4SignatureError,
+          'Invalid signature version.',
+        );
+        expect(report.signature!.v4Problem, contains("couldn't be read"));
+      });
+    });
+
     test('a missing tool leaves its part empty with the reason', () async {
       final report = await const ApkAnalyzer().analyze(
         executor,

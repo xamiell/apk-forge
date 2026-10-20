@@ -49,19 +49,34 @@ class SignatureReport {
     this.lineage = const [],
     this.errors = const [],
     this.warnings = const [],
+    this.v4SignatureFile,
+    this.v4SignatureError,
   });
 
   /// This report with the certificates of its v3 key rotation, from
   /// `apksigner lineage`, which `verify` doesn't print.
   SignatureReport withLineage(List<SignerCertificate> lineage) =>
-      SignatureReport(
-        verifies: verifies,
-        schemes: schemes,
-        signers: signers,
-        lineage: lineage,
-        errors: errors,
-        warnings: warnings,
-      );
+      _copyWith(lineage: lineage);
+
+  /// This report with v4 checked against [file], the `.idsig` next to the
+  /// APK. [error] is why apksigner couldn't read it.
+  SignatureReport withV4SignatureFile(String file, {String? error}) =>
+      _copyWith(v4SignatureFile: file, v4SignatureError: error);
+
+  SignatureReport _copyWith({
+    List<SignerCertificate>? lineage,
+    String? v4SignatureFile,
+    String? v4SignatureError,
+  }) => SignatureReport(
+    verifies: verifies,
+    schemes: schemes,
+    signers: signers,
+    lineage: lineage ?? this.lineage,
+    errors: errors,
+    warnings: warnings,
+    v4SignatureFile: v4SignatureFile ?? this.v4SignatureFile,
+    v4SignatureError: v4SignatureError ?? this.v4SignatureError,
+  );
 
   final bool verifies;
 
@@ -82,8 +97,96 @@ class SignatureReport {
   final List<String> errors;
   final List<String> warnings;
 
+  /// The `.idsig` verify was given. A v4 signature lives in that file, next
+  /// to the APK, and apksigner checks v4 only with it: `null` when there was
+  /// none, so v4 wasn't checked.
+  final String? v4SignatureFile;
+
+  /// Why apksigner couldn't read [v4SignatureFile]: it stops on a corrupt
+  /// one (`Invalid signature version.`), so the rest of the report comes
+  /// from a verify without it.
+  final String? v4SignatureError;
+
   bool scheme(String name) => schemes[name] ?? false;
+
+  /// Why the `.idsig` next to the APK didn't verify v4; `null` when it did,
+  /// or when there was none.
+  String? get v4Problem {
+    if (v4SignatureFile == null) return null;
+    if (v4SignatureError case final error?) {
+      return 'The .idsig next to this APK couldn\'t be read: $error';
+    }
+    if (scheme('v4')) return null;
+    // apksigner says only `v4 ... false`, the same as without an `.idsig`.
+    return 'The .idsig next to this APK doesn\'t match it: it was written '
+        'for another APK or another signature.';
+  }
 }
+
+/// How a report shows one signature scheme.
+enum SchemeState {
+  verified,
+
+  /// A v1 (JAR) signature apksigner didn't check: it doesn't from minSdk 24.
+  presentOnly,
+
+  /// apksigner checked, and the APK doesn't have it.
+  absent,
+
+  /// v4 with no `.idsig` next to the APK: it can't be checked.
+  unchecked,
+
+  /// v4 with an `.idsig` that doesn't match the APK, or can't be read.
+  failed,
+}
+
+/// One scheme of a [SignatureReport], as a report shows it.
+class SchemeStatus {
+  const SchemeStatus(this.state, this.label, this.description);
+
+  final SchemeState state;
+
+  /// `v2`, or `v1 present`.
+  final String label;
+
+  /// What the state means, for a tooltip.
+  final String description;
+}
+
+/// [name]'s status in [signature]. [hasJarSignature] is whether the APK's
+/// files carry a v1 signature ([ApkReport.hasJarSignature]).
+SchemeStatus schemeStatus(
+  SignatureReport signature,
+  String name, {
+  required bool hasJarSignature,
+}) {
+  if (signature.scheme(name)) {
+    return SchemeStatus(SchemeState.verified, name, 'Verified');
+  }
+  if (name == 'v1' && hasJarSignature) {
+    return const SchemeStatus(
+      SchemeState.presentOnly,
+      _v1Present,
+      'A v1 signature is present; apksigner did not need it for this minSdk.',
+    );
+  }
+  if (name == 'v4') {
+    if (signature.v4Problem case final problem?) {
+      return SchemeStatus(SchemeState.failed, name, problem);
+    }
+    if (signature.v4SignatureFile == null) {
+      return SchemeStatus(
+        SchemeState.unchecked,
+        name,
+        'Not checked: a v4 signature is in a separate .idsig file, and there '
+        'is none next to this APK.',
+      );
+    }
+  }
+  return SchemeStatus(SchemeState.absent, name, 'Not present');
+}
+
+const _v1Present = 'v1 present';
 
 /// The schemes an APK carries, from what apksigner [verified]: `v2, v3`, or
 /// `None`. A v1 (JAR) signature in its files that apksigner didn't check
@@ -97,7 +200,7 @@ String describeSchemes(
     for (final MapEntry(key: name, value: ok) in verified.entries)
       if (ok) name,
   ];
-  if (hasJarSignature && verified['v1'] != true) schemes.add('v1 present');
+  if (hasJarSignature && verified['v1'] != true) schemes.add(_v1Present);
   return schemes.isEmpty ? 'None' : schemes.join(', ');
 }
 

@@ -273,6 +273,12 @@ candidate, compared as an update over it.
   is a rotated key, which Android accepts. Anything else is another signer.
   `apksigner verify` doesn't print a v3 lineage, so `ApkAnalyzer` runs
   `apksigner lineage` for a signature that verifies with v3.
+- **v4.** `ApkAnalyzer` gives verify the `<apk>.idsig` next to the APK when
+  there is one (`SignatureReport.v4SignatureFile`). If apksigner crashes on
+  it, verify runs again without it and keeps the reason
+  (`v4SignatureError`). `schemeStatus` tells a v4 that couldn't be checked
+  (no `.idsig`) from one that's absent or failed, and Compare notes a v4
+  that only one of the two APKs could check.
 - **What blocks an update:** another package, another signer, a lower
   versionCode, a signature that doesn't verify (`ComparedField.blocksUpdate`).
 - **A part either report couldn't read** is a `NotCompared`, never a

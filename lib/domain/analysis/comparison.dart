@@ -170,6 +170,7 @@ ApkComparison compareApks(ApkReport reference, ApkReport candidate) {
           candidateSignature.schemes,
           hasJarSignature: candidate.hasJarSignature,
         ),
+        note: _v4Unchecked(referenceSignature, candidateSignature),
       ),
     );
     fields.addAll(
@@ -735,3 +736,13 @@ String _flutter(FlutterCompilation? compilation) => switch (compilation) {
 
 String _none(List<String> values) =>
     values.isEmpty ? 'None' : values.join(', ');
+
+/// Why two APKs may differ in v4 only on paper: it's checked only with the
+/// `.idsig` next to an APK, and the one without it had none.
+String? _v4Unchecked(SignatureReport reference, SignatureReport candidate) {
+  if (reference.scheme('v4') == candidate.scheme('v4')) return null;
+  final other = reference.scheme('v4') ? candidate : reference;
+  if (other.v4SignatureFile != null) return null;
+  return 'v4 is checked only with an APK\'s .idsig, and one of them had '
+      'none next to it.';
+}

@@ -293,8 +293,12 @@ device.
 - **v4 signatures** go in a separate `<apk>.idsig` file next to the APK.
   apksigner writes it on its own when its defaults call for it. You only need
   it for `adb install --incremental`. `apksigner verify` checks v4 only when
-  it's given that file, so Sign and a profile run pass it. Analyze APK reads
-  the APK alone, so it shows v4 as not verified.
+  it's given that file, so Sign, a profile run and Analyze APK pass the one
+  next to the APK. Without one (an app copied from a device has none), v4
+  shows as not checked, not as missing. An `.idsig` that doesn't match the
+  APK still verifies with v4 false, and apksigner gives no reason: Analyze
+  APK says the `.idsig` doesn't match. A corrupt one stops apksigner, so
+  Analyze APK reads the rest of the signature without it and says why.
 - **`--target-platform` only filters the Flutter engine.** A plugin's own
   `.so` files can still make the APK advertise an ABI you left out. A device
   that picks that ABI crashes at launch. Analyze APK flags it as "No Flutter
