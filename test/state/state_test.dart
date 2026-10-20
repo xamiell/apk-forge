@@ -6,12 +6,14 @@ import 'package:apk_forge/core/system/host.dart';
 import 'package:apk_forge/domain/analysis/comparison.dart';
 import 'package:apk_forge/domain/build/build_options.dart';
 import 'package:apk_forge/domain/failure.dart';
+import 'package:apk_forge/domain/profiles/key_properties.dart';
 import 'package:apk_forge/domain/profiles/profile.dart';
 import 'package:apk_forge/domain/profiles/profile_run.dart';
 import 'package:apk_forge/domain/signing/keystore.dart';
 import 'package:apk_forge/domain/signing/signing.dart';
 import 'package:apk_forge/domain/tools/toolchain.dart';
 import 'package:apk_forge/state/actions/build_action.dart';
+import 'package:apk_forge/state/actions/create_folder_action.dart';
 import 'package:apk_forge/state/actions/install_action.dart';
 import 'package:apk_forge/state/actions/load_keys_action.dart';
 import 'package:apk_forge/state/actions/profile_run_action.dart';
@@ -818,6 +820,72 @@ void main() {
       expect(name(profiles.create()), 'New profile');
     });
 
+    test(
+      'what stops a profile, and a missing folder created from the app',
+      () async {
+        final probe = FakeFileProbe(
+          files: {'/keys/key.properties'},
+          directories: {'/out/phone'},
+        );
+        final container = ProviderContainer.test(
+          overrides: [
+            settingsStoreProvider.overrideWithValue(MemorySettingsStore()),
+            fileProbeProvider.overrideWithValue(probe),
+            folderCreatorProvider.overrideWithValue(
+              (path) async => probe.directories.add(path),
+            ),
+            keyFileSummaryProvider.overrideWith(
+              (ref, path) async => KeyFileSummary(
+                path: path,
+                alias: 'upload',
+                storeFile: 'upload.jks',
+                keystorePath: '/keys/upload.jks',
+                keystoreExists: true,
+              ),
+            ),
+          ],
+        );
+        final profiles = container.read(profilesProvider.notifier);
+        final id = profiles.create();
+        profiles.update(
+          container
+              .read(profilesProvider)
+              .byId(id)!
+              .copyWith(
+                targets: const [
+                  ProfileTarget(
+                    id: 't1',
+                    name: 'Phone',
+                    keyProperties: '/keys/key.properties',
+                    outputDir: '/out/phone',
+                  ),
+                  ProfileTarget(
+                    id: 't2',
+                    name: 'Kiosk',
+                    outputDir: '/out/kiosk',
+                  ),
+                ],
+              ),
+        );
+        final problems = container.listen(
+          profileProblemsProvider(id),
+          (_, _) {},
+        );
+
+        expect(problems.read(), [
+          'Kiosk: Choose its key.properties file.',
+          'Kiosk: Its output folder does not exist on this machine.',
+        ]);
+
+        expect(
+          await container.read(createFolderActionProvider).run('/out/kiosk'),
+          isNull,
+        );
+        expect(probe.directories, contains('/out/kiosk'));
+        expect(problems.read(), ['Kiosk: Choose its key.properties file.']);
+      },
+    );
+
     test('the history keeps each profile\'s runs, newest first', () {
       ProfileRunRecord run(String profile, int minute) => ProfileRunRecord(
         profileId: profile,
@@ -1039,8 +1107,7 @@ void main() {
 
           expect(checked.canRun, isFalse);
           expect(checked.plan.problems, [
-            'Kiosk: its output folder does not exist: '
-                '${p.join(temp.path, 'out', 'kiosk')}',
+            'Kiosk: Its output folder does not exist on this machine.',
           ]);
           expect(
             runner.calls.where((c) => c.arguments.contains('-list')),

@@ -10,6 +10,7 @@ import 'package:apk_forge/domain/profiles/key_properties.dart';
 import 'package:apk_forge/domain/profiles/profile.dart';
 import 'package:apk_forge/domain/profiles/profile_plan.dart';
 import 'package:apk_forge/domain/profiles/profile_run.dart';
+import 'package:apk_forge/domain/profiles/target_problems.dart';
 import 'package:apk_forge/domain/signing/signing.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
@@ -170,7 +171,7 @@ void main() {
       expect(summary.alias, 'vendor');
       expect(summary.hasStorePassword, isTrue);
       expect(summary.hasKeyPassword, isFalse);
-      expect(summary.problems, ['It has no keyPassword.']);
+      expect(summary.missing, ['keyPassword']);
 
       final noKeystore = summarizeKeyProperties(
         '/keys/key.properties',
@@ -178,9 +179,8 @@ void main() {
         macHost,
         (_) => false,
       );
-      expect(noKeystore.problems, [
-        'The keystore /keys/gone.jks does not exist.',
-      ]);
+      expect(noKeystore.keystorePath, '/keys/gone.jks');
+      expect(noKeystore.keystoreExists, isFalse);
     });
 
     test('a relative storeFile resolves as Gradle resolves it', () {
@@ -251,7 +251,7 @@ void main() {
       expect(back.keyFiles, ['/keys/vendor/key.properties']);
     });
 
-    test('exported, imported, and what to pick again on another machine', () {
+    test('exported and imported, as it was', () {
       final profile = SigningProfile(
         id: 'p1',
         name: 'Release',
@@ -263,10 +263,6 @@ void main() {
 
       expect(back.toJson(), profile.toJson());
       expect(text, contains('"format": "apk-forge-profile"'));
-      expect(
-        missingProfilePaths(back, FakeFileProbe(directories: {'/out/phone'})),
-        ['/keys/vendor/key.properties', '/out/tablet'],
-      );
       expect(() => importProfile('not json'), throwsFormatException);
       expect(() => importProfile('{"format": "other"}'), throwsFormatException);
     });
@@ -329,6 +325,125 @@ void main() {
         fileNamePatternProblems(SigningProfile.defaultFileNamePattern),
         isEmpty,
       );
+    });
+  });
+
+  group('targetProblems', () {
+    const key = '/keys/vendor/key.properties';
+    final probe = FakeFileProbe(files: {key}, directories: {'/out/phone'});
+    const summary = KeyFileSummary(
+      path: key,
+      storeFile: 'vendor.jks',
+      keystorePath: '/keys/vendor/vendor.jks',
+      keystoreExists: true,
+      alias: 'vendor',
+    );
+    List<TargetProblem> problems(
+      ProfileTarget target, {
+      KeyFileSummary? keySummary = summary,
+    }) => targetProblems(target, probe: probe, keySummary: keySummary);
+
+    test('a target with a key and a folder that exist has none', () {
+      expect(problems(_target('Phone', folder: '/out/phone')), isEmpty);
+    });
+
+    test('no key, or a key file that does not exist', () {
+      expect(problems(_target('Phone', key: '', folder: '/out/phone')), [
+        const TargetProblem(TargetField.key, 'Choose its key.properties file.'),
+      ]);
+      expect(
+        problems(
+          _target('Phone', key: '/gone/key.properties', folder: '/out/phone'),
+        ),
+        [
+          const TargetProblem(
+            TargetField.key,
+            'Its key.properties does not exist on this machine.',
+            missingPath: '/gone/key.properties',
+          ),
+        ],
+      );
+    });
+
+    test('a key file with fields missing, or a keystore that is gone', () {
+      final phone = _target('Phone', folder: '/out/phone');
+
+      expect(
+        problems(
+          phone,
+          keySummary: const KeyFileSummary(
+            path: key,
+            missing: ['keyAlias', 'keyPassword'],
+          ),
+        ).map((p) => p.message),
+        ['Its key.properties has no keyAlias, keyPassword.'],
+      );
+      expect(
+        problems(
+          phone,
+          keySummary: const KeyFileSummary(
+            path: key,
+            storeFile: 'gone.jks',
+            keystorePath: '/keys/vendor/gone.jks',
+          ),
+        ).map((p) => p.message),
+        ['Its keystore does not exist: /keys/vendor/gone.jks'],
+      );
+      expect(
+        problems(
+          phone,
+          keySummary: const KeyFileSummary(
+            path: key,
+            error: 'Permission denied',
+          ),
+        ).map((p) => p.message),
+        ["Its key.properties can't be read: Permission denied"],
+      );
+      // Not read yet: only that the file exists.
+      expect(problems(phone, keySummary: null), isEmpty);
+    });
+
+    test('schemes apksigner cannot sign with', () {
+      expect(
+        problems(
+          _target(
+            'Phone',
+            folder: '/out/phone',
+            schemes: const SigningSchemes(v1: false, v2: false, v3: false),
+          ),
+        ),
+        [const TargetProblem(TargetField.schemes, 'Mark v1, v2 or v3.')],
+      );
+    });
+
+    test('no folder, or a folder that does not exist', () {
+      expect(problems(_target('Phone', folder: '')), [
+        const TargetProblem(
+          TargetField.outputFolder,
+          'Choose its output folder.',
+        ),
+      ]);
+      expect(problems(_target('Kiosk')), [
+        const TargetProblem(
+          TargetField.outputFolder,
+          'Its output folder does not exist on this machine.',
+          missingPath: '/out/kiosk',
+        ),
+      ]);
+    });
+
+    test('in the editor\'s order, and with the target\'s name elsewhere', () {
+      final target = _target('Kiosk', key: '');
+      final all = problems(target);
+
+      expect(all.map((p) => p.field), [
+        TargetField.key,
+        TargetField.outputFolder,
+      ]);
+      expect(all.map((p) => describeTargetProblem(target, p)), [
+        'Kiosk: Choose its key.properties file.',
+        'Kiosk: Its output folder does not exist on this machine.',
+      ]);
     });
   });
 
@@ -557,8 +672,8 @@ void main() {
 
       expect(plan.problems, [
         'Pick an APK to run the profile on.',
-        'Phone: choose its key.properties file.',
-        'Phone: choose its output folder.',
+        'Phone: Choose its key.properties file.',
+        'Phone: Choose its output folder.',
       ]);
       expect(_plan(const []).problems, contains('The profile has no targets.'));
     });
@@ -576,8 +691,8 @@ void main() {
       );
 
       expect(plan.problems, [
-        'Phone: its key.properties does not exist: /elsewhere/key.properties',
-        'Tablet: its output folder does not exist: /out/tablet',
+        'Phone: Its key.properties does not exist on this machine.',
+        'Tablet: Its output folder does not exist on this machine.',
       ]);
       expect(plan.canRun, isFalse);
     });

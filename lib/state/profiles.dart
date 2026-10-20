@@ -7,6 +7,7 @@ import '../domain/profiles/key_properties.dart';
 import '../domain/profiles/profile.dart';
 import '../domain/profiles/profile_plan.dart';
 import '../domain/profiles/profile_run.dart';
+import '../domain/profiles/target_problems.dart';
 import '../services/profile_runner.dart';
 import '../services/tool_executor.dart';
 import 'apks.dart';
@@ -218,6 +219,33 @@ final keyFileSummaryProvider = FutureProvider.autoDispose
     .family<KeyFileSummary, String>(
       (ref, path) => ref.read(profileKeyServiceProvider).summarize(path),
     );
+
+/// What stops [target] from running, with what its `key.properties` says
+/// once it's read. A draft in the target editor is checked the same way.
+final targetProblemsProvider = Provider.autoDispose
+    .family<List<TargetProblem>, ProfileTarget>((ref, target) {
+      final key = target.keyProperties.trim();
+      return targetProblems(
+        target,
+        probe: ref.watch(fileProbeProvider),
+        keySummary: key.isEmpty
+            ? null
+            : ref.watch(keyFileSummaryProvider(key)).value,
+      );
+    });
+
+/// Every problem of a profile's targets, as the run check says them.
+final profileProblemsProvider = Provider.autoDispose
+    .family<List<String>, String>((ref, profileId) {
+      final profile = ref.watch(
+        profilesProvider.select((state) => state.byId(profileId)),
+      );
+      return [
+        for (final target in profile?.targets ?? const <ProfileTarget>[])
+          for (final problem in ref.watch(targetProblemsProvider(target)))
+            describeTargetProblem(target, problem),
+      ];
+    });
 
 /// Everything checked before a run: the inputs read, the plan, and every
 /// key opened.
