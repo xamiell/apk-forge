@@ -38,6 +38,9 @@ features calling each other.
 - **Every external program starts through `ProcessRunner.run`**
   (`core/process/process_runner.dart`). `IoProcessRunner` is the only class
   that calls `Process.start`.
+- **A tool's input is closed as soon as it starts.** None of them needs
+  any, and one that asks for something (apksigner, for a key password it
+  wasn't given) fails at once instead of waiting forever.
 - **It never throws for a tool that fails or can't start.** That comes back
   as a `CommandResult` with a non-zero exit code (127 when it couldn't
   start), so every failure reaches the log the same way.
