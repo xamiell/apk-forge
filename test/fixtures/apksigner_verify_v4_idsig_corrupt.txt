@@ -1,0 +1,7 @@
+Exception in thread "main" java.io.IOException: Invalid signature version.
+	at com.android.apksig.internal.apk.v4.V4Signature.readFrom(V4Signature.java:210)
+	at com.android.apksig.internal.apk.v4.V4SchemeVerifier.verify(V4SchemeVerifier.java:73)
+	at com.android.apksig.ApkVerifier.verify(ApkVerifier.java:310)
+	at com.android.apksig.ApkVerifier.verify(ApkVerifier.java:164)
+	at com.android.apksigner.ApkSignerTool.verify(ApkSignerTool.java:610)
+	at com.android.apksigner.ApkSignerTool.main(ApkSignerTool.java:97)

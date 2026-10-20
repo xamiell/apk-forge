@@ -2,6 +2,7 @@ import 'dart:io';
 
 import '../core/files/file_digests.dart';
 import '../core/process/command.dart';
+import '../core/process/process_runner.dart';
 import '../core/zip/zip_directory.dart';
 import '../domain/analysis/apk_report.dart';
 import '../domain/analysis/badging.dart';
@@ -66,16 +67,31 @@ class ApkAnalyzer {
     if (apksigner == null) {
       signatureError = 'apksigner was not found (Android SDK build-tools).';
     } else {
-      final result = await executor.run(
-        Command(apksigner, apksignerVerifyArguments(path)),
+      Future<CommandResult> verify({String? v4SignatureFile}) => executor.run(
+        Command(
+          apksigner,
+          apksignerVerifyArguments(path, v4SignatureFile: v4SignatureFile),
+        ),
         echoOutput: false,
       );
+
+      // A v4 signature is in `<apk>.idsig`, which apksigner checks only
+      // when it's given.
+      final idsig = '$path.idsig';
+      final hasIdsig = await File(idsig).exists();
+      var result = await verify(v4SignatureFile: hasIdsig ? idsig : null);
+      String? idsigError;
+      if (hasIdsig && !_sawVerdict(result)) {
+        // A corrupt `.idsig` stops apksigner before its verdict: the rest of
+        // the signature is read without it.
+        idsigError = _errorOf(result);
+        result = await verify();
+      }
       final parsed = parseApksignerVerify(result.allLines);
-      final sawVerdict = result.allLines.any(
-        (line) => line.trim() == 'Verifies' || line.trim() == 'DOES NOT VERIFY',
-      );
-      if (sawVerdict) {
-        signature = parsed;
+      if (_sawVerdict(result)) {
+        signature = hasIdsig
+            ? parsed.withV4SignatureFile(idsig, error: idsigError)
+            : parsed;
         // Only v3 can carry a key rotation, and `verify` doesn't print it.
         // No lineage (exit 1, "does not contain a valid lineage") or a
         // failure leaves the report as it is.
@@ -86,13 +102,11 @@ class ApkAnalyzer {
           );
           final certificates = parseApksignerLineage(lineage.stdout);
           if (certificates.isNotEmpty) {
-            signature = parsed.withLineage(certificates);
+            signature = signature.withLineage(certificates);
           }
         }
       } else {
-        signatureError = parsed.errors.isNotEmpty
-            ? parsed.errors.join('\n')
-            : errorDetails(result).join('\n');
+        signatureError = _errorOf(result);
       }
     }
 
@@ -109,4 +123,18 @@ class ApkAnalyzer {
       signatureError: signatureError,
     );
   }
+}
+
+/// Whether `apksigner verify` got as far as its verdict, instead of
+/// crashing.
+bool _sawVerdict(CommandResult result) => result.allLines.any(
+  (line) => line.trim() == 'Verifies' || line.trim() == 'DOES NOT VERIFY',
+);
+
+/// Why `apksigner verify` gave no verdict.
+String _errorOf(CommandResult result) {
+  final errors = parseApksignerVerify(result.allLines).errors;
+  return errors.isNotEmpty
+      ? errors.join('\n')
+      : errorDetails(result).join('\n');
 }

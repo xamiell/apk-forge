@@ -127,6 +127,41 @@ void main() {
       );
     });
 
+    test('v4 that only one APK could check is noted, not called '
+        'missing', () {
+      final checked = parseApksignerVerify(
+        fixture('apksigner_verify_all_schemes.txt'),
+      ).withV4SignatureFile('/apks/app.apk.idsig');
+      final unchecked = parseApksignerVerify(
+        fixture('apksigner_verify_v4_idsig_mismatch.txt'),
+      );
+
+      final schemes = _field(
+        compareApks(
+          _report(badging: _release, signature: checked),
+          _report(badging: _release, signature: unchecked),
+        ),
+        'Schemes',
+      );
+
+      expect([schemes.reference, schemes.candidate], ['v2, v3, v4', 'v2, v3']);
+      expect(schemes.note, contains('.idsig'));
+      expect(schemes.level, FindingLevel.info);
+
+      // One that was checked and failed is a real difference: no note.
+      final failed = _field(
+        compareApks(
+          _report(badging: _release, signature: checked),
+          _report(
+            badging: _release,
+            signature: unchecked.withV4SignatureFile('/apks/app.apk.idsig'),
+          ),
+        ),
+        'Schemes',
+      );
+      expect(failed.note, isNull);
+    });
+
     test('a higher versionCode with the same key is a normal update', () {
       final comparison = compareApks(
         _report(badging: _debug, signature: _testKey),

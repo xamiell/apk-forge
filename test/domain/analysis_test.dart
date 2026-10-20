@@ -58,6 +58,93 @@ void main() {
     );
   });
 
+  group('schemeStatus', () {
+    const idsig = '/apks/app.apk.idsig';
+    final allSchemes = parseApksignerVerify(
+      fixture('apksigner_verify_all_schemes.txt'),
+    );
+    final v4False = parseApksignerVerify(
+      fixture('apksigner_verify_v4_idsig_mismatch.txt'),
+    );
+
+    SchemeStatus v4(SignatureReport signature) =>
+        schemeStatus(signature, 'v4', hasJarSignature: false);
+
+    test('v4 without an .idsig next to the APK is not checked, not '
+        'missing', () {
+      final signature = parseApksignerVerify(
+        fixture('apksigner_verify_test_key.txt'),
+      );
+
+      final status = v4(signature);
+
+      expect(status.state, SchemeState.unchecked);
+      expect(status.description, startsWith('Not checked'));
+      expect(status.description, contains('.idsig'));
+      expect(signature.v4Problem, isNull);
+    });
+
+    test('v4 verified with its .idsig', () {
+      final signature = allSchemes.withV4SignatureFile(idsig);
+
+      expect(v4(signature).state, SchemeState.verified);
+      expect(signature.v4Problem, isNull);
+    });
+
+    test('an .idsig that does not match the APK fails v4, and says so', () {
+      final signature = v4False.withV4SignatureFile(idsig);
+
+      final status = v4(signature);
+
+      expect(status.state, SchemeState.failed);
+      expect(
+        signature.v4Problem,
+        "The .idsig next to this APK doesn't match it: it was written for "
+        'another APK or another signature.',
+      );
+      expect(status.description, signature.v4Problem);
+    });
+
+    test('a corrupt .idsig fails v4 with apksigner\'s reason', () {
+      final signature = v4False.withV4SignatureFile(
+        idsig,
+        error: 'Invalid signature version.',
+      );
+
+      expect(v4(signature).state, SchemeState.failed);
+      expect(
+        signature.v4Problem,
+        "The .idsig next to this APK couldn't be read: Invalid signature "
+        'version.',
+      );
+    });
+
+    test('the key rotation keeps the .idsig it was checked with', () {
+      final signature = allSchemes.withV4SignatureFile(idsig).withLineage(
+        const [SignerCertificate(label: 'Signer #1')],
+      );
+
+      expect(signature.v4SignatureFile, idsig);
+      expect(signature.lineage, hasLength(1));
+    });
+
+    test('a v1 apksigner skipped is present; a scheme it lacks is not', () {
+      final v1 = schemeStatus(allSchemes, 'v1', hasJarSignature: true);
+      expect([v1.state, v1.label], [SchemeState.presentOnly, 'v1 present']);
+
+      final v31 = schemeStatus(allSchemes, 'v3.1', hasJarSignature: true);
+      expect([v31.state, v31.description], [SchemeState.absent, 'Not present']);
+      expect(
+        schemeStatus(allSchemes, 'v1', hasJarSignature: false).state,
+        SchemeState.absent,
+      );
+      expect(
+        schemeStatus(allSchemes, 'v3', hasJarSignature: false).state,
+        SchemeState.verified,
+      );
+    });
+  });
+
   group('ApkContents', () {
     test('groups native libraries by ABI and spots a release Flutter app', () {
       final contents = _contents([

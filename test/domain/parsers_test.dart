@@ -114,6 +114,39 @@ void main() {
       );
     });
 
+    test('an .idsig that does not match the APK reads v4 false, and '
+        'apksigner says nothing else', () {
+      // Another APK's .idsig; another key's prints the same, byte for byte.
+      final report = parseApksignerVerify(
+        fixture('apksigner_verify_v4_idsig_mismatch.txt'),
+      );
+
+      expect(report.verifies, isTrue);
+      expect(report.schemes, {
+        'v1': false,
+        'v2': true,
+        'v3': true,
+        'v3.1': false,
+        'v4': false,
+      });
+      expect(report.errors, isEmpty);
+      expect(report.warnings, isEmpty);
+      expect(
+        report.signers.single.distinguishedName,
+        'CN=APK Forge Idsig, O=Example, C=US',
+      );
+    });
+
+    test('a corrupt .idsig stops apksigner before its verdict', () {
+      final report = parseApksignerVerify(
+        fixture('apksigner_verify_v4_idsig_corrupt.txt'),
+      );
+
+      expect(report.verifies, isFalse);
+      expect(report.errors, ['Invalid signature version.']);
+      expect(report.signers, isEmpty);
+    });
+
     test('an unsigned APK does not verify and says why', () {
       final report = parseApksignerVerify(
         fixture('apksigner_verify_unsigned.txt'),

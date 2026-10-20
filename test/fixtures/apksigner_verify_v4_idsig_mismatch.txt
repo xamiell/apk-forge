@@ -1,0 +1,17 @@
+Verifies
+Verified using v1 scheme (JAR signing): false
+Verified using v2 scheme (APK Signature Scheme v2): true
+Verified using v3 scheme (APK Signature Scheme v3): true
+Verified using v3.1 scheme (APK Signature Scheme v3.1): false
+Verified using v4 scheme (APK Signature Scheme v4): false
+Verified for SourceStamp: false
+Number of signers: 1
+Signer #1 certificate DN: CN=APK Forge Idsig, O=Example, C=US
+Signer #1 certificate SHA-256 digest: 5d126251b584ce156e1c27d4e925207321072e20bbc91fea620e784d30be18a0
+Signer #1 certificate SHA-1 digest: aa99ca4c2bae67a0076156070f9223e1afeb16a8
+Signer #1 certificate MD5 digest: 2e643b4865f5d6739b3a96169a1ff6dd
+Signer #1 key algorithm: RSA
+Signer #1 key size (bits): 2048
+Signer #1 public key SHA-256 digest: 7e447b28a11372196d734070cd7017a1b26802392ce1c5f48af2b7d03190d5fb
+Signer #1 public key SHA-1 digest: 5d8d7be1f8ec794359dfe0823c5fe8f4dfea4a4e
+Signer #1 public key MD5 digest: d918e655d95b37759288b7a69e2027da
