@@ -231,6 +231,63 @@ void main() {
       expect(File('${earlier.path}.partial').existsSync(), isFalse);
     });
 
+    test(
+      'a v4 signing is verified with its .idsig, which goes along',
+      () async {
+        final input = p.join(temp.path, 'app.apk');
+        runner
+          ..when((c) => c.arguments.first == 'sign', (c) {
+            final out = c.arguments[c.arguments.indexOf('--out') + 1];
+            File(out).writeAsStringSync('signed');
+            File('$out.idsig').writeAsStringSync('v4');
+            return ok();
+          })
+          ..whenFirstArg(
+            'verify',
+            ok(fixture('apksigner_verify_all_schemes.txt')),
+          );
+
+        final signed = await service().sign(
+          executor,
+          toolchain: _toolchain,
+          input: input,
+          request: const SigningRequest(
+            keystorePath: '/k.jks',
+            storePassword: 'hunter2',
+            alias: 'upload',
+            schemes: SigningSchemes(v1: true, v2: true, v3: true, v4: true),
+          ),
+        );
+
+        final verify = runner.callsWithFirstArg('verify').single.arguments;
+        final idsig = verify[verify.indexOf('--v4-signature-file') + 1];
+        expect(idsig, '${verify.last}.idsig');
+        expect(signed.verifiedSchemes['v4'], isTrue);
+        expect(signed.verifiedSchemes['v1'], isFalse);
+        expect(File('${signed.path}.idsig').readAsStringSync(), 'v4');
+      },
+    );
+
+    test('without an .idsig, verify is not told of one', () async {
+      runner.whenFirstArg(
+        'verify',
+        ok(fixture('apksigner_verify_test_key.txt')),
+      );
+
+      final signed = await service().sign(
+        executor,
+        toolchain: _toolchain,
+        input: p.join(temp.path, 'app.apk'),
+        request: request,
+      );
+
+      expect(
+        runner.callsWithFirstArg('verify').single.arguments,
+        isNot(contains('--v4-signature-file')),
+      );
+      expect(signed.verifiedSchemes, containsPair('v4', false));
+    });
+
     test('fails when the signed APK carries another signer', () async {
       runner.whenFirstArg(
         'verify',

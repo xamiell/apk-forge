@@ -15,6 +15,7 @@ macOS with Flutter 3.47.5 and Android SDK build-tools 36.0.0.
 | `apksigner_verify_old_key.txt` | the same | `flutter create` sample, release arm64-v8a, re-signed with the throwaway old key (captured 2026-10-18) |
 | `apksigner_verify_rotated_v3.txt` | the same | that APK signed with the old key, `--next-signer` the new key, `--lineage` from `apksigner rotate` and `--rotation-min-sdk-version 28`: v3 carries the new key |
 | `apksigner_verify_rotated_v31.txt` | the same | the same rotation with the default `--rotation-min-sdk-version` (33): v3.1 carries the new key, v3 the old one |
+| `apksigner_verify_all_schemes.txt` | `apksigner verify --verbose --print-certs --v4-signature-file <apk>.idsig` | `flutter create` sample, release (minSdk 24), signed with v1, v2, v3 and v4 all on and the throwaway key `CN=APK Forge Schemes`: v1 reads false although `META-INF/UPLOAD.SF` and `.RSA` are there, and v4 true only because the `.idsig` is given (captured 2026-10-20 with build-tools 36.0.0) |
 | `apksigner_lineage_rotated.txt` | `apksigner lineage --in <apk> --print-certs` | either rotated APK (both print the same lineage) |
 | `apksigner_lineage_none.txt` | the same (exit code 1) | the old-key APK, which has no lineage |
 | `apksigner_sign_key_password_missing.txt` | `apksigner sign --ks … --ks-pass env:… --ks-key-alias upload --out … <apk>` with its input closed (exit code 2) | a throwaway JKS whose key has a password of its own (`CN=APK Forge Key Password`), without `--key-pass`: what it wrote to stderr. Its stdout was only the prompt `Key "upload" password for signer #1: ` (captured 2026-10-19 with build-tools 36.0.0) |
@@ -37,5 +38,5 @@ The test keystore's certificates (`CN=APK Forge Test`, `CN=Second Key`), the
 rotation's throwaway keys (`CN=APK Forge Old Key`, `CN=APK Forge New Key`),
 the key check's throwaway key (`CN=APK Forge Key Check`, whose certificate
 request is in `keytool_certreq_ok.txt`), the signing failures' throwaway key
-(`CN=APK Forge Key Password`) and the Android debug certificate are not
-secret.
+(`CN=APK Forge Key Password`), the schemes' throwaway key
+(`CN=APK Forge Schemes`) and the Android debug certificate are not secret.

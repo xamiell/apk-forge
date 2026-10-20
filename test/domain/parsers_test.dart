@@ -93,6 +93,27 @@ void main() {
       expect(report.scheme('v3'), isTrue);
     });
 
+    test('v1 is not verified from minSdk 24, even when it is there; v4 is, '
+        'with its .idsig', () {
+      // Signed with every scheme on: the APK has META-INF/UPLOAD.SF and .RSA.
+      final report = parseApksignerVerify(
+        fixture('apksigner_verify_all_schemes.txt'),
+      );
+
+      expect(report.verifies, isTrue);
+      expect(report.schemes, {
+        'v1': false,
+        'v2': true,
+        'v3': true,
+        'v3.1': false,
+        'v4': true,
+      });
+      expect(
+        report.signers.single.distinguishedName,
+        'CN=APK Forge Schemes, O=Example, C=US',
+      );
+    });
+
     test('an unsigned APK does not verify and says why', () {
       final report = parseApksignerVerify(
         fixture('apksigner_verify_unsigned.txt'),

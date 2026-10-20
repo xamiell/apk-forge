@@ -175,13 +175,28 @@ void main() {
       keyPassword: 'k3y-pass',
     );
 
-    test('verify prints the certificates; lineage prints the rotation', () {
+    test('verify prints the certificates, and checks v4 with its .idsig; '
+        'lineage prints the rotation', () {
       expect(apksignerVerifyArguments('/a b/app.apk'), [
         'verify',
         '--verbose',
         '--print-certs',
         '/a b/app.apk',
       ]);
+      expect(
+        apksignerVerifyArguments(
+          '/a b/app.apk',
+          v4SignatureFile: '/a b/app.apk.idsig',
+        ),
+        [
+          'verify',
+          '--verbose',
+          '--print-certs',
+          '--v4-signature-file',
+          '/a b/app.apk.idsig',
+          '/a b/app.apk',
+        ],
+      );
       expect(apksignerLineageArguments('/a b/app.apk'), [
         'lineage',
         '--in',
