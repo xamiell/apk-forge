@@ -727,6 +727,8 @@ void main() {
             packageName: 'com.example.app',
             versionName: '1.4.0',
             versionCode: '140',
+            minSdk: 24,
+            unsigned: true,
           ),
         ],
         results: const [
@@ -737,12 +739,39 @@ void main() {
             outputPath: '/out/phone/app-Phone.apk',
             sizeBytes: 14800000,
             signerSha256: 'b34c',
+            setup: TargetSetup(
+              abi: 'arm64-v8a',
+              cut: true,
+              keyProperties: '/keys/key.properties',
+              keyAlias: 'upload',
+              schemes: SigningSchemes(v1: true, v2: true, v3: true, v4: true),
+              schemesFromDefaults: false,
+            ),
+            signerDistinguishedName: 'CN=APK Forge Test, O=Example, C=US',
+            verifiedSchemes: {
+              'v1': false,
+              'v2': true,
+              'v3': true,
+              'v3.1': false,
+              'v4': true,
+            },
+            hasJarSignature: true,
+            outputSha256: 'ef56',
           ),
           TargetResult(
             target: 'Tablet',
             input: 'app-release.apk',
             status: TargetStatus.failed,
             reason: '/out/tablet is not writable',
+            setup: TargetSetup(
+              abi: 'arm64-v8a',
+              cut: true,
+              keyProperties: '/keys/key.properties',
+              keyAlias: 'upload',
+              schemes: SigningSchemes.automatic(),
+              schemesFromDefaults: true,
+              copiedFrom: 'Phone',
+            ),
           ),
           TargetResult(
             target: 'Emulator',
@@ -751,6 +780,12 @@ void main() {
             reason: 'No Flutter engine for x86_64',
           ),
         ],
+        fileNamePattern: '{name}-{target}',
+        inputChecks: const InputChecks(
+          packageName: 'com.example.app',
+          mustBeUnsigned: true,
+        ),
+        buildToolsVersion: '36.0.0',
       );
 
       final back = ProfileRunRecord.fromJson(
@@ -760,6 +795,123 @@ void main() {
       expect(back.toJson(), record.toJson());
       expect(back.summary, '1 signed · 1 failed · 1 skipped');
       expect(back.finishedAt.difference(back.startedAt).inSeconds, 9);
+      expect(back.results.first.setup!.schemes.v4, isTrue);
+      expect(back.results.first.verifiedSchemes!.keys, [
+        'v1',
+        'v2',
+        'v3',
+        'v3.1',
+        'v4',
+      ]);
+      expect(back.results[1].setup!.copiedFrom, 'Phone');
+      expect(back.inputChecks!.packageName, 'com.example.app');
+    });
+
+    test('a record saved before the details were kept still loads; what it '
+        'lacks stays null, never guessed', () {
+      final old = ProfileRunRecord.fromJson({
+        'profileId': 'p1',
+        'profileName': 'Release',
+        'startedAt': '2026-10-19T10:00:00.000',
+        'finishedAt': '2026-10-19T10:00:42.000',
+        'inputs': [
+          {
+            'name': 'app-release.apk',
+            'sha256': 'ab12',
+            'packageName': 'com.example.app',
+            'versionName': '1.2.0',
+            'versionCode': '12',
+          },
+        ],
+        'results': [
+          {
+            'target': 'Phone',
+            'input': 'app-release.apk',
+            'status': 'signed',
+            'outputPath': '/w/phone/app-release-Phone.apk',
+            'sizeBytes': 1024,
+            'signerSha256': 'cd34',
+            'reason': null,
+          },
+        ],
+        'cancelled': false,
+      });
+
+      final result = old.results.single;
+      expect(result.signerSha256, 'cd34');
+      expect(result.setup, isNull);
+      expect(result.signerDistinguishedName, isNull);
+      expect(result.verifiedSchemes, isNull);
+      expect(result.hasJarSignature, isNull);
+      expect(result.outputSha256, isNull);
+      expect(old.inputs.single.version, '1.2.0 (12)');
+      expect(old.inputs.single.minSdk, isNull);
+      expect(old.inputs.single.unsigned, isNull);
+      expect(old.fileNamePattern, isNull);
+      expect(old.inputChecks, isNull);
+      expect(old.buildToolsVersion, isNull);
+      expect(old.outcome, RunOutcome.allSigned);
+    });
+
+    test('the outcome of a run as a whole, and its targets', () {
+      ProfileRunRecord run(
+        List<TargetStatus> statuses, {
+        bool cancelled = false,
+      }) => ProfileRunRecord(
+        profileId: 'p1',
+        profileName: 'Release',
+        startedAt: _date,
+        finishedAt: _date,
+        inputs: const [],
+        results: [
+          for (final (index, status) in statuses.indexed)
+            TargetResult(target: 'T$index', input: 'a.apk', status: status),
+        ],
+        cancelled: cancelled,
+      );
+      const signed = TargetStatus.signed;
+      const failed = TargetStatus.failed;
+      const skipped = TargetStatus.skipped;
+
+      expect(run([signed, signed]).outcome, RunOutcome.allSigned);
+      expect(run([signed, skipped]).outcome, RunOutcome.someSkipped);
+      expect(run([signed, failed, skipped]).outcome, RunOutcome.someFailed);
+      expect(run([failed, skipped]).outcome, RunOutcome.failed);
+      expect(run([skipped]).outcome, RunOutcome.nothingSigned);
+      expect(
+        run([signed, skipped], cancelled: true).outcome,
+        RunOutcome.cancelled,
+      );
+      expect(run([signed, failed]).targets, ['T0', 'T1']);
+    });
+
+    test('an input remembers its minSdk, and whether it was unsigned when '
+        'that could be checked', () {
+      final unsigned = RunInput.fromReport(_input(), name: 'app-release.apk');
+      expect(unsigned.unsigned, isTrue);
+      expect(unsigned.minSdk, 24);
+      expect(unsigned.version, '1.0.0 (2001)');
+      expect(unsigned.packageName, 'io.example.sample_app');
+
+      expect(
+        RunInput.fromReport(_input(signature: _signed), name: 'a.apk').unsigned,
+        isFalse,
+      );
+      // A v1 signature that apksigner didn't report is still a signature.
+      final jarOnly = _input(
+        contents: _contents(['META-INF/MANIFEST.MF', 'META-INF/CERT.RSA']),
+      );
+      expect(RunInput.fromReport(jarOnly, name: 'a.apk').unsigned, isFalse);
+
+      const unread = ApkReport(
+        path: '/ci/a.apk',
+        sizeBytes: 1,
+        md5: 'm',
+        sha256: 's',
+        contents: ApkContents(),
+        signatureError: 'apksigner was not found',
+      );
+      expect(RunInput.fromReport(unread, name: 'a.apk').unsigned, isNull);
     });
   });
 }

@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:apk_forge/core/system/host.dart';
@@ -612,6 +613,21 @@ void main() {
         'kiosks',
       ]);
       expect(task.log.lines, contains('success: Release: 3 signed.'));
+    });
+
+    test('the record keeps the file name pattern, the input checks, the '
+        'build-tools and each key, and no password', () async {
+      final (profile, check) = checked();
+
+      final record = await action().run(profile, check);
+
+      expect(record!.fileNamePattern, SigningProfile.defaultFileNamePattern);
+      expect(record.inputChecks, same(profile.input));
+      expect(record.buildToolsVersion, '36.0.0');
+      expect(record.results.first.setup!.keyAlias, 'forge-test');
+      final saved = jsonEncode(record.toJson());
+      expect(saved, isNot(contains('hunter2')));
+      expect(saved, isNot(contains('hunter3')));
     });
 
     test('a profile that does nothing after the run opens no folder', () async {

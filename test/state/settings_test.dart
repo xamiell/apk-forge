@@ -79,6 +79,8 @@ Map<SettingsKey, Map<String, Object?>> savedByThisVersion() => {
             'packageName': 'com.example.app',
             'versionName': '1.2.0',
             'versionCode': '12',
+            'minSdk': 24,
+            'unsigned': true,
           },
         ],
         'results': [
@@ -90,6 +92,25 @@ Map<SettingsKey, Map<String, Object?>> savedByThisVersion() => {
             'sizeBytes': 1024,
             'signerSha256': 'cd34',
             'reason': null,
+            'setup': {
+              'abi': 'arm64-v8a',
+              'cut': true,
+              'keyProperties': '/k/key.properties',
+              'keyAlias': 'upload',
+              'schemes': {'v1': false, 'v2': true, 'v3': true, 'v4': false},
+              'schemesFromDefaults': false,
+              'copiedFrom': null,
+            },
+            'signerDistinguishedName': 'CN=Example',
+            'verifiedSchemes': {
+              'v1': false,
+              'v2': true,
+              'v3': true,
+              'v3.1': false,
+              'v4': false,
+            },
+            'hasJarSignature': false,
+            'outputSha256': 'ef56',
           },
           {
             'target': 'Kiosk',
@@ -99,9 +120,28 @@ Map<SettingsKey, Map<String, Object?>> savedByThisVersion() => {
             'sizeBytes': null,
             'signerSha256': null,
             'reason': 'No native code for x86_64',
+            'setup': {
+              'abi': 'universal',
+              'cut': false,
+              'keyProperties': '/k/key.properties',
+              'keyAlias': null,
+              'schemes': {'v1': null, 'v2': null, 'v3': null, 'v4': null},
+              'schemesFromDefaults': true,
+              'copiedFrom': null,
+            },
+            'signerDistinguishedName': null,
+            'verifiedSchemes': null,
+            'hasJarSignature': null,
+            'outputSha256': null,
           },
         ],
         'cancelled': false,
+        'fileNamePattern': '{name}-{target}-{versionName}',
+        'inputChecks': {
+          'packageName': 'com.example.app',
+          'mustBeUnsigned': true,
+        },
+        'buildToolsVersion': '36.0.0',
       },
     ],
   },
@@ -165,6 +205,11 @@ void main() {
     expect(run.results.first.status, TargetStatus.signed);
     expect(run.results.first.sizeBytes, 1024);
     expect(run.results.last.reason, 'No native code for x86_64');
+    expect(run.results.first.setup!.keyAlias, 'upload');
+    expect(run.results.first.verifiedSchemes!['v3'], isTrue);
+    expect(run.results.last.setup!.schemesFromDefaults, isTrue);
+    expect(run.inputChecks!.mustBeUnsigned, isTrue);
+    expect(run.buildToolsVersion, '36.0.0');
   });
 
   test('saving what was read writes back exactly what was saved', () {

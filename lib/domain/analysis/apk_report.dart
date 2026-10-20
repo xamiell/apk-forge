@@ -143,6 +143,13 @@ class ApkReport {
 
   bool get hasJarSignature => contents.hasJarSignature;
 
+  /// Whether it carries a signature: a signer apksigner read, or a v1 (JAR)
+  /// signature in its files. `null` when apksigner couldn't check it.
+  bool? get isSigned => switch (signature) {
+    null => null,
+    final signature => signature.signers.isNotEmpty || hasJarSignature,
+  };
+
   /// Release or debug, as Android sees it: the manifest's debuggable flag.
   /// `null` when aapt2 couldn't read the manifest.
   bool? get isDebuggable => badging?.debuggable;
