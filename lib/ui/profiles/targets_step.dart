@@ -45,6 +45,9 @@ class TargetsStep extends ConsumerWidget {
             scrollDirection: Axis.horizontal,
             child: DataTable(
               headingRowHeight: 36,
+              // Narrow enough that Edit and Remove stay in view with a
+              // problem written out under two fields.
+              columnSpacing: 24,
               dataRowMinHeight: 44,
               // A problem is written out under the value.
               dataRowMaxHeight: double.infinity,
@@ -174,7 +177,7 @@ class _FieldCell extends StatelessWidget {
           ),
           if (problems.isNotEmpty)
             ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 240),
+              constraints: const BoxConstraints(maxWidth: 200),
               child: ProblemText(problems),
             )
           else if (detail != null)
@@ -203,10 +206,14 @@ class _KeyCell extends ConsumerWidget {
     final summary = path.isEmpty
         ? null
         : ref.watch(keyFileSummaryProvider(path)).value;
+    final short = shortPath(path, ref.watch(hostProvider));
+    // The alias once the file is read; until then, or without one, where
+    // the file is.
+    final alias = summary?.alias;
     return _FieldCell(
-      value: path.isEmpty ? 'Not set' : summary?.alias ?? '?',
-      strong: path.isNotEmpty,
-      detail: path.isEmpty ? null : shortPath(path, ref.watch(hostProvider)),
+      value: path.isEmpty ? 'Not set' : alias ?? short,
+      strong: alias != null,
+      detail: alias == null ? null : short,
       problems: _messages(
         ref.watch(targetProblemsProvider(target)),
         TargetField.key,
