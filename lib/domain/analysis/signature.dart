@@ -85,6 +85,22 @@ class SignatureReport {
   bool scheme(String name) => schemes[name] ?? false;
 }
 
+/// The schemes an APK carries, from what apksigner [verified]: `v2, v3`, or
+/// `None`. A v1 (JAR) signature in its files that apksigner didn't check
+/// (it doesn't from minSdk 24, see [SignatureReport.schemes]) is still
+/// there: `v2, v3, v1 present`.
+String describeSchemes(
+  Map<String, bool> verified, {
+  required bool hasJarSignature,
+}) {
+  final schemes = [
+    for (final MapEntry(key: name, value: ok) in verified.entries)
+      if (ok) name,
+  ];
+  if (hasJarSignature && verified['v1'] != true) schemes.add('v1 present');
+  return schemes.isEmpty ? 'None' : schemes.join(', ');
+}
+
 final _apiRangeLabel = RegExp(r'minSdkVersion=(\d+), maxSdkVersion=(\d+)');
 
 final _schemeLine = RegExp(

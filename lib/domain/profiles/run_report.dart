@@ -1,4 +1,5 @@
 import '../../core/format/format.dart';
+import '../analysis/signature.dart';
 import 'profile.dart';
 import 'profile_run.dart';
 
@@ -115,19 +116,13 @@ RunReport runReport(ProfileRunRecord record) {
         TargetReport(
           result: result,
           title: several ? '${result.target} · ${result.input}' : result.target,
-          lines: _targetLines(
-            result,
-            minSdk: record.inputs
-                .where((input) => input.name == result.input)
-                .firstOrNull
-                ?.minSdk,
-          ),
+          lines: _targetLines(result),
         ),
     ],
   );
 }
 
-List<ReportLine> _targetLines(TargetResult result, {int? minSdk}) {
+List<ReportLine> _targetLines(TargetResult result) {
   final setup = result.setup;
   final signed = result.status == TargetStatus.signed;
   return [
@@ -154,10 +149,9 @@ List<ReportLine> _targetLines(TargetResult result, {int? minSdk}) {
     if (signed) ...[
       ReportLine('Schemes verified', switch (result.verifiedSchemes) {
         null => notRecorded,
-        final verified => describeVerifiedSchemes(
+        final verified => describeSchemes(
           verified,
-          hasJarSignature: result.hasJarSignature,
-          minSdk: minSdk,
+          hasJarSignature: result.hasJarSignature ?? false,
         ),
       }),
       ReportLine('Signer', result.signerDistinguishedName ?? notRecorded),
@@ -210,31 +204,6 @@ String describeRequestedSchemes(TargetSetup setup) {
       ? 'Auto, apksigner\'s choice by minSdk'
       : setup.schemes.label;
   return '$schemes (${setup.schemesFromDefaults ? 'from Defaults' : 'its own'})';
-}
-
-/// What apksigner verified: `v2, v3, v4`.
-///
-/// apksigner only checks the schemes the APK's minSdk range needs, so from
-/// minSdk 24 it reports v1 as not verified even when the APK carries one.
-/// A JAR signature found in the files ([hasJarSignature]) is said to be
-/// there but not checked, never missing.
-String describeVerifiedSchemes(
-  Map<String, bool> verified, {
-  bool? hasJarSignature,
-  int? minSdk,
-}) {
-  final schemes = [
-    for (final MapEntry(:key, :value) in verified.entries)
-      if (value) key,
-  ];
-  final v1NotChecked = verified['v1'] != true && hasJarSignature == true;
-  return [
-    if (schemes.isNotEmpty) schemes.join(', ') else if (!v1NotChecked) 'None',
-    if (v1NotChecked)
-      minSdk != null && minSdk >= 24
-          ? 'v1 there, not checked: apksigner skips it from minSdk 24'
-          : 'v1 there, not checked by apksigner',
-  ].join('; ');
 }
 
 /// [report] as plain text, for a release note or a ticket.

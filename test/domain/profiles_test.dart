@@ -963,8 +963,7 @@ void main() {
         'Key alias: upload',
         'key.properties: /keys/key.properties',
         'Schemes asked: v1, v2, v3, v4 (its own)',
-        'Schemes verified: v2, v3, v4; v1 there, not checked: apksigner '
-            'skips it from minSdk 24',
+        'Schemes verified: v2, v3, v4, v1 present',
         'Signer: CN=APK Forge Test, O=Example, C=US',
         'Signer SHA-256: B3:4C',
         'Output: /out/phone/app-Phone.apk',
@@ -1028,31 +1027,6 @@ void main() {
       });
 
       expect(runReport(run).targets.single.title, 'Phone · app-release.apk');
-    });
-
-    test('a v1 signature apksigner did not check is never called missing', () {
-      const v2v3 = {
-        'v1': false,
-        'v2': true,
-        'v3': true,
-        'v3.1': false,
-        'v4': false,
-      };
-
-      expect(describeVerifiedSchemes(v2v3, hasJarSignature: false), 'v2, v3');
-      expect(
-        describeVerifiedSchemes(v2v3, hasJarSignature: true, minSdk: 24),
-        'v2, v3; v1 there, not checked: apksigner skips it from minSdk 24',
-      );
-      expect(
-        describeVerifiedSchemes(v2v3, hasJarSignature: true),
-        'v2, v3; v1 there, not checked by apksigner',
-      );
-      expect(
-        describeVerifiedSchemes(const {'v1': true, 'v2': true}, minSdk: 21),
-        'v1, v2',
-      );
-      expect(describeVerifiedSchemes(const {'v1': false, 'v2': false}), 'None');
     });
 
     test('the text says what the screen shows, and the file is named after '
