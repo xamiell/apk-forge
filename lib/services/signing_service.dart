@@ -97,6 +97,10 @@ class ApkSigningService {
           ),
         );
         if (!result.succeeded) {
+          final key = result.cancelled
+              ? null
+              : parseKeyLoadFailure(result.allLines);
+          if (key != null) throw ToolFailure(key.problem, details: [key.fix]);
           throw ToolFailure.fromResult(
             'Signing failed',
             result,

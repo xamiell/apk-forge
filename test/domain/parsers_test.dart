@@ -3,6 +3,7 @@ import 'package:apk_forge/domain/analysis/signature.dart';
 import 'package:apk_forge/domain/build/flutter_build.dart';
 import 'package:apk_forge/domain/devices/devices.dart';
 import 'package:apk_forge/domain/signing/keystore.dart';
+import 'package:apk_forge/domain/signing/signing.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../helpers/fakes.dart';
@@ -200,6 +201,30 @@ void main() {
       expect(report.scheme('v2'), isTrue);
       expect(report.signers, hasLength(1));
       expect(report.lineage, hasLength(2));
+    });
+  });
+
+  group('parseKeyLoadFailure', () {
+    test('says which password apksigner could not use', () {
+      expect(
+        parseKeyLoadFailure(fixture('apksigner_sign_key_password_missing.txt')),
+        KeyLoadFailure.keyPasswordMissing,
+      );
+      expect(
+        parseKeyLoadFailure(fixture('apksigner_sign_wrong_key_password.txt')),
+        KeyLoadFailure.keyPasswordWrong,
+      );
+      expect(
+        parseKeyLoadFailure(fixture('apksigner_sign_wrong_store_password.txt')),
+        KeyLoadFailure.storePasswordWrong,
+      );
+    });
+
+    test('another failure is not about the key', () {
+      expect(
+        parseKeyLoadFailure(fixture('apksigner_verify_not_zip.txt')),
+        isNull,
+      );
     });
   });
 
