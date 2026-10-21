@@ -5,6 +5,7 @@ import '../../domain/failure.dart';
 import '../../domain/signing/signing.dart';
 import '../../domain/tools/toolchain.dart';
 import '../../services/apk_split_service.dart';
+import '../../services/bundle_signing_service.dart';
 import '../../services/signing_service.dart';
 import '../../services/tool_executor.dart';
 import '../apks.dart';
@@ -13,15 +14,21 @@ import '../providers.dart';
 import '../task_notifier.dart';
 import '../toolchain_notifier.dart';
 
-/// Signs APKs one after another with one key, and lists each signed APK,
-/// selected, as soon as it's written.
+/// Signs APKs and App Bundles one after another with one key, and lists
+/// each signed APK, selected, as soon as it's written. A bundle is signed
+/// with jarsigner, and isn't listed: Analyze APK reads APKs only.
 class ApkBatchSigner {
-  const ApkBatchSigner({required this.signing, required this.list});
+  const ApkBatchSigner({
+    required this.signing,
+    required this.bundles,
+    required this.list,
+  });
 
   final ApkSigningService signing;
+  final BundleSigningService bundles;
   final ApkSink list;
 
-  /// Stops before the next APK when the task is cancelled.
+  /// Stops before the next file when the task is cancelled.
   Future<void> signAll(
     ToolExecutor executor, {
     required Toolchain toolchain,
@@ -31,6 +38,16 @@ class ApkBatchSigner {
   }) async {
     for (final path in paths) {
       if (executor.isCancelled) return;
+      if (isAppBundle(path)) {
+        await bundles.sign(
+          executor,
+          toolchain: toolchain,
+          input: path,
+          request: request,
+          expectedSha256: expectedSha256,
+        );
+        continue;
+      }
       final signed = await signing.sign(
         executor,
         toolchain: toolchain,
@@ -46,6 +63,7 @@ class ApkBatchSigner {
 final apkBatchSignerProvider = Provider(
   (ref) => ApkBatchSigner(
     signing: ref.watch(signingServiceProvider),
+    bundles: ref.watch(bundleSigningServiceProvider),
     list: ref.watch(apkListProvider.notifier),
   ),
 );

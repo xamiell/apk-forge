@@ -2,9 +2,10 @@
 // keystore, build a Flutter project split per ABI with obfuscation, sign
 // every APK, analyze each one, split a universal build per ABI and sign the
 // splits, run a signing profile on the universal build with two throwaway
-// keys, check that a wrong password fails cleanly, and make a new key of
-// each type the way Sign's New key does. The unit tests use recorded
-// output; this proves the tools still print what the parsers expect.
+// keys, check that a wrong password fails cleanly, build and sign an App
+// Bundle, and make a new key of each type the way Sign's New key does. The
+// unit tests use recorded output; this proves the tools still print what
+// the parsers expect.
 //
 // Usage (the password comes from the environment, never the command line):
 //
@@ -31,12 +32,14 @@ import 'package:apk_forge/domain/profiles/profile.dart';
 import 'package:apk_forge/domain/profiles/profile_plan.dart';
 import 'package:apk_forge/domain/profiles/profile_run.dart';
 import 'package:apk_forge/domain/signing/abi_split.dart';
+import 'package:apk_forge/domain/signing/bundle.dart';
 import 'package:apk_forge/domain/signing/keystore.dart';
 import 'package:apk_forge/domain/signing/new_key.dart';
 import 'package:apk_forge/domain/signing/signing.dart';
 import 'package:apk_forge/domain/tools/toolchain.dart';
 import 'package:apk_forge/services/apk_analyzer.dart';
 import 'package:apk_forge/services/apk_split_service.dart';
+import 'package:apk_forge/services/bundle_signing_service.dart';
 import 'package:apk_forge/services/flutter_build_service.dart';
 import 'package:apk_forge/services/new_key_service.dart';
 import 'package:apk_forge/services/profile_runner.dart';
@@ -265,7 +268,7 @@ Future<void> main(List<String> args) async {
   );
 
   stdout.writeln('\n== Wrong password');
-  final earlier = File(signedApkPath(apks.first, outputDir, host));
+  final earlier = File(signedFilePath(apks.first, outputDir, host));
   final earlierBytes = earlier.readAsBytesSync();
   try {
     await ApkSigningService(host: host).sign(
@@ -299,6 +302,46 @@ Future<void> main(List<String> args) async {
     earlier.readAsBytesSync().length == earlierBytes.length &&
         !File('${earlier.path}.partial').existsSync(),
     '  the earlier signed APK is intact and no .partial is left',
+  );
+
+  stdout.writeln('\n== App Bundle');
+  final bundles = await FlutterBuildService(host: host).build(
+    executor,
+    flutter: toolchain.flutter!,
+    options: BuildOptions(
+      projectDir: project,
+      packaging: ApkPackaging.appBundle,
+    ),
+  );
+  check(
+    bundles.length == 1 && isAppBundle(bundles.single),
+    'one App Bundle reported: ${bundles.map(host.path.basename).join(', ')}',
+  );
+  final signedBundle = await BundleSigningService(host: host).sign(
+    executor,
+    toolchain: toolchain,
+    input: bundles.single,
+    request: SigningRequest(
+      keystorePath: keystore,
+      storePassword: password,
+      alias: alias,
+      outputDir: outputDir,
+    ),
+    expectedSha256: key.sha256,
+  );
+  final bundleSigners = parseJarSigners(
+    (await executor.run(
+      Command(
+        toolchain.keytool!,
+        keytoolPrintJarCertificatesArguments(signedBundle.path),
+      ),
+      echoOutput: false,
+    )).allLines,
+  );
+  check(
+    bundleSigners.length == 1 && bundleSigners.single.sha256 == key.sha256,
+    '  signed by "$alias" only, the debug signature gone '
+    '(${host.path.basename(signedBundle.path)})',
   );
 
   stdout.writeln('\n== New key');

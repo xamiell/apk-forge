@@ -46,6 +46,29 @@ void main() {
     expect(toolchain.zipalignSupportsPageSize, isTrue);
   });
 
+  test('jarsigner is the one next to keytool, from the same JDK', () {
+    const host = Host(
+      os: HostOs.macos,
+      environment: {'HOME': '/Users/dev', 'PATH': '/usr/bin'},
+    );
+    final withIt = macSdk()..files.add('/usr/bin/jarsigner');
+
+    expect(
+      ToolchainLocator(
+        host: host,
+        probe: withIt,
+      ).locate(const ToolOverrides()).jarsigner,
+      '/usr/bin/jarsigner',
+    );
+    expect(
+      ToolchainLocator(
+        host: host,
+        probe: macSdk(),
+      ).locate(const ToolOverrides()).jarsigner,
+      isNull,
+    );
+  });
+
   test('ANDROID_HOME and the overrides win over the default folder', () {
     final probe = macSdk()
       ..directories.addAll({'/custom/sdk', '/override/sdk'});

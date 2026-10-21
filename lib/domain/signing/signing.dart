@@ -154,8 +154,8 @@ List<String> apksignerSignArguments(
   ];
 }
 
-/// Why `apksigner sign` couldn't open the key: which password, and what to
-/// do in Sign.
+/// Why `apksigner sign` or `jarsigner` couldn't open the key: which
+/// password, and what to do in Sign.
 enum KeyLoadFailure {
   keyPasswordMissing(
     'The key has a password of its own.',
@@ -177,19 +177,25 @@ enum KeyLoadFailure {
   final String fix;
 }
 
-/// Why `apksigner sign` couldn't open the key, from its output; `null` when
-/// it failed for another reason.
+/// Why `apksigner sign` or `jarsigner` couldn't open the key, from its
+/// output; `null` when it failed for another reason.
 ///
-/// Without `--key-pass` it asks for the key password on its input, which
-/// the app closes: "Failed to read … password …: standard input closed".
+/// Without a key password, apksigner asks for it on its input, which the
+/// app closes: "Failed to read … password …: standard input closed".
+/// jarsigner says "you must enter key password". For a wrong key password,
+/// jarsigner says the alias is "not a private key": Sign never offers an
+/// alias that isn't one.
 KeyLoadFailure? parseKeyLoadFailure(Iterable<String> lines) {
   for (final line in lines) {
     if (isStorePasswordWrong(line)) return KeyLoadFailure.storePasswordWrong;
     if (line.contains('Failed to obtain key with alias') ||
-        line.contains('UnrecoverableKeyException: Cannot recover key')) {
+        line.contains('UnrecoverableKeyException: Cannot recover key') ||
+        (line.contains('key associated with') &&
+            line.contains('not a private key'))) {
       return KeyLoadFailure.keyPasswordWrong;
     }
-    if (line.contains('Failed to read') && line.contains('password')) {
+    if ((line.contains('Failed to read') && line.contains('password')) ||
+        line.contains('you must enter key password')) {
       return KeyLoadFailure.keyPasswordMissing;
     }
   }
@@ -217,23 +223,29 @@ List<String> apksignerLineageArguments(String apk) => [
   '--print-certs',
 ];
 
-/// Where the signed copy of [input] goes: `<name>-signed.apk` in
-/// [outputDir], or next to [input]. Never [input] itself: a failed signing
-/// must leave the original intact.
-String signedApkPath(String input, String? outputDir, Host host) {
+/// Where the signed copy of [input] goes: `<name>-signed.apk`, or
+/// `<name>-signed.aab` for an App Bundle, in [outputDir] or next to
+/// [input]. Never [input] itself: a failed signing must leave the original
+/// intact.
+String signedFilePath(String input, String? outputDir, Host host) {
   final path = host.path;
   final directory = (outputDir == null || outputDir.trim().isEmpty)
       ? path.dirname(input)
       : outputDir.trim();
   final base = path.basenameWithoutExtension(input);
-  var candidate = path.join(directory, '$base-signed.apk');
+  final extension = isAppBundle(input) ? '.aab' : '.apk';
+  var candidate = path.join(directory, '$base-signed$extension');
   var copy = 2;
   while (path.equals(candidate, input)) {
-    candidate = path.join(directory, '$base-signed-$copy.apk');
+    candidate = path.join(directory, '$base-signed-$copy$extension');
     copy++;
   }
   return candidate;
 }
+
+/// Whether [path] is an Android App Bundle, which is signed with jarsigner,
+/// not apksigner.
+bool isAppBundle(String path) => path.toLowerCase().endsWith('.aab');
 
 /// `zipalign` arguments to check [apk]'s alignment, or to write an aligned
 /// copy to [output] when it's given.

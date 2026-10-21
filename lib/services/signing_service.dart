@@ -86,7 +86,7 @@ class ApkSigningService {
         details: ['Install the Android SDK build-tools.'],
       );
     }
-    final output = signedApkPath(input, request.outputDir, host);
+    final output = signedFilePath(input, request.outputDir, host);
     await Directory(host.path.dirname(output)).create(recursive: true);
     // apksigner writes here; only a copy that verifies replaces [output]. A
     // failed signing over an earlier `-signed.apk` must not leave half a file.

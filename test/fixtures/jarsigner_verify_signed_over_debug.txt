@@ -1,0 +1,1 @@
+jarsigner: java.lang.SecurityException: invalid SHA-256 signature file digest for base/root/META-INF/androidx.activity_activity.version

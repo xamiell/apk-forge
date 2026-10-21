@@ -167,7 +167,8 @@ class SigningCard extends ConsumerWidget {
           ),
           const SizedBox(height: 6),
           Text(
-            'Writes <name>-signed.apk and never touches the original. '
+            'Writes <name>-signed.apk (or .aab) and never touches the '
+            'original. '
             'Passwords stay in memory and are never saved.',
             style: TextStyle(fontSize: 12, color: context.status.muted),
           ),
@@ -213,8 +214,13 @@ class _SignActions extends ConsumerWidget {
     };
     final muted = TextStyle(fontSize: 12, color: context.status.muted);
 
-    Future<void> pick(Future<void> Function(List<String>) action) async {
-      final files = await openFiles(acceptedTypeGroups: const [apkTypes]);
+    Future<void> pick(
+      Future<void> Function(List<String>) action, {
+      bool bundles = false,
+    }) async {
+      final files = await openFiles(
+        acceptedTypeGroups: [apkTypes, if (bundles) appBundleTypes],
+      );
       if (files.isNotEmpty) await action([for (final f in files) f.path]);
     }
 
@@ -223,9 +229,9 @@ class _SignActions extends ConsumerWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           FilledButton.icon(
-            onPressed: canSign ? () => pick(sign.run) : null,
+            onPressed: canSign ? () => pick(sign.run, bundles: true) : null,
             icon: const Icon(Icons.draw_outlined),
-            label: const Text('Sign APK files…'),
+            label: const Text('Sign APK or AAB files…'),
           ),
           const SizedBox(height: 8),
           Tooltip(
@@ -285,9 +291,9 @@ class _SignActions extends ConsumerWidget {
         Align(
           alignment: Alignment.centerLeft,
           child: TextButton.icon(
-            onPressed: canSign ? () => pick(sign.run) : null,
+            onPressed: canSign ? () => pick(sign.run, bundles: true) : null,
             icon: const Icon(Icons.folder_open_rounded, size: 18),
-            label: const Text('Sign other APK files…'),
+            label: const Text('Sign other APK or AAB files…'),
           ),
         ),
       ],

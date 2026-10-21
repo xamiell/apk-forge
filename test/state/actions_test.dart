@@ -14,6 +14,7 @@ import 'package:apk_forge/domain/signing/signing.dart';
 import 'package:apk_forge/domain/tools/toolchain.dart';
 import 'package:apk_forge/services/adb_service.dart';
 import 'package:apk_forge/services/apk_split_service.dart';
+import 'package:apk_forge/services/bundle_signing_service.dart';
 import 'package:apk_forge/services/flutter_build_service.dart';
 import 'package:apk_forge/services/new_key_service.dart';
 import 'package:apk_forge/services/profile_runner.dart';
@@ -28,6 +29,7 @@ import 'package:apk_forge/state/actions/sign_actions.dart';
 import 'package:apk_forge/state/apks.dart';
 import 'package:apk_forge/state/forms.dart';
 import 'package:apk_forge/state/profiles.dart';
+import 'package:archive/archive.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 
@@ -41,7 +43,24 @@ const _toolchain = Toolchain(
   buildToolsVersion: '36.0.0',
   adb: '/pt/adb',
   keytool: '/jdk/keytool',
+  jarsigner: '/jdk/jarsigner',
 );
+
+/// The key in `keytool_printcert_jarfile.txt`.
+const _bundleKeySha =
+    '818fd329733db2f528cddae7e7bfb0382e7cf9121277667e3d9e496202f9ed37';
+
+/// Writes a small App Bundle, signed as Flutter's are, at [path].
+String _writeBundle(String path) {
+  final archive = Archive()
+    ..add(ArchiveFile.string('META-INF/MANIFEST.MF', 'manifest'))
+    ..add(ArchiveFile.string('META-INF/ANDROIDD.SF', 'signature'))
+    ..add(ArchiveFile.string('base/manifest/AndroidManifest.xml', 'pb'));
+  File(path)
+    ..parent.createSync(recursive: true)
+    ..writeAsBytesSync(ZipEncoder().encode(archive));
+  return path;
+}
 
 /// The certificate in `apksigner_verify_test_key.txt`.
 const _testKeySha =
@@ -93,8 +112,38 @@ void main() {
 
   ApkBatchSigner signer() => ApkBatchSigner(
     signing: ApkSigningService(host: macHost, temporaryDirectory: () => temp),
+    bundles: BundleSigningService(
+      host: macHost,
+      temporaryDirectory: () => temp,
+    ),
     list: list,
   );
+
+  /// jarsigner and keytool answer as they do for a bundle signed with the
+  /// key in `keytool_printcert_jarfile.txt`.
+  void bundleTools() => runner
+    ..when(
+      (c) =>
+          c.executable == '/jdk/jarsigner' &&
+          c.arguments.contains('-signedjar'),
+      (c) {
+        File(c.arguments[c.arguments.length - 2])
+            .copySync(c.arguments[c.arguments.indexOf('-signedjar') + 1]);
+        return ok();
+      },
+    )
+    ..when(
+      (c) =>
+          c.executable == '/jdk/jarsigner' && c.arguments.contains('-verify'),
+      (_) => ok(fixture('jarsigner_verify_bundle.txt')),
+    )
+    ..when(
+      (c) => c.executable == '/jdk/keytool',
+      (_) => ok(fixture('keytool_printcert_jarfile.txt')),
+    );
+
+  ReadyToSign bundleKey() =>
+      ReadyToSign(_ready().request, expectedSha256: _bundleKeySha);
 
   Iterable<String> signedInputs() =>
       runner.callsWithFirstArg('sign').map((c) => p.basename(c.arguments.last));
@@ -151,6 +200,36 @@ void main() {
       );
       expect(task.log.lines, contains('success: Built 3 APKs.'));
     });
+
+    test(
+      'an App Bundle is built, then signed with jarsigner, and not listed',
+      () async {
+        runner.whenFirstArg(
+          'build',
+          ok(fixture('flutter_build_appbundle.txt')),
+        );
+        bundleTools();
+        final bundle = _writeBundle(
+          p.join(project, 'build/app/outputs/bundle/release/app-release.aab'),
+        );
+
+        await action(
+          BuildOptions(projectDir: project, packaging: ApkPackaging.appBundle),
+          signing: bundleKey(),
+        ).run();
+
+        expect(task.failure, isNull);
+        expect(runner.calls.first.arguments.take(2), ['build', 'appbundle']);
+        expect(
+          File(p.join(p.dirname(bundle), 'app-release-signed.aab'))
+              .existsSync(),
+          isTrue,
+        );
+        expect(runner.callsWithFirstArg('sign'), isEmpty);
+        expect(list.added, isEmpty);
+        expect(task.log.lines, contains('success: Built app-release.aab.'));
+      },
+    );
 
     test('signing on but not ready: fails before flutter runs', () async {
       await action(
@@ -218,6 +297,22 @@ void main() {
       signing: () => signing,
       signer: signer(),
       host: macHost,
+    );
+
+    test(
+      'an App Bundle picked in Sign is signed with jarsigner, next to it',
+      () async {
+        bundleTools();
+        final bundle = _writeBundle(p.join(temp.path, 'ci.aab'));
+
+        await action(bundleKey()).run([bundle]);
+
+        expect(task.failure, isNull);
+        expect(task.labels, ['Sign ci.aab']);
+        expect(File(p.join(temp.path, 'ci-signed.aab')).existsSync(), isTrue);
+        expect(runner.callsWithFirstArg('sign'), isEmpty);
+        expect(list.added, isEmpty);
+      },
     );
 
     test('signs each APK with the key and schemes it was given, and lists '

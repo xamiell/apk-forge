@@ -31,12 +31,18 @@ enum BuildMode {
   final String label;
 }
 
+/// What a build makes.
 enum ApkPackaging {
   /// One APK with every selected ABI inside.
-  universal('Universal APK'),
+  universal('Universal'),
 
   /// One APK per selected ABI (`--split-per-abi`).
-  splitPerAbi('Split per ABI');
+  splitPerAbi('Split per ABI'),
+
+  /// An Android App Bundle (`flutter build appbundle`): what a store such as
+  /// Google Play takes. The store makes and signs the APK for each device
+  /// from it.
+  appBundle('App Bundle');
 
   const ApkPackaging(this.label);
   final String label;
@@ -105,12 +111,22 @@ class BuildOptions {
   /// to split. [packaging] keeps the user's choice for when they select more
   /// ABIs again.
   ApkPackaging get effectivePackaging =>
-      canSplit ? packaging : ApkPackaging.universal;
+      packaging == ApkPackaging.splitPerAbi && !canSplit
+      ? ApkPackaging.universal
+      : packaging;
 
   /// What the build writes, in a line for the Build panel.
   String get outputSummary {
     final count = abis.length;
     if (count == 0) return 'Choose an architecture in Defaults.';
+    if (effectivePackaging == ApkPackaging.appBundle) {
+      final which = count == AndroidAbi.values.length
+          ? 'every architecture'
+          : count == 1
+          ? abis.single.abiName
+          : 'the $count architectures in Defaults';
+      return 'One App Bundle (.aab) with $which, to upload to a store.';
+    }
     if (effectivePackaging == ApkPackaging.splitPerAbi) {
       return 'One APK per architecture: $count APKs.';
     }

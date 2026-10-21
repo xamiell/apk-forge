@@ -2,6 +2,7 @@ import 'package:apk_forge/domain/analysis/badging.dart';
 import 'package:apk_forge/domain/analysis/signature.dart';
 import 'package:apk_forge/domain/build/flutter_build.dart';
 import 'package:apk_forge/domain/devices/devices.dart';
+import 'package:apk_forge/domain/signing/bundle.dart';
 import 'package:apk_forge/domain/signing/keystore.dart';
 import 'package:apk_forge/domain/signing/signing.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -289,6 +290,22 @@ void main() {
       );
     });
 
+    test('jarsigner says it in its own words', () {
+      final cases = {
+        'jarsigner_sign_wrong_store_password_pkcs12.txt':
+            KeyLoadFailure.storePasswordWrong,
+        'jarsigner_sign_wrong_store_password_jks.txt':
+            KeyLoadFailure.storePasswordWrong,
+        'jarsigner_sign_wrong_key_password.txt':
+            KeyLoadFailure.keyPasswordWrong,
+        'jarsigner_sign_key_password_missing.txt':
+            KeyLoadFailure.keyPasswordMissing,
+      };
+      for (final MapEntry(key: name, value: expected) in cases.entries) {
+        expect(parseKeyLoadFailure(fixture(name)), expected, reason: name);
+      }
+    });
+
     test('another failure is not about the key', () {
       expect(
         parseKeyLoadFailure(fixture('apksigner_verify_not_zip.txt')),
@@ -333,6 +350,66 @@ void main() {
         'Keystore file does not exist: x',
       );
       expect(parseKeyOpenFailure(const []), 'keytool could not open the key.');
+    });
+  });
+
+  group('parseJarsignerVerify', () {
+    test('a signed bundle verifies', () {
+      expect(
+        parseJarsignerVerify(fixture('jarsigner_verify_bundle.txt')).verdict,
+        JarVerdict.verified,
+      );
+    });
+
+    test('a bundle without a JAR signature is unsigned', () {
+      expect(
+        parseJarsignerVerify(fixture('jarsigner_verify_unsigned.txt')).verdict,
+        JarVerdict.unsigned,
+      );
+    });
+
+    test('a bundle signed over the debug key no longer verifies, and why', () {
+      final verification = parseJarsignerVerify(
+        fixture('jarsigner_verify_signed_over_debug.txt'),
+      );
+
+      expect(verification.verdict, JarVerdict.invalid);
+      expect(
+        verification.reason,
+        'invalid SHA-256 signature file digest for '
+        'base/root/META-INF/androidx.activity_activity.version',
+      );
+    });
+  });
+
+  group('parseJarSigners', () {
+    test('each signer with its first certificate\'s SHA-256', () {
+      final signers = parseJarSigners(fixture('keytool_printcert_jarfile.txt'));
+
+      expect(signers, hasLength(1));
+      expect(signers.single.owner, 'CN=APK Forge Bundle, O=Example, C=US');
+      expect(
+        signers.single.sha256,
+        '818fd329733db2f528cddae7e7bfb0382e7cf9121277667e3d9e496202f9ed37',
+      );
+    });
+
+    test('a bundle signed on top of the debug key has both', () {
+      expect(
+        parseJarSigners(fixture('keytool_printcert_jarfile_two_signers.txt'))
+            .map((signer) => signer.owner),
+        [
+          'CN=APK Forge Bundle, O=Example, C=US',
+          'C=US, O=Android, CN=Android Debug',
+        ],
+      );
+    });
+
+    test('an unsigned bundle has none', () {
+      expect(
+        parseJarSigners(fixture('keytool_printcert_jarfile_unsigned.txt')),
+        isEmpty,
+      );
     });
   });
 
@@ -413,9 +490,20 @@ void main() {
     });
   });
 
-  group('parseBuiltApks', () {
+  group('parseBuiltFiles', () {
+    test('reads the App Bundle a flutter build appbundle made', () {
+      expect(
+        parseBuiltFiles(
+          fixture('flutter_build_appbundle.txt'),
+          projectDir: '/work/app',
+          host: macHost,
+        ),
+        ['/work/app/build/app/outputs/bundle/release/app-release.aab'],
+      );
+    });
+
     test('reads every split, relative to the project', () {
-      final apks = parseBuiltApks(
+      final apks = parseBuiltFiles(
         fixture('flutter_build_split.txt'),
         projectDir: '/work/app',
         host: macHost,
@@ -429,7 +517,7 @@ void main() {
     });
 
     test('reads a debug line, which has no size', () {
-      final apks = parseBuiltApks(
+      final apks = parseBuiltFiles(
         fixture('flutter_build_debug.txt'),
         projectDir: '/work/app',
         host: macHost,
@@ -439,7 +527,7 @@ void main() {
     });
 
     test('ignores the warnings around them', () {
-      final apks = parseBuiltApks(
+      final apks = parseBuiltFiles(
         [
           'Warning: The generated ELF library contains unobfuscated DWARF debugging information.',
         ],

@@ -21,6 +21,7 @@ import 'package:apk_forge/domain/tools/toolchain.dart';
 import 'package:apk_forge/services/adb_service.dart';
 import 'package:apk_forge/services/apk_analyzer.dart';
 import 'package:apk_forge/services/apk_split_service.dart';
+import 'package:apk_forge/services/bundle_signing_service.dart';
 import 'package:apk_forge/services/flutter_build_service.dart';
 import 'package:apk_forge/services/installed_apk_service.dart';
 import 'package:apk_forge/services/new_key_service.dart';
@@ -337,6 +338,244 @@ void main() {
       );
 
       expect(log.lines, contains(startsWith('warning: zipalign not found')));
+    });
+  });
+
+  group('BundleSigningService', () {
+    const tools = Toolchain(
+      keytool: '/jdk/keytool',
+      jarsigner: '/jdk/jarsigner',
+    );
+
+    /// The key in `keytool_printcert_jarfile.txt`.
+    const bundleKeySha =
+        '818fd329733db2f528cddae7e7bfb0382e7cf9121277667e3d9e496202f9ed37';
+    const request = SigningRequest(
+      keystorePath: '/k.jks',
+      storePassword: 'hunter2',
+      alias: 'upload',
+    );
+    late String input;
+    late List<String> signedEntries;
+
+    setUp(() {
+      // A bundle as Flutter writes it: signed with the debug key.
+      input = p.join(temp.path, 'app-release.aab');
+      final archive = Archive()
+        ..add(ArchiveFile.string('META-INF/MANIFEST.MF', 'manifest'))
+        ..add(ArchiveFile.string('META-INF/ANDROIDD.SF', 'signature'))
+        ..add(ArchiveFile.string('META-INF/ANDROIDD.RSA', 'certificate'))
+        ..add(ArchiveFile.string('base/manifest/AndroidManifest.xml', 'pb'))
+        ..add(ArchiveFile.string('base/root/META-INF/library.version', '1'))
+        ..add(ArchiveFile.string('base/lib/arm64-v8a/libapp.so', 'app'));
+      File(input).writeAsBytesSync(ZipEncoder().encode(archive));
+      signedEntries = [];
+    });
+
+    /// jarsigner answers by writing the signed copy, as the real one does,
+    /// after noting what it was given.
+    void jarsignerSigns() => runner.when(
+      (c) =>
+          c.executable == '/jdk/jarsigner' &&
+          c.arguments.contains('-signedjar'),
+      (c) {
+        final unsigned = c.arguments[c.arguments.length - 2];
+        signedEntries = [
+          for (final file in ZipDecoder().decodeBytes(
+            File(unsigned).readAsBytesSync(),
+          ))
+            file.name,
+        ];
+        final output = c.arguments[c.arguments.indexOf('-signedjar') + 1];
+        File(unsigned).copySync(output);
+        return ok();
+      },
+    );
+
+    void verifies({String verify = 'jarsigner_verify_bundle.txt'}) => runner
+      ..when(
+        (c) =>
+            c.executable == '/jdk/jarsigner' && c.arguments.contains('-verify'),
+        (_) => ok(fixture(verify)),
+      )
+      ..when(
+        (c) => c.executable == '/jdk/keytool',
+        (_) => ok(fixture('keytool_printcert_jarfile.txt')),
+      );
+
+    Future<SignedBundle> sign({String? expectedSha256 = bundleKeySha}) =>
+        BundleSigningService(
+          host: macHost,
+          temporaryDirectory: () => temp,
+        ).sign(
+          executor,
+          toolchain: tools,
+          input: input,
+          request: request,
+          expectedSha256: expectedSha256,
+        );
+
+    test('signs a copy without the debug signature, then checks it carries '
+        'the key', () async {
+      jarsignerSigns();
+      verifies();
+      final before = File(input).readAsBytesSync();
+
+      final signed = await sign();
+
+      expect(signed.path, p.join(temp.path, 'app-release-signed.aab'));
+      expect(signed.signer.sha256, bundleKeySha);
+      expect(File(signed.path).existsSync(), isTrue);
+      expect(File('${signed.path}.partial').existsSync(), isFalse);
+      expect(File(input).readAsBytesSync(), before);
+      // The old JAR signature is gone; the app's own META-INF files stay.
+      expect(signedEntries, [
+        'base/manifest/AndroidManifest.xml',
+        'base/root/META-INF/library.version',
+        'base/lib/arm64-v8a/libapp.so',
+      ]);
+      final jarsigner = runner.calls.first;
+      expect(jarsigner.environment, {keystorePasswordVariable: 'hunter2'});
+      expect(jarsigner.arguments.join(' '), isNot(contains('hunter2')));
+      expect(
+        log.lines,
+        contains(
+          startsWith(
+            'success: Signed and verified: '
+            'app-release-signed.aab (JAR signature; SHA-256 81:8F:D3',
+          ),
+        ),
+      );
+      expect(log.lines.join('\n'), isNot(contains('hunter2')));
+      // Only the signed bundle is left: no unsigned copy, no .partial.
+      expect(temp.listSync().map((entry) => p.basename(entry.path)).toSet(), {
+        'app-release.aab',
+        'app-release-signed.aab',
+      });
+    });
+
+    test(
+      'a key that does not open says which password, and what to do',
+      () async {
+        final cases = {
+          'jarsigner_sign_wrong_store_password_pkcs12.txt':
+              KeyLoadFailure.storePasswordWrong,
+          'jarsigner_sign_wrong_key_password.txt':
+              KeyLoadFailure.keyPasswordWrong,
+          'jarsigner_sign_key_password_missing.txt':
+              KeyLoadFailure.keyPasswordMissing,
+        };
+        for (final MapEntry(key: name, value: expected) in cases.entries) {
+          runner = FakeProcessRunner()
+            ..when(
+              (c) => c.executable == '/jdk/jarsigner',
+              (_) => failed(1, stdout: fixture(name)),
+            );
+          executor = ToolExecutor(runner, log);
+
+          await expectLater(
+            sign(),
+            throwsA(
+              isA<ToolFailure>()
+                  .having((f) => f.title, 'title', expected.problem)
+                  .having((f) => f.details, 'details', [expected.fix]),
+            ),
+            reason: name,
+          );
+          expect(
+            File(p.join(temp.path, 'app-release-signed.aab')).existsSync(),
+            isFalse,
+            reason: name,
+          );
+        }
+      },
+    );
+
+    test('a bundle that does not verify is not kept', () async {
+      jarsignerSigns();
+      verifies(verify: 'jarsigner_verify_signed_over_debug.txt');
+
+      await expectLater(
+        sign(),
+        throwsA(
+          isA<ToolFailure>()
+              .having(
+                (f) => f.title,
+                'title',
+                'The signed bundle does not verify',
+              )
+              .having((f) => f.details.single, 'reason', contains('invalid')),
+        ),
+      );
+      expect(
+        File(p.join(temp.path, 'app-release-signed.aab')).existsSync(),
+        isFalse,
+      );
+    });
+
+    test('a second signer, such as the debug key, is not kept', () async {
+      jarsignerSigns();
+      runner
+        ..when(
+          (c) =>
+              c.executable == '/jdk/jarsigner' &&
+              c.arguments.contains('-verify'),
+          (_) => ok(fixture('jarsigner_verify_bundle.txt')),
+        )
+        ..when(
+          (c) => c.executable == '/jdk/keytool',
+          (_) => ok(fixture('keytool_printcert_jarfile_two_signers.txt')),
+        );
+
+      await expectLater(
+        sign(),
+        throwsA(
+          isA<ToolFailure>().having(
+            (f) => f.title,
+            'title',
+            'The signed bundle has 2 signers',
+          ),
+        ),
+      );
+      expect(
+        File(p.join(temp.path, 'app-release-signed.aab')).existsSync(),
+        isFalse,
+      );
+    });
+
+    test('another signer than the key in Sign is not kept', () async {
+      jarsignerSigns();
+      verifies();
+
+      await expectLater(
+        sign(
+          expectedSha256: 'b34c9445c5e411b045884f499034b5592ab109ec5cd1ca9cb584e54f582dcfa8',
+        ),
+        throwsA(
+          isA<ToolFailure>().having(
+            (f) => f.title,
+            'title',
+            'The signed bundle has another signer',
+          ),
+        ),
+      );
+      expect(
+        File(p.join(temp.path, 'app-release-signed.aab')).existsSync(),
+        isFalse,
+      );
+    });
+
+    test('without jarsigner, nothing runs and it says how to get it', () async {
+      await expectLater(
+        BundleSigningService(host: macHost).sign(
+          executor,
+          toolchain: const Toolchain(keytool: '/jdk/keytool'),
+          input: input,
+          request: request,
+        ),
+        throwsA(same(jarsignerMissing)),
+      );
+      expect(runner.calls, isEmpty);
     });
   });
 
