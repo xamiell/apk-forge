@@ -9,17 +9,20 @@ import 'package:apk_forge/domain/profiles/profile.dart';
 import 'package:apk_forge/domain/profiles/profile_plan.dart';
 import 'package:apk_forge/domain/profiles/profile_run.dart';
 import 'package:apk_forge/domain/signing/keystore.dart';
+import 'package:apk_forge/domain/signing/new_key.dart';
 import 'package:apk_forge/domain/signing/signing.dart';
 import 'package:apk_forge/domain/tools/toolchain.dart';
 import 'package:apk_forge/services/adb_service.dart';
 import 'package:apk_forge/services/apk_split_service.dart';
 import 'package:apk_forge/services/flutter_build_service.dart';
+import 'package:apk_forge/services/new_key_service.dart';
 import 'package:apk_forge/services/profile_runner.dart';
 import 'package:apk_forge/services/signing_service.dart';
 import 'package:apk_forge/state/actions/build_action.dart';
 import 'package:apk_forge/state/actions/create_folder_action.dart';
 import 'package:apk_forge/state/actions/install_action.dart';
 import 'package:apk_forge/state/actions/load_keys_action.dart';
+import 'package:apk_forge/state/actions/new_key_action.dart';
 import 'package:apk_forge/state/actions/profile_run_action.dart';
 import 'package:apk_forge/state/actions/sign_actions.dart';
 import 'package:apk_forge/state/apks.dart';
@@ -389,6 +392,86 @@ void main() {
       expect(runner.calls, isEmpty);
       expect(task.failure!.title, 'keytool was not found');
       expect(loaded, isNull);
+    });
+  });
+
+  group('NewKeyAction', () {
+    late (NewKeyRequest, List<KeystoreEntry>)? created;
+
+    setUp(() => created = null);
+
+    NewKeyForm form() => NewKeyForm(
+      folder: temp.path,
+      storePassword: 'hunter22',
+      confirmStorePassword: 'hunter22',
+      commonName: 'Jane Doe',
+    );
+
+    NewKeyAction action({Toolchain tools = _toolchain}) => NewKeyAction(
+      task: task,
+      toolchain: () async => tools,
+      keys: const NewKeyService(host: macHost),
+      keystore: const KeystoreService(),
+      host: macHost,
+      probe: FakeFileProbe(directories: {temp.path}),
+      clock: () => DateTime(2026, 10, 21),
+      onCreated: (request, entries) => created = (request, entries),
+    );
+
+    test('makes the key, hands it to Sign, and logs the files and '
+        'fingerprints', () async {
+      runner
+        ..when((c) => c.arguments.contains('-genkeypair'), (c) {
+          File(c.arguments[c.arguments.indexOf('-keystore') + 1])
+              .writeAsStringSync('keystore');
+          return ok();
+        })
+        ..when(
+          (c) => c.arguments.contains('-list'),
+          (_) => ok(fixture('keytool_list.txt')),
+        );
+
+      expect(await action().run(form()), isTrue);
+
+      expect(task.failure, isNull);
+      expect(task.labels, ['New key']);
+      final (request, entries) = created!;
+      expect(request.keystorePath, p.join(temp.path, 'upload-keystore.jks'));
+      expect(entries.map((e) => e.alias), ['forge-test', 'second-key']);
+      expect(
+        task.log.lines,
+        containsAll([
+          'info: Wrote ${request.keystorePath}',
+          'info: Wrote ${request.keyPropertiesPath}, which only you can read.',
+          'info: SHA-1    AF:21:A6:EC:6F:16:52:A5:21:87:AD:3D:62:B8:47:A6:55:EE:5C:B6',
+          'info: SHA-256  B3:4C:94:45:C5:E4:11:B0:45:88:4F:49:90:34:B5:59:2A:B1:09:EC:5C:D1:CA:9C:B5:84:E5:4F:58:2D:CF:A8',
+          'success: Key made and loaded in Sign. Back up '
+              'upload-keystore.jks and key.properties together.',
+        ]),
+      );
+      expect(task.log.lines.join('\n'), isNot(contains('hunter22')));
+    });
+
+    test('a form with a problem: nothing runs, and it says which', () async {
+      final made = await action().run(
+        form().copyWith(confirmStorePassword: 'hunter23'),
+      );
+
+      expect(made, isFalse);
+      expect(runner.calls, isEmpty);
+      expect(task.failure!.title, 'The key can\'t be made yet');
+      expect(task.failure!.details, ['Doesn\'t match the keystore password.']);
+      expect(created, isNull);
+    });
+
+    test('without keytool, nothing runs', () async {
+      final made = await action(
+        tools: const Toolchain(apksigner: '/bt/apksigner'),
+      ).run(form());
+
+      expect(made, isFalse);
+      expect(runner.calls, isEmpty);
+      expect(task.failure, same(keytoolMissing));
     });
   });
 

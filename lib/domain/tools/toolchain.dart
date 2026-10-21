@@ -1,4 +1,11 @@
 import '../../core/system/host.dart';
+import '../failure.dart';
+
+/// What a job that needs keytool says when it isn't found.
+const keytoolMissing = ToolFailure(
+  'keytool was not found',
+  details: ['Install a JDK, or set JAVA_HOME.'],
+);
 
 /// The external programs the app drives, as found on this machine.
 ///

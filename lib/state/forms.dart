@@ -305,6 +305,25 @@ class SigningFormNotifier extends Notifier<SigningForm> {
     update((form) => form.copyWith(storePassword: password, entries: const []));
   }
 
+  /// A key just made: its keystore, passwords and keys, ready to sign.
+  /// [keyPassword] is the key's own, when it has one.
+  void useKey({
+    required String keystorePath,
+    required String storePassword,
+    String? keyPassword,
+    required List<KeystoreEntry> entries,
+    required String alias,
+  }) => update(
+    (form) => form.copyWith(
+      keystorePath: keystorePath,
+      storePassword: storePassword,
+      keyUsesStorePassword: keyPassword == null,
+      keyPassword: keyPassword ?? '',
+      entries: entries,
+      alias: alias,
+    ),
+  );
+
   void setEntries(List<KeystoreEntry> entries) => update((form) {
     final signing = entries.where((entry) => entry.canSign).toList();
     final keep = entries.any((entry) => entry.alias == form.alias);

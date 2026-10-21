@@ -1,7 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../domain/failure.dart';
 import '../../domain/signing/keystore.dart';
+import '../../domain/tools/toolchain.dart';
 import '../../services/signing_service.dart';
 import '../forms.dart';
 import '../providers.dart';
@@ -30,12 +30,7 @@ class LoadKeysAction {
     final form = this.form();
     await task.run('Load keys', (executor) async {
       final keytool = (await toolchain()).keytool;
-      if (keytool == null) {
-        throw const ToolFailure(
-          'keytool was not found',
-          details: ['Install a JDK, or set JAVA_HOME.'],
-        );
-      }
+      if (keytool == null) throw keytoolMissing;
       final entries = await keystore.listEntries(
         executor,
         keytool: keytool,

@@ -2,9 +2,9 @@
 // keystore, build a Flutter project split per ABI with obfuscation, sign
 // every APK, analyze each one, split a universal build per ABI and sign the
 // splits, run a signing profile on the universal build with two throwaway
-// keys, and check that a wrong password fails cleanly. The unit tests use
-// recorded output; this proves the tools still print what the parsers
-// expect.
+// keys, check that a wrong password fails cleanly, and make a new key of
+// each type the way Sign's New key does. The unit tests use recorded
+// output; this proves the tools still print what the parsers expect.
 //
 // Usage (the password comes from the environment, never the command line):
 //
@@ -32,11 +32,13 @@ import 'package:apk_forge/domain/profiles/profile_plan.dart';
 import 'package:apk_forge/domain/profiles/profile_run.dart';
 import 'package:apk_forge/domain/signing/abi_split.dart';
 import 'package:apk_forge/domain/signing/keystore.dart';
+import 'package:apk_forge/domain/signing/new_key.dart';
 import 'package:apk_forge/domain/signing/signing.dart';
 import 'package:apk_forge/domain/tools/toolchain.dart';
 import 'package:apk_forge/services/apk_analyzer.dart';
 import 'package:apk_forge/services/apk_split_service.dart';
 import 'package:apk_forge/services/flutter_build_service.dart';
+import 'package:apk_forge/services/new_key_service.dart';
 import 'package:apk_forge/services/profile_runner.dart';
 import 'package:apk_forge/services/signing_service.dart';
 import 'package:apk_forge/services/tool_executor.dart';
@@ -299,6 +301,16 @@ Future<void> main(List<String> args) async {
     '  the earlier signed APK is intact and no .partial is left',
   );
 
+  stdout.writeln('\n== New key');
+  await _newKeys(
+    executor,
+    log,
+    host: host,
+    toolchain: toolchain,
+    apk: apks.first,
+    check: check,
+  );
+
   stdout.writeln(
     failures == 0 ? '\nAll checks passed.' : '\n$failures check(s) failed.',
   );
@@ -478,6 +490,113 @@ Future<void> _runProfile(
   }
 }
 
+/// Makes a PKCS12 key, and a JKS one whose key has a password of its own,
+/// as New key in Sign does. Then a profile opens each from its
+/// `key.properties`, and it signs [apk].
+Future<void> _newKeys(
+  ToolExecutor executor,
+  _PrintLog log, {
+  required Host host,
+  required Toolchain toolchain,
+  required String apk,
+  required void Function(bool condition, String what) check,
+}) async {
+  final keytool = toolchain.keytool!;
+  final folder = await Directory.systemTemp.createTemp('apk_forge_smoke_new_');
+  final today = DateTime.now();
+  try {
+    for (final type in KeystoreType.values) {
+      final storePassword = _randomPassword();
+      final keyPassword = type == KeystoreType.jks
+          ? _randomPassword()
+          : storePassword;
+      final form = NewKeyForm(
+        folder: host.path.join(folder.path, type.label),
+        type: type,
+        storePassword: storePassword,
+        confirmStorePassword: storePassword,
+        keyUsesStorePassword: type != KeystoreType.jks,
+        keyPassword: keyPassword,
+        confirmKeyPassword: keyPassword,
+        commonName: 'APK Forge Smoke New Key',
+        organization: 'Example, Inc.',
+        countryCode: 'us',
+      );
+      Directory(form.folder).createSync();
+      final problems = newKeyProblems(
+        form,
+        host: host,
+        probe: const IoFileProbe(),
+        today: today,
+      );
+      check(problems.isEmpty, '${type.label}: the form has no problem');
+      final request = form.toRequest(host, today);
+      final service = NewKeyService(host: host);
+      await service.create(executor, keytool: keytool, request: request);
+
+      final mode = File(request.keyPropertiesPath).statSync().modeString();
+      check(mode == 'rw-------', '  key.properties is its owner\'s ($mode)');
+      final entry = (await const KeystoreService().listEntries(
+        executor,
+        keytool: keytool,
+        keystorePath: request.keystorePath,
+        password: storePassword,
+      )).single;
+      check(
+        entry.owner == 'CN=APK Forge Smoke New Key, O="Example, Inc.", C=US',
+        '  the certificate: ${entry.owner}',
+      );
+      check(
+        entry.validUntil?.endsWith('${today.year + 25}') ?? false,
+        '  valid for 25 years: until ${entry.validUntil}',
+      );
+
+      final opened = (await ProfileKeyService(host: host).open(
+        executor,
+        keytool: keytool,
+        keyFiles: [request.keyPropertiesPath],
+      )).values.single;
+      check(
+        opened.sha256 == entry.sha256 && opened.keyPassword == keyPassword,
+        '  a profile opens it from its key.properties',
+      );
+      final out = Directory(host.path.join(form.folder, 'out'))..createSync();
+      final signed = await ApkSigningService(host: host).sign(
+        executor,
+        toolchain: toolchain,
+        input: apk,
+        request: opened.request(
+          schemes: const SigningSchemes.automatic(),
+          outputDir: out.path,
+        ),
+        expectedSha256: entry.sha256,
+      );
+      check(
+        File(signed.path).existsSync(),
+        '  it signs, and the APK verifies with it',
+      );
+
+      try {
+        await service.create(executor, keytool: keytool, request: request);
+        check(false, '  a second time, nothing is written');
+      } on ToolFailure catch (failure) {
+        check(
+          failure.title == 'Nothing was written',
+          '  a second time, nothing is written: ${failure.details.single}',
+        );
+      }
+      check(
+        !log.lines.any(
+          (line) => line.contains(storePassword) || line.contains(keyPassword),
+        ),
+        '  no password in the log',
+      );
+    }
+  } finally {
+    await folder.delete(recursive: true);
+  }
+}
+
 /// A new keystore in [folder] with one key, [alias], and the
 /// `key.properties` that points to it from its own folder, with a relative
 /// `storeFile` as Gradle projects write it.
@@ -500,7 +619,8 @@ Future<({String keyProperties, List<String> passwords})> _throwawayKey(
         alias,
         distinguishedName: 'CN=APK Forge Smoke $alias, O=Example, C=US',
         // PKCS12 can't give the key a password of its own.
-        storeType: ownKeyPassword ? 'JKS' : 'PKCS12',
+        validityDays: 365,
+        storeType: ownKeyPassword ? KeystoreType.jks : KeystoreType.pkcs12,
       ),
       environment: {
         keystorePasswordVariable: storePassword,

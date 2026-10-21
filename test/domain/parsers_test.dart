@@ -336,6 +336,27 @@ void main() {
     });
   });
 
+  group('parseKeytoolError', () {
+    test('keytool\'s reason, without the Java exception', () {
+      expect(
+        parseKeytoolError(fixture('keytool_genkeypair_no_folder.txt')),
+        'missing/dir/x.jks (No such file or directory)',
+      );
+      expect(
+        parseKeytoolError(fixture('keytool_genkeypair_read_only_folder.txt')),
+        'ro/x.jks (Permission denied)',
+      );
+      expect(
+        parseKeytoolError(fixture('keytool_genkeypair_bad_name.txt')),
+        'Incorrect AVA format',
+      );
+    });
+
+    test('no keytool error line: null', () {
+      expect(parseKeytoolError(fixture('keytool_list.txt')), isNull);
+    });
+  });
+
   group('parseKeytoolList', () {
     test('reads each alias with its first certificate', () {
       final entries = parseKeytoolList(fixture('keytool_list.txt'));
@@ -345,6 +366,7 @@ void main() {
       expect(rsa.entryType, 'PrivateKeyEntry');
       expect(rsa.canSign, isTrue);
       expect(rsa.owner, 'CN=APK Forge Test, O=Example, C=US');
+      expect(rsa.sha1, 'af21a6ec6f1652a52187ad3d62b847a655ee5cb6');
       expect(
         rsa.sha256,
         'b34c9445c5e411b045884f499034b5592ab109ec5cd1ca9cb584e54f582dcfa8',

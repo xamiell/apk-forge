@@ -16,6 +16,7 @@ import '../common/file_types.dart';
 import '../common/widgets.dart';
 import '../profiles/run_dialog.dart';
 import '../theme.dart';
+import 'new_key_sheet.dart';
 
 class SigningCard extends ConsumerWidget {
   const SigningCard({super.key});
@@ -38,6 +39,11 @@ class SigningCard extends ConsumerWidget {
     return SectionCard(
       title: 'Sign',
       icon: Icons.verified_user_outlined,
+      trailing: FilledButton.tonalIcon(
+        onPressed: () => showNewKeySheet(context),
+        icon: const Icon(Icons.key_outlined, size: 16),
+        label: const Text('New key…'),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [

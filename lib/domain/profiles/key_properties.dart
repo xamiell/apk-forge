@@ -21,10 +21,10 @@ class KeyProperties {
 
   /// The fields signing needs that the file doesn't have.
   List<String> get missing => [
-    if (_blank(storeFile)) 'storeFile',
-    if (_blank(keyAlias)) 'keyAlias',
-    if (_blank(storePassword)) 'storePassword',
-    if (_blank(keyPassword)) 'keyPassword',
+    if (_blank(storeFile)) _storeFile,
+    if (_blank(keyAlias)) _keyAlias,
+    if (_blank(storePassword)) _storePassword,
+    if (_blank(keyPassword)) _keyPassword,
   ];
 
   List<String> get secrets => [?storePassword, ?keyPassword];
@@ -43,11 +43,65 @@ class KeyProperties {
 KeyProperties parseKeyProperties(String content) {
   final values = parseJavaProperties(content);
   return KeyProperties(
-    storeFile: values['storeFile'],
-    keyAlias: values['keyAlias'],
-    storePassword: values['storePassword'],
-    keyPassword: values['keyPassword'],
+    storeFile: values[_storeFile],
+    keyAlias: values[_keyAlias],
+    storePassword: values[_storePassword],
+    keyPassword: values[_keyPassword],
   );
+}
+
+/// [keys] as a `key.properties`, in the order Flutter's signing guide
+/// writes it. Values are escaped as `java.util.Properties.load` reads them,
+/// so Gradle and [parseKeyProperties] get back exactly what was written:
+/// a backslash in a Windows path, a leading space, a character outside
+/// ASCII.
+String formatKeyProperties(KeyProperties keys) {
+  final lines = [
+    '# Made by APK Forge. Keep this file and its keystore out of git.',
+    for (final (name, value) in [
+      (_storePassword, keys.storePassword),
+      (_keyPassword, keys.keyPassword),
+      (_keyAlias, keys.keyAlias),
+      (_storeFile, keys.storeFile),
+    ])
+      if (value != null) '$name=${_escape(value)}',
+  ];
+  return '${lines.join('\n')}\n';
+}
+
+const _storeFile = 'storeFile';
+const _keyAlias = 'keyAlias';
+const _storePassword = 'storePassword';
+const _keyPassword = 'keyPassword';
+
+String _escape(String value) {
+  final out = StringBuffer();
+  for (var i = 0; i < value.length; i++) {
+    final code = value.codeUnitAt(i);
+    switch (value[i]) {
+      case r'\':
+        out.write(r'\\');
+      case '\n':
+        out.write(r'\n');
+      case '\r':
+        out.write(r'\r');
+      case '\t':
+        out.write(r'\t');
+      case '\f':
+        out.write(r'\f');
+      // Leading spaces are dropped before a value, unless escaped.
+      case ' ' when i == 0:
+        out.write(r'\ ');
+      default:
+        // Properties files are read as Latin-1: anything else is `\uXXXX`.
+        if (code < 0x20 || code > 0x7e) {
+          out.write('\\u${code.toRadixString(16).padLeft(4, '0')}');
+        } else {
+          out.writeCharCode(code);
+        }
+    }
+  }
+  return out.toString();
 }
 
 /// The key/value pairs of a `.properties` file.
@@ -163,8 +217,8 @@ class KeyFileSummary {
   /// The fields the file lacks (`keyPassword`…).
   final List<String> missing;
 
-  bool get hasStorePassword => !missing.contains('storePassword');
-  bool get hasKeyPassword => !missing.contains('keyPassword');
+  bool get hasStorePassword => !missing.contains(_storePassword);
+  bool get hasKeyPassword => !missing.contains(_keyPassword);
 }
 
 /// [content], the `key.properties` at [path], summed up for the editor.
