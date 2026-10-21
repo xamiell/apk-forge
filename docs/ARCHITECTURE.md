@@ -54,8 +54,9 @@ features calling each other.
 
 ## 3. Secrets
 
-Passwords come from two places: what you type in Sign, and the
-`key.properties` files a signing profile points to (§7).
+Passwords come from three places: what you type in Sign, what you type
+in New key, and the `key.properties` files a signing profile points to
+(§7).
 
 - Typed passwords live only in memory: in `SigningForm`, in the
   `SigningRequest` built from it for a task (`ReadyToSign`), and in
@@ -80,6 +81,14 @@ Passwords come from two places: what you type in Sign, and the
   only.
 - A profile run's record (§7) keeps a key's alias and its `key.properties`
   path, never what's in the file.
+- New key (§7) writes the only file that holds a password: the
+  `key.properties` you ask for, next to the new keystore.
+  - The sheet keeps the passwords in its `NewKeyForm` while it's open, and
+    the task in its `NewKeyRequest`. Both leave them out of `toString`.
+  - `NewKeyService` creates the file empty, makes it its owner's only
+    (`chmod 600`), and only then writes it. It never overwrites one. On
+    Windows, which has no file modes, the file takes the folder's
+    permissions.
 
 A test covers each of these. Keep it that way when a new tool takes a secret.
 
@@ -170,6 +179,32 @@ A test covers each of these. Keep it that way when a new tool takes a secret.
    an earlier signed APK stays as it was.
 
 The input is never modified or overwritten (`signedApkPath`).
+
+### A new key
+
+**New key…** in Sign (`ui/signing/new_key_sheet.dart`) makes an upload key.
+
+1. `newKeyProblems` (`domain/signing/new_key.dart`) checks the form field
+   by field, through `FileProbe`:
+   - the folder exists;
+   - neither the keystore nor `key.properties` is there, because keytool
+     would add the key to an existing keystore without a word;
+   - the passwords have 6 characters or more and match;
+   - a certificate field is filled in;
+   - the key is valid past 22 October 2033, as Google Play needs.
+
+   The sheet shows a field's problem once it's edited, and `NewKeyAction`
+   checks again before anything runs.
+2. `NewKeyService` runs `keytool -genkeypair` (`keytoolGenerateKeyArguments`:
+   RSA 2048, the keystore type, `-validity` in days from `validityDays`, and
+   the `-dname` escaped by `escapeDistinguishedNameValue`).
+3. It then writes `key.properties` (§3) with `formatKeyProperties`, which
+   `parseKeyProperties` reads back. `storeFile` is the keystore's absolute
+   path, because Gradle resolves a relative one from `android/app/`. A
+   failure after keytool deletes both files.
+4. `NewKeyAction` reads the new keystore with `keytool -list`, loads it in
+   Sign (`SigningFormNotifier.useKey`), and logs both paths and the key's
+   SHA-1 and SHA-256.
 
 ### Splitting a universal APK per ABI
 
