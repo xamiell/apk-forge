@@ -32,6 +32,7 @@ the tool's own reason, not a generic error.
 | Android SDK build-tools: `apksigner`, `zipalign`, `aapt2` | Sign, signing profiles, Analyze APK | Android Studio → SDK Manager |
 | Android SDK platform-tools: `adb` | Analyze device, Install, comparing with the installed app | Android Studio → SDK Manager |
 | A JDK: `keytool`, `jarsigner`, and Java for `apksigner` | Sign, signing profiles, App Bundles | Android Studio's bundled JDK works |
+| `bundletool` | Reading and installing App Bundles | Not in the SDK: the official jar from [github.com/google/bundletool](https://github.com/google/bundletool/releases), or `brew install bundletool` |
 
 You don't configure paths by hand. At startup the app reads your login
 shell's environment, the same one your terminal has. An app opened from
@@ -39,8 +40,29 @@ Finder or the Dock otherwise gets a bare `PATH`. It then looks at
 `ANDROID_HOME`, `ANDROID_SDK_ROOT` and the default SDK folder for each OS,
 and picks the newest build-tools.
 
-The pills in the top bar show what was found. The gear lets you point to a
-different Flutter or Android SDK.
+The pills in the top bar show what was found. The gear opens **Tools**,
+which lists every tool and its path, and lets you set:
+- the Flutter SDK and Android SDK folders;
+- the **build-tools** version, from the ones installed in that SDK (the
+  newest by default);
+- the **JDK folder**, whose `bin/` has `keytool`, `jarsigner` and `java`;
+- **bundletool**: the jar, which runs with that `java`, or the `bundletool`
+  command. Without it, `bundletool` is looked for on `PATH` and in
+  Homebrew's `bin`.
+
+What you set wins over what's detected. Each one is checked before it
+counts:
+- an Android SDK folder must have `build-tools` or `platform-tools`;
+- Flutter, the JDK's `java` and bundletool must answer with their version.
+
+So a folder that's gone, a version that isn't installed, or a file that
+isn't the tool (any file picked as bundletool, say) shows in red with the
+reason. That tool counts as missing: nothing else is used in its place.
+
+A macOS JDK bundle (`/Library/Java/JavaVirtualMachines/….jdk`) works as the
+JDK folder. Tools checks what's in its fields as you pick them; **Detect
+again** checks what you typed, **Save** keeps it, and **Close** throws it
+away.
 
 ### Platforms
 
@@ -106,7 +128,8 @@ With signing on, the bundle is signed with the key in Sign:
 The signed bundle is `<name>-signed.aab`, next to the one Flutter wrote or
 in Sign's output folder. `jarsigner` warns in the log that the certificate
 is self-signed and the signature has no timestamp. That's normal for an
-upload key. Analyze APK and Install don't read bundles yet.
+upload key. The signed bundle joins the list in **Analyze APK**, ready to
+check and install.
 
 ### Re-sign an APK you already have
 
@@ -268,6 +291,16 @@ say what matters:
 With a key loaded in **Sign**, the report also says whether that keystore
 signed the APK.
 
+**Open APK…** opens an App Bundle (`.aab`) too.
+- **What's read in Dart:** its files, ABIs and hashes.
+- **The signature:** read with `jarsigner`, and shown as a JAR signature,
+  since the store signs the APKs it makes.
+- **The manifest** (package, version, SDK levels, permissions): read with
+  **bundletool**, set in Tools. Without bundletool the report shows the rest
+  and says the manifest needs it.
+
+**Compare** reads APKs only.
+
 ### Compare two APKs
 
 Select an APK in **Analyze APK** and press **Compare with…**. Pick the
@@ -299,6 +332,19 @@ would do. **Install** installs it.
 
 When the APK's app is already installed, **Install** warns before an
 install Android would refuse because the APK is signed with another key.
+
+**Install** also installs an App Bundle the way a store delivers one, so you
+can try it before you send it:
+- **bundletool** makes the APKs for that device from the bundle, signed with
+  the key in **Sign**, and installs them;
+- it needs bundletool set in Tools and a key loaded in Sign, and Install
+  says when either is missing;
+- the keystore password goes to bundletool in a file only you can read, and
+  that file and the device's APKs are deleted as soon as it's done.
+
+If the store signs your app with its own key (Google Play's app signing), a
+build installed this way and one from the store can't update each other:
+uninstall one first.
 **Compare with the installed app** shows everything that differs. For that,
 the installed APK is copied to a temporary folder, read and deleted. An app
 installed from Play comes as a `base.apk` plus splits; the base and the ABI
@@ -313,8 +359,9 @@ device.
   and it's never overwritten.
 - **Passwords never go on a command line.** `apksigner`, `jarsigner` and
   `keytool` read them from environment variables (`--ks-pass env:…`,
-  `-storepass:env …`),
-  so they don't show up in `ps`. Any output line that contains one is masked
+  `-storepass:env …`). `bundletool`, which can't, reads them from a
+  temporary file only you can read, deleted right after. So they don't
+  show up in `ps`. Any output line that contains one is masked
   in the log and in error messages.
 - **The app saves only paths and choices** (project folder, keystore path,
   key alias, architectures…), in the OS's standard app preferences. A
@@ -383,6 +430,9 @@ them. It makes and deletes its own keys itself.
 ```bash
 APK_FORGE_SMOKE_PASS=… dart run tool/smoke.dart <flutter project> <keystore> <alias> <output dir>
 ```
+
+With `APK_FORGE_SMOKE_BUNDLETOOL` set to a bundletool jar, it also reads the
+signed App Bundle's manifest.
 
 ### Project layout
 
