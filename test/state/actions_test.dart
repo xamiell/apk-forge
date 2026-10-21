@@ -14,6 +14,7 @@ import 'package:apk_forge/domain/signing/signing.dart';
 import 'package:apk_forge/domain/tools/toolchain.dart';
 import 'package:apk_forge/services/adb_service.dart';
 import 'package:apk_forge/services/apk_split_service.dart';
+import 'package:apk_forge/services/bundle_install_service.dart';
 import 'package:apk_forge/services/bundle_signing_service.dart';
 import 'package:apk_forge/services/flutter_build_service.dart';
 import 'package:apk_forge/services/new_key_service.dart';
@@ -202,7 +203,7 @@ void main() {
     });
 
     test(
-      'an App Bundle is built, then signed with jarsigner, and not listed',
+      'an App Bundle is built, then signed with jarsigner, and listed',
       () async {
         runner.whenFirstArg(
           'build',
@@ -226,7 +227,10 @@ void main() {
           isTrue,
         );
         expect(runner.callsWithFirstArg('sign'), isEmpty);
-        expect(list.added, isEmpty);
+        expect(
+          list.added.map((a) => '${a.origin.name} ${p.basename(a.path)}'),
+          ['built app-release.aab', 'signed app-release-signed.aab'],
+        );
         expect(task.log.lines, contains('success: Built app-release.aab.'));
       },
     );
@@ -311,7 +315,7 @@ void main() {
         expect(task.labels, ['Sign ci.aab']);
         expect(File(p.join(temp.path, 'ci-signed.aab')).existsSync(), isTrue);
         expect(runner.callsWithFirstArg('sign'), isEmpty);
-        expect(list.added, isEmpty);
+        expect(list.added.single.path, p.join(temp.path, 'ci-signed.aab'));
       },
     );
 
@@ -585,16 +589,65 @@ void main() {
       String? apk = '/out/app.apk',
       AndroidDevice? device = pixel,
       bool allowDowngrade = false,
+      SigningSetup? signing,
+      Toolchain tools = _toolchain,
     }) => InstallAction(
       task: task,
-      toolchain: toolchain,
+      toolchain: () async => tools,
       apk: () => apk,
       device: () => device,
       options: () => InstallOptions(allowDowngrade: allowDowngrade),
+      signing: () => signing ?? _ready(),
       adb: const AdbService(),
+      bundles: BundleInstallService(
+        host: macHost,
+        temporaryDirectory: () => temp,
+      ),
       host: macHost,
       onInstalled: () => installed++,
     );
+
+    const bundleTools = Toolchain(
+      adb: '/pt/adb',
+      keytool: '/jdk/keytool',
+      java: '/jdk/java',
+      bundletool: '/tools/bt.jar',
+    );
+
+    test('an App Bundle goes through bundletool, signed with the key in '
+        'Sign', () async {
+      await action(apk: '/out/app.aab', tools: bundleTools).run();
+
+      expect(task.failure, isNull);
+      expect(installed, 1);
+      final subcommands = [
+        for (final call in runner.calls)
+          if (call.executable == '/jdk/java') call.arguments[2],
+      ];
+      expect(subcommands, ['build-apks', 'install-apks']);
+      expect(
+        runner.calls.firstWhere((c) => c.executable == '/jdk/java').arguments,
+        contains('--ks-key-alias=forge-test'),
+      );
+      expect(runner.callsWithFirstArg('-s'), isEmpty);
+    });
+
+    test('an App Bundle without bundletool or a key: nothing runs, and it '
+        'says what\'s missing', () async {
+      await action(
+        apk: '/out/app.aab',
+        signing: const NotReadyToSign('Enter the keystore password.'),
+      ).run();
+
+      expect(runner.calls, isEmpty);
+      expect(installed, 0);
+      expect(task.failure!.title, 'The bundle can\'t be installed yet');
+      expect(task.failure!.details, [
+        'Set bundletool in Tools: it makes the device\'s APKs from the bundle.',
+        'The device\'s APKs are signed with the key in Sign: Enter the '
+            'keystore password.',
+      ]);
+    });
 
     test('installs the APK on the device, downgrade if allowed', () async {
       runner.when(

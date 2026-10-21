@@ -302,6 +302,72 @@ void main() {
   });
 
   test(
+    'Tools\' preview checks what\'s in its fields, without saving it',
+    () async {
+      runner
+        ..when(
+          (c) =>
+              c.executable == '/jdk/bin/java' && c.arguments.last == 'version',
+          (c) => c.arguments[1] == '/tools/bundletool-all-1.18.3.jar'
+              ? ok(fixture('bundletool_version.txt'))
+              : failed(1, stderr: ['Error: Invalid or corrupt jarfile']),
+        )
+        ..when(
+          (c) =>
+              c.executable == '/jdk/bin/java' && c.arguments.last == '-version',
+          (_) => failed(0, stderr: fixture('java_version.txt')),
+        );
+      final preview = ProviderContainer.test(
+        retry: (_, _) => null,
+        overrides: [
+          environmentProvider.overrideWithValue(const {}),
+          hostProvider.overrideWithValue(
+            const Host(os: HostOs.macos, environment: {}),
+          ),
+          processRunnerProvider.overrideWithValue(runner),
+          settingsStoreProvider.overrideWithValue(store),
+          fileProbeProvider.overrideWithValue(
+            FakeFileProbe(
+              files: {
+                '/jdk/bin/keytool',
+                '/jdk/bin/java',
+                '/tools/bundletool-all-1.18.3.jar',
+                '/tools/venv/pyvenv.cfg',
+              },
+            ),
+          ),
+        ],
+      );
+      addTearDown(preview.dispose);
+      final saved = Map.of(store.values);
+
+      final good = await preview.read(
+        toolchainPreviewProvider(
+          const ToolOverrides(
+            jdkHome: '/jdk',
+            bundletool: '/tools/bundletool-all-1.18.3.jar',
+          ),
+        ).future,
+      );
+      final wrong = await preview.read(
+        toolchainPreviewProvider(
+          const ToolOverrides(
+            jdkHome: '/jdk',
+            bundletool: '/tools/venv/pyvenv.cfg',
+          ),
+        ).future,
+      );
+
+      expect(good.bundletoolVersion, '1.18.3');
+      expect(good.problems, isEmpty);
+      expect(wrong.bundletool, isNull);
+      expect(wrong.problems.single, contains('is not bundletool'));
+      expect(store.values, saved);
+      expect(preview.read(toolOverridesProvider).bundletool, isNull);
+    },
+  );
+
+  test(
     'a new key is made and loaded in Sign, its passwords never saved',
     () async {
       runner

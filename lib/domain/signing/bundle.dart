@@ -1,4 +1,5 @@
 import '../../core/format/format.dart';
+import '../analysis/signature.dart';
 import 'keystore.dart';
 import 'signing.dart';
 
@@ -88,12 +89,16 @@ JarVerification parseJarsignerVerify(Iterable<String> lines) {
 
 /// One signer of a JAR or App Bundle, by its first certificate.
 class JarSigner {
-  const JarSigner({this.owner, this.sha256});
+  const JarSigner({this.owner, this.sha256, this.sha1, this.keyAlgorithm});
 
   final String? owner;
 
   /// Normalized with [normalizeDigest], ready to compare with keytool's.
   final String? sha256;
+  final String? sha1;
+
+  /// As keytool says it: `2048-bit RSA key`.
+  final String? keyAlgorithm;
 }
 
 /// The signers `keytool -printcert -jarfile` lists. An unsigned file has
@@ -104,10 +109,21 @@ List<JarSigner> parseJarSigners(Iterable<String> lines) {
   var inFirstCertificate = false;
   String? owner;
   String? sha256;
+  String? sha1;
+  String? keyAlgorithm;
 
   void flush() {
-    if (inSigner) signers.add(JarSigner(owner: owner, sha256: sha256));
-    owner = sha256 = null;
+    if (inSigner) {
+      signers.add(
+        JarSigner(
+          owner: owner,
+          sha256: sha256,
+          sha1: sha1,
+          keyAlgorithm: keyAlgorithm,
+        ),
+      );
+    }
+    owner = sha256 = sha1 = keyAlgorithm = null;
   }
 
   for (final raw in lines) {
@@ -126,8 +142,52 @@ List<JarSigner> parseJarSigners(Iterable<String> lines) {
         sha256 == null &&
         line.startsWith('SHA256: ')) {
       sha256 = normalizeDigest(line.substring('SHA256: '.length));
+    } else if (inFirstCertificate &&
+        sha1 == null &&
+        line.startsWith('SHA1: ')) {
+      sha1 = normalizeDigest(line.substring('SHA1: '.length));
+    } else if (inFirstCertificate &&
+        keyAlgorithm == null &&
+        line.startsWith(_keyAlgorithm)) {
+      keyAlgorithm = line.substring(_keyAlgorithm.length);
     }
   }
   flush();
   return signers;
+}
+
+const _keyAlgorithm = 'Subject Public Key Algorithm: ';
+final _keySize = RegExp(r'^(\d+)-bit (\S+)');
+
+/// A bundle's JAR signature, as Analyze shows an APK's: `v1` is the JAR
+/// signature, and the other schemes don't apply to a bundle.
+SignatureReport bundleSignatureReport(
+  JarVerification verification,
+  List<JarSigner> signers,
+) {
+  final verified = verification.verdict == JarVerdict.verified;
+  return SignatureReport(
+    verifies: verified,
+    schemes: {'v1': verified},
+    signers: [
+      for (final (index, signer) in signers.indexed)
+        SignerCertificate(
+          label: 'Signer #${index + 1}',
+          distinguishedName: signer.owner,
+          sha256: signer.sha256,
+          sha1: signer.sha1,
+          keyAlgorithm: _keySize
+              .firstMatch(signer.keyAlgorithm ?? '')
+              ?.group(2),
+          keySize: int.tryParse(
+            _keySize.firstMatch(signer.keyAlgorithm ?? '')?.group(1) ?? '',
+          ),
+        ),
+    ],
+    errors: [
+      if (verification.verdict == JarVerdict.unsigned)
+        'The bundle is not signed.',
+      ?verification.reason,
+    ],
+  );
 }

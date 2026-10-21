@@ -8,6 +8,7 @@ import 'package:apk_forge/core/system/host.dart';
 import 'package:apk_forge/core/zip/zip_directory.dart';
 import 'package:apk_forge/domain/analysis/apk_report.dart';
 import 'package:apk_forge/domain/build/build_options.dart';
+import 'package:apk_forge/domain/devices/devices.dart';
 import 'package:apk_forge/domain/profiles/key_properties.dart';
 import 'package:apk_forge/domain/profiles/profile.dart';
 import 'package:apk_forge/domain/profiles/profile_plan.dart';
@@ -21,9 +22,12 @@ import 'package:apk_forge/domain/tools/toolchain.dart';
 import 'package:apk_forge/services/adb_service.dart';
 import 'package:apk_forge/services/apk_analyzer.dart';
 import 'package:apk_forge/services/apk_split_service.dart';
+import 'package:apk_forge/services/bundle_install_service.dart';
 import 'package:apk_forge/services/bundle_signing_service.dart';
+import 'package:apk_forge/services/bundletool_service.dart';
 import 'package:apk_forge/services/flutter_build_service.dart';
 import 'package:apk_forge/services/installed_apk_service.dart';
+import 'package:apk_forge/services/java_service.dart';
 import 'package:apk_forge/services/new_key_service.dart';
 import 'package:apk_forge/services/profile_runner.dart';
 import 'package:apk_forge/services/signing_service.dart';
@@ -338,6 +342,269 @@ void main() {
       );
 
       expect(log.lines, contains(startsWith('warning: zipalign not found')));
+    });
+  });
+
+  group('an App Bundle', () {
+    late String bundle;
+    const tools = Toolchain(
+      keytool: '/jdk/keytool',
+      jarsigner: '/jdk/jarsigner',
+      java: '/jdk/java',
+      bundletool: '/tools/bt.jar',
+      adb: '/pt/adb',
+    );
+    const request = SigningRequest(
+      keystorePath: '/k.jks',
+      storePassword: 'hunter22',
+      alias: 'upload',
+      keyPassword: 'swordfish',
+    );
+
+    setUp(() {
+      bundle = p.join(temp.path, 'app-release-signed.aab');
+      final archive = Archive()
+        ..add(ArchiveFile.string('META-INF/MANIFEST.MF', 'manifest'))
+        ..add(ArchiveFile.string('META-INF/UPLOAD.SF', 'signature'))
+        ..add(ArchiveFile.string('META-INF/UPLOAD.RSA', 'certificate'))
+        ..add(ArchiveFile.string('base/manifest/AndroidManifest.xml', 'pb'))
+        ..add(ArchiveFile.string('base/lib/arm64-v8a/libflutter.so', 'e'))
+        ..add(ArchiveFile.string('base/lib/arm64-v8a/libapp.so', 'a'));
+      File(bundle).writeAsBytesSync(ZipEncoder().encode(archive));
+    });
+
+    void bundleTools() => runner
+      ..when(
+        (c) => c.arguments.contains('dump'),
+        (_) => ok(fixture('bundletool_dump_manifest.txt')),
+      )
+      ..when(
+        (c) => c.executable == '/jdk/jarsigner',
+        (_) => ok(fixture('jarsigner_verify_bundle.txt')),
+      )
+      ..when(
+        (c) => c.executable == '/jdk/keytool',
+        (_) => ok(fixture('keytool_printcert_jarfile.txt')),
+      );
+
+    test(
+      'Analyze reads its manifest with bundletool and its JAR signature',
+      () async {
+        bundleTools();
+
+        final report = await const ApkAnalyzer().analyze(
+          executor,
+          toolchain: tools,
+          path: bundle,
+        );
+
+        expect(report.isBundle, isTrue);
+        expect(report.badging!.packageName, 'io.example.sample_app');
+        expect(report.badging!.nativeCode, ['arm64-v8a']);
+        expect(report.contents.flutter, FlutterCompilation.aot);
+        expect(report.signature!.verifies, isTrue);
+        expect(
+          report.signature!.signers.single.distinguishedName,
+          'CN=APK Forge Bundle, O=Example, C=US',
+        );
+        expect(
+          runner.calls.firstWhere((c) => c.executable == '/jdk/java').arguments,
+          ['-jar', '/tools/bt.jar', 'dump', 'manifest', '--bundle=$bundle'],
+        );
+        // apksigner and aapt2 can't read a bundle: they never run.
+        expect(
+          runner.calls.map((c) => c.executable),
+          isNot(contains('/bt/aapt2')),
+        );
+      },
+    );
+
+    test('without bundletool, Analyze reads the rest and says what the '
+        'manifest needs', () async {
+      bundleTools();
+
+      final report = await const ApkAnalyzer().analyze(
+        executor,
+        toolchain: const Toolchain(
+          keytool: '/jdk/keytool',
+          jarsigner: '/jdk/jarsigner',
+        ),
+        path: bundle,
+      );
+
+      expect(report.badging, isNull);
+      expect(report.badgingError, contains('set it in Tools'));
+      expect(report.signature!.verifies, isTrue);
+      expect(report.contents.nativeLibraries.keys, ['arm64-v8a']);
+    });
+
+    BundleInstallService installer() =>
+        BundleInstallService(host: macHost, temporaryDirectory: () => temp);
+
+    Future<void> install({Toolchain toolchain = tools}) => installer().install(
+      executor,
+      toolchain: toolchain,
+      bundle: bundle,
+      serial: 'emulator-5554',
+      request: request,
+      allowDowngrade: false,
+    );
+
+    test(
+      'Install makes the device\'s APKs with the key, then installs them; '
+      'the passwords only ever sit in private files, deleted after',
+      () async {
+        final passwordsSeen = <String>[];
+        final modesBeforeContent = <int>[];
+        runner
+          ..when((c) => c.executable == '/bin/chmod', (c) {
+            modesBeforeContent.add(File(c.arguments.last).lengthSync());
+            return ok();
+          })
+          ..when((c) => c.arguments.contains('build-apks'), (c) {
+            for (final flag in ['--ks-pass=file:', '--key-pass=file:']) {
+              final file = c.arguments
+                  .firstWhere((a) => a.startsWith(flag))
+                  .substring(flag.length);
+              passwordsSeen.add(File(file).readAsStringSync());
+            }
+            return ok();
+          })
+          ..when(
+            (c) => c.arguments.contains('install-apks'),
+            (_) => ok(fixture('bundletool_install_apks.txt')),
+          );
+
+        await install();
+
+        expect(passwordsSeen, ['hunter22', 'swordfish']);
+        expect(modesBeforeContent, [0, 0]);
+        final build = runner.calls.firstWhere(
+          (c) => c.arguments.contains('build-apks'),
+        );
+        expect(build.executable, '/jdk/java');
+        expect(
+          build.arguments,
+          containsAll([
+            '--device-id=emulator-5554',
+            '--ks=/k.jks',
+            '--ks-key-alias=upload',
+          ]),
+        );
+        for (final call in runner.calls) {
+          expect(call.arguments.join(' '), isNot(contains('hunter22')));
+          expect(call.arguments.join(' '), isNot(contains('swordfish')));
+        }
+        // Nothing is left: no password file, no device APKs.
+        expect(temp.listSync().map((e) => p.basename(e.path)), [
+          'app-release-signed.aab',
+        ]);
+      },
+    );
+
+    test('a wrong password is named, and nothing is left', () async {
+      runner.when(
+        (c) => c.arguments.contains('build-apks'),
+        (_) => failed(
+          1,
+          stderr: fixture('bundletool_build_apks_wrong_password.txt'),
+        ),
+      );
+
+      await expectLater(
+        install(),
+        throwsA(
+          isA<ToolFailure>().having(
+            (f) => f.title,
+            'title',
+            KeyLoadFailure.storePasswordWrong.problem,
+          ),
+        ),
+      );
+      expect(temp.listSync().map((e) => p.basename(e.path)), [
+        'app-release-signed.aab',
+      ]);
+    });
+
+    test('Android\'s refusal says why, and nothing is left', () async {
+      runner.when(
+        (c) => c.arguments.contains('install-apks'),
+        (_) =>
+            failed(1, stderr: fixture('bundletool_install_apks_other_key.txt')),
+      );
+
+      await expectLater(
+        install(),
+        throwsA(
+          isA<ToolFailure>()
+              .having(
+                (f) => f.title,
+                'title',
+                'Install failed: INSTALL_FAILED_UPDATE_INCOMPATIBLE',
+              )
+              .having((f) => f.details, 'details', [
+                installFailureHints['INSTALL_FAILED_UPDATE_INCOMPATIBLE'],
+              ]),
+        ),
+      );
+      expect(temp.listSync().map((e) => p.basename(e.path)), [
+        'app-release-signed.aab',
+      ]);
+    });
+
+    test('without bundletool nothing runs, and it says to set it', () async {
+      await expectLater(
+        install(toolchain: const Toolchain(adb: '/pt/adb')),
+        throwsA(same(bundletoolMissing)),
+      );
+      expect(runner.calls, isEmpty);
+    });
+  });
+
+  group('readJavaVersion', () {
+    test('reads java -version from its stderr', () async {
+      runner.when(
+        (c) => c.executable == '/jdk/bin/java',
+        (_) => failed(0, stderr: fixture('java_version.txt')),
+      );
+
+      expect(await readJavaVersion(executor, '/jdk/bin/java'), '21.0.10');
+      expect(runner.calls.single.arguments, ['-version']);
+    });
+
+    test('a file that is not java gives no version', () async {
+      runner.when(
+        (c) => c.executable == '/fake/bin/java',
+        (_) => failed(126, stderr: ['permission denied']),
+      );
+
+      expect(await readJavaVersion(executor, '/fake/bin/java'), isNull);
+    });
+  });
+
+  group('readBundletoolVersion', () {
+    test('runs a jar with java and reads its version', () async {
+      runner.when(
+        (c) => c.executable == '/jdk/java',
+        (_) => ok(fixture('bundletool_version.txt')),
+      );
+
+      final version = await readBundletoolVersion(
+        executor,
+        const Toolchain(java: '/jdk/java', bundletool: '/tools/bt.jar'),
+      );
+
+      expect(version, '1.18.3');
+      expect(runner.calls.single.arguments, [
+        '-jar',
+        '/tools/bt.jar',
+        'version',
+      ]);
+    });
+
+    test('without bundletool nothing runs', () async {
+      expect(await readBundletoolVersion(executor, const Toolchain()), isNull);
+      expect(runner.calls, isEmpty);
     });
   });
 
@@ -890,6 +1157,18 @@ void main() {
         ),
       );
     });
+
+    test(
+      'readFlutterVersion reads a real flutter --version --machine',
+      () async {
+        runner.whenFirstArg(
+          '--version',
+          ok(fixture('flutter_version_machine.txt')),
+        );
+
+        expect(await readFlutterVersion(executor, 'flutter'), '3.47.5');
+      },
+    );
 
     test('readFlutterVersion reads the machine output', () async {
       runner.when(

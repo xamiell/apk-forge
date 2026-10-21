@@ -34,6 +34,9 @@ Map<SettingsKey, Map<String, Object?>> savedByThisVersion() => {
   SettingsKey.tools: {
     'flutterSdk': '/sdk/flutter',
     'androidSdk': '/sdk/android',
+    'buildToolsVersion': '35.0.0',
+    'jdkHome': '/jdk/21',
+    'bundletool': '/tools/bundletool-all-1.18.3.jar',
   },
   SettingsKey.profiles: {
     'profiles': [
@@ -182,6 +185,9 @@ void main() {
     final tools = container.read(toolOverridesProvider);
     expect(tools.flutterSdk, '/sdk/flutter');
     expect(tools.androidSdk, '/sdk/android');
+    expect(tools.buildToolsVersion, '35.0.0');
+    expect(tools.jdkHome, '/jdk/21');
+    expect(tools.bundletool, '/tools/bundletool-all-1.18.3.jar');
 
     final profiles = container.read(profilesProvider);
     expect(profiles.selectedId, 'p1');
@@ -216,10 +222,9 @@ void main() {
     container.read(defaultsProvider.notifier).update((d) => d);
     container.read(buildOptionsProvider.notifier).update((o) => o);
     container.read(signingFormProvider.notifier).update((f) => f);
-    final tools = container.read(toolOverridesProvider);
     container
         .read(toolOverridesProvider.notifier)
-        .set(flutterSdk: tools.flutterSdk, androidSdk: tools.androidSdk);
+        .set(container.read(toolOverridesProvider));
     container.read(profilesProvider.notifier).select('p1');
     container.read(profileHistoryProvider.notifier).clear('no such profile');
 

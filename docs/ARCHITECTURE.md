@@ -87,9 +87,14 @@ in New key, and the `key.properties` files a signing profile points to
   - The sheet keeps the passwords in its `NewKeyForm` while it's open, and
     the task in its `NewKeyRequest`. Both leave them out of `toString`.
   - `NewKeyService` creates the file empty, makes it its owner's only
-    (`chmod 600`), and only then writes it. It never overwrites one. On
-    Windows, which has no file modes, the file takes the folder's
-    permissions.
+    (`chmod 600`), and only then writes it (`writeOwnerOnly`). It never
+    overwrites one. On Windows, which has no file modes, the file takes the
+    folder's permissions.
+- bundletool takes a password as an argument or a file only, so installing
+  a bundle (§7) writes the keystore and key passwords to files with
+  `writeOwnerOnly`, in a temporary folder. bundletool gets their paths
+  (`--ks-pass=file:…`), and the folder is deleted when the install ends,
+  failed or cancelled.
 
 A test covers each of these. Keep it that way when a new tool takes a secret.
 
@@ -99,8 +104,26 @@ A test covers each of these. Keep it that way when a new tool takes a secret.
   Code that depends on them takes a `Host`, so tests can describe Windows
   while running on a Mac.
 - `FileProbe` answers "does this exist?" for `ToolchainLocator`, which finds
-  the tools from overrides, `ANDROID_HOME`, `ANDROID_SDK_ROOT`, the default
-  SDK folders and `PATH`.
+  the tools from what Tools sets (`ToolOverrides`), then `ANDROID_HOME`,
+  `ANDROID_SDK_ROOT`, the default SDK folders, `JAVA_HOME` and `PATH`.
+  - Tools can set the Flutter SDK, the Android SDK, a build-tools version
+    (`Toolchain.availableBuildTools` lists the installed ones), a JDK folder
+    and bundletool.
+  - Something set that can't be used is a `Toolchain.problems` entry, and
+    its tool stays missing: the locator never falls back to another one.
+    With an Android SDK set, adb comes from that SDK only.
+  - A file existing doesn't make it the tool. An Android SDK folder must
+    have `build-tools` or `platform-tools`. Each tool that's run is asked
+    its version (`Toolchain.withVersions`): Flutter by `flutter --version`,
+    the JDK by `java -version`, bundletool by `bundletool version`. One that
+    gives none is dropped with the reason. The Tools dialog shows this for
+    what's in its fields, before Save (`toolchainPreviewProvider`).
+  - A macOS JDK bundle (`….jdk`) works as a JDK folder: its tools are in
+    `Contents/Home/bin`.
+  - `jarsigner` and `java` come from `keytool`'s folder. A bundletool jar
+    runs with that `java` (`Toolchain.bundletoolLaunch`). Without one set,
+    bundletool is looked for on `PATH`, then in Homebrew's `bin`, since an
+    app opened from Finder may not have it on `PATH`.
 - `loadShellEnvironment` reads the login shell's environment once at
   startup. Every process starts with it, because an app opened from Finder
   has a bare `PATH`.
@@ -228,8 +251,26 @@ from Build or from Sign's file picker:
 4. Only then is the `.partial` renamed to `<name>-signed.aab`
    (`signedFilePath`). The temporary copy is deleted, even on a failure.
 
-A bundle isn't zipaligned: the store aligns the APKs it makes from it. It
-isn't added to the APK list either, because Analyze APK reads APKs only.
+A bundle isn't zipaligned: the store aligns the APKs it makes from it. A
+signed bundle joins the APK list like a signed APK.
+
+`ApkAnalyzer` reads a bundle as well:
+- its files with `ApkContents.fromBundleEntries`, each module's `lib/` and
+  `assets/` read as an APK's;
+- its manifest with `bundletool dump manifest` (`parseBundleManifest`);
+- its JAR signature with `jarsigner -verify` and `keytool -printcert`
+  (`bundleSignatureReport`).
+
+The report shows a JAR signature instead of the v1 to v4 schemes, and
+Compare stays off for bundles.
+
+`BundleInstallService` installs a bundle as a store would deliver it. It
+writes the passwords' files (§3) and runs `bundletool build-apks
+--connected-device`, which makes the device's APKs signed with the key in
+Sign. Then `install-apks` installs them. `parseInstallFailure` reads
+Android's refusal from bundletool as from adb, and `parseKeyLoadFailure`
+reads bundletool's password errors. The temporary folder, password files
+and device APKs included, is deleted even when it fails.
 
 ### Splitting a universal APK per ABI
 

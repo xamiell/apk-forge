@@ -15,8 +15,8 @@ import '../task_notifier.dart';
 import '../toolchain_notifier.dart';
 
 /// Signs APKs and App Bundles one after another with one key, and lists
-/// each signed APK, selected, as soon as it's written. A bundle is signed
-/// with jarsigner, and isn't listed: Analyze APK reads APKs only.
+/// each signed file, selected, as soon as it's written. A bundle is signed
+/// with jarsigner.
 class ApkBatchSigner {
   const ApkBatchSigner({
     required this.signing,
@@ -39,13 +39,14 @@ class ApkBatchSigner {
     for (final path in paths) {
       if (executor.isCancelled) return;
       if (isAppBundle(path)) {
-        await bundles.sign(
+        final signed = await bundles.sign(
           executor,
           toolchain: toolchain,
           input: path,
           request: request,
           expectedSha256: expectedSha256,
         );
+        list.add(signed.path, ApkOrigin.signed);
         continue;
       }
       final signed = await signing.sign(

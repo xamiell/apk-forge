@@ -9,6 +9,7 @@ import '../core/system/host.dart';
 import '../services/adb_service.dart';
 import '../services/apk_analyzer.dart';
 import '../services/apk_split_service.dart';
+import '../services/bundle_install_service.dart';
 import '../services/bundle_signing_service.dart';
 import '../services/desktop_shell.dart';
 import '../services/flutter_build_service.dart';
@@ -69,6 +70,9 @@ final signingServiceProvider = Provider(
 );
 final bundleSigningServiceProvider = Provider(
   (ref) => BundleSigningService(host: ref.watch(hostProvider)),
+);
+final bundleInstallServiceProvider = Provider(
+  (ref) => BundleInstallService(host: ref.watch(hostProvider)),
 );
 final apkSplitServiceProvider = Provider(
   (ref) => ApkSplitService(host: ref.watch(hostProvider)),

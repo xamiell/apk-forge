@@ -5,6 +5,7 @@ import 'package:apk_forge/domain/build/flutter_build.dart';
 import 'package:apk_forge/domain/signing/bundle.dart';
 import 'package:apk_forge/domain/signing/keystore.dart';
 import 'package:apk_forge/domain/signing/signing.dart';
+import 'package:apk_forge/domain/tools/bundletool.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../helpers/fakes.dart';
@@ -483,6 +484,62 @@ void main() {
         ]);
       },
     );
+
+    test('bundletool reads a bundle\'s manifest, and makes and installs the '
+        'device\'s APKs with the passwords in files', () {
+      const jar = ['-jar', '/tools/bt.jar'];
+
+      expect(bundletoolDumpManifestArguments(jar, '/out/a.aab'), [
+        '-jar',
+        '/tools/bt.jar',
+        'dump',
+        'manifest',
+        '--bundle=/out/a.aab',
+      ]);
+      expect(
+        bundletoolBuildApksArguments(
+          jar,
+          bundle: '/out/a.aab',
+          output: '/tmp/x/device.apks',
+          serial: 'emulator-5554',
+          adb: '/pt/adb',
+          keystore: '/k.jks',
+          alias: 'upload',
+          storePasswordFile: '/tmp/x/store.pass',
+          keyPasswordFile: '/tmp/x/key.pass',
+        ),
+        [
+          '-jar',
+          '/tools/bt.jar',
+          'build-apks',
+          '--bundle=/out/a.aab',
+          '--output=/tmp/x/device.apks',
+          '--connected-device',
+          '--device-id=emulator-5554',
+          '--adb=/pt/adb',
+          '--ks=/k.jks',
+          '--ks-key-alias=upload',
+          '--ks-pass=file:/tmp/x/store.pass',
+          '--key-pass=file:/tmp/x/key.pass',
+        ],
+      );
+      expect(
+        bundletoolInstallApksArguments(
+          const [],
+          apks: '/tmp/x/device.apks',
+          serial: 'emulator-5554',
+          adb: '/pt/adb',
+          allowDowngrade: true,
+        ),
+        [
+          'install-apks',
+          '--apks=/tmp/x/device.apks',
+          '--device-id=emulator-5554',
+          '--adb=/pt/adb',
+          '--allow-downgrade',
+        ],
+      );
+    });
 
     test('signedFilePath never overwrites the original', () {
       expect(

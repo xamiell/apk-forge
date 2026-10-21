@@ -30,6 +30,21 @@ class Badging {
   final List<String> nativeCode;
   final List<String> permissions;
   final String? launchableActivity;
+
+  /// This manifest with the ABIs [abis]: a bundle's come from its files.
+  Badging withNativeCode(List<String> abis) => Badging(
+    packageName: packageName,
+    versionCode: versionCode,
+    versionName: versionName,
+    minSdk: minSdk,
+    targetSdk: targetSdk,
+    compileSdk: compileSdk,
+    label: label,
+    debuggable: debuggable,
+    nativeCode: abis,
+    permissions: permissions,
+    launchableActivity: launchableActivity,
+  );
 }
 
 final _quoted = RegExp(r"(\w+)='([^']*)'");
@@ -109,6 +124,70 @@ Badging parseBadging(Iterable<String> lines) {
     label: label,
     debuggable: debuggable,
     nativeCode: nativeCode,
+    permissions: permissions,
+    launchableActivity: launchable,
+  );
+}
+
+final _xmlAttribute = RegExp(r'([\w:]+)="([^"]*)"');
+
+/// What `bundletool dump manifest` says about an App Bundle's manifest, as
+/// a [Badging]: aapt2 can't read a bundle's. [nativeCode] is left empty: a
+/// bundle's ABIs come from its files. A label that is a resource
+/// (`@string/app_name`) isn't resolved, so it's left out.
+Badging parseBundleManifest(Iterable<String> lines) {
+  String? packageName;
+  String? versionCode;
+  String? versionName;
+  int? minSdk;
+  int? targetSdk;
+  int? compileSdk;
+  String? label;
+  var debuggable = false;
+  final permissions = <String>[];
+  String? launchable;
+  String? activity;
+
+  for (final raw in lines) {
+    final line = raw.trim();
+    final values = {
+      for (final match in _xmlAttribute.allMatches(line))
+        match.group(1)!: match.group(2)!,
+    };
+    if (line.startsWith('<manifest ')) {
+      packageName = values['package'];
+      versionCode = values['android:versionCode'];
+      versionName = values['android:versionName'];
+      compileSdk = int.tryParse(values['android:compileSdkVersion'] ?? '');
+    } else if (line.startsWith('<uses-sdk ')) {
+      minSdk = int.tryParse(values['android:minSdkVersion'] ?? '');
+      targetSdk = int.tryParse(values['android:targetSdkVersion'] ?? '');
+    } else if (line.startsWith('<application ')) {
+      final name = values['android:label'];
+      label = name == null || name.startsWith('@') ? null : name;
+      debuggable = values['android:debuggable'] == 'true';
+    } else if (line.startsWith('<uses-permission ')) {
+      if (values['android:name'] case final name?) permissions.add(name);
+    } else if (line.startsWith('<activity ') ||
+        line.startsWith('<activity-alias ')) {
+      activity = values['android:name'];
+    } else if (line.startsWith('</activity')) {
+      activity = null;
+    } else if (line.startsWith('<category ') &&
+        values['android:name'] == 'android.intent.category.LAUNCHER') {
+      launchable ??= activity;
+    }
+  }
+
+  return Badging(
+    packageName: packageName,
+    versionCode: versionCode,
+    versionName: versionName,
+    minSdk: minSdk,
+    targetSdk: targetSdk,
+    compileSdk: compileSdk,
+    label: label,
+    debuggable: debuggable,
     permissions: permissions,
     launchableActivity: launchable,
   );

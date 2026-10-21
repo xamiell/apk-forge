@@ -87,10 +87,18 @@ List<String> adbInstallArguments(
 
 final _failureCode = RegExp(r'Failure \[([A-Z_]+)(?::\s*([^\]]*))?\]');
 
-/// `INSTALL_FAILED_UPDATE_INCOMPATIBLE` and its hint, from adb's output.
+/// bundletool's form: `Error: INSTALL_FAILED_VERSION_DOWNGRADE: Downgrade…`.
+final _bundletoolFailureCode = RegExp(
+  r'Error: (INSTALL_[A-Z_]+)(?::\s*(.*))?$',
+);
+
+/// `INSTALL_FAILED_UPDATE_INCOMPATIBLE` and its hint, from adb's output or
+/// bundletool's `install-apks`.
 ({String code, String? hint})? parseInstallFailure(Iterable<String> lines) {
   for (final line in lines) {
-    final match = _failureCode.firstMatch(line);
+    final match =
+        _failureCode.firstMatch(line) ??
+        _bundletoolFailureCode.firstMatch(line);
     if (match == null) continue;
     final code = match.group(1)!;
     return (
