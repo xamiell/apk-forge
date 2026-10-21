@@ -12,6 +12,7 @@ import '../services/apk_split_service.dart';
 import '../services/desktop_shell.dart';
 import '../services/flutter_build_service.dart';
 import '../services/installed_apk_service.dart';
+import '../services/new_key_service.dart';
 import '../services/profile_runner.dart';
 import '../services/signing_service.dart';
 
@@ -59,6 +60,9 @@ final flutterBuildServiceProvider = Provider(
   (ref) => FlutterBuildService(host: ref.watch(hostProvider)),
 );
 final keystoreServiceProvider = Provider((ref) => const KeystoreService());
+final newKeyServiceProvider = Provider(
+  (ref) => NewKeyService(host: ref.watch(hostProvider)),
+);
 final signingServiceProvider = Provider(
   (ref) => ApkSigningService(host: ref.watch(hostProvider)),
 );

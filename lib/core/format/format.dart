@@ -45,11 +45,14 @@ String shortDigest(String digest) {
 }
 
 /// `2026-10-19 09:05`: a moment to the minute, as the history shows it.
-String formatDateTime(DateTime time) {
-  String two(int value) => value.toString().padLeft(2, '0');
-  return '${time.year}-${two(time.month)}-${two(time.day)} '
-      '${two(time.hour)}:${two(time.minute)}';
-}
+String formatDateTime(DateTime time) =>
+    '${formatDate(time)} ${_two(time.hour)}:${_two(time.minute)}';
+
+/// `2026-10-19`: a day.
+String formatDate(DateTime time) =>
+    '${time.year}-${_two(time.month)}-${_two(time.day)}';
+
+String _two(int value) => value.toString().padLeft(2, '0');
 
 /// `42 s`, `2 min 5 s`, `1 h 3 min`: how long a run took.
 String formatDuration(Duration duration) {

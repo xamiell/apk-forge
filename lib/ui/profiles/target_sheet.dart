@@ -11,7 +11,7 @@ import '../../state/profiles.dart';
 import '../common/file_types.dart';
 import '../common/widgets.dart';
 import '../theme.dart';
-import 'create_folder_button.dart';
+import '../common/create_folder_button.dart';
 
 /// Edits [target] of [profile], or adds a new one, in a panel on the right.
 Future<void> showTargetSheet(

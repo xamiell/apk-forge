@@ -4,15 +4,18 @@ import 'dart:io';
 import 'package:apk_forge/core/files/file_digests.dart';
 import 'package:apk_forge/core/process/command.dart';
 import 'package:apk_forge/core/process/process_runner.dart';
+import 'package:apk_forge/core/system/host.dart';
 import 'package:apk_forge/core/zip/zip_directory.dart';
 import 'package:apk_forge/domain/analysis/apk_report.dart';
 import 'package:apk_forge/domain/build/build_options.dart';
+import 'package:apk_forge/domain/profiles/key_properties.dart';
 import 'package:apk_forge/domain/profiles/profile.dart';
 import 'package:apk_forge/domain/profiles/profile_plan.dart';
 import 'package:apk_forge/domain/profiles/profile_run.dart';
 import 'package:apk_forge/domain/devices/device_info.dart';
 import 'package:apk_forge/domain/failure.dart';
 import 'package:apk_forge/domain/signing/keystore.dart';
+import 'package:apk_forge/domain/signing/new_key.dart';
 import 'package:apk_forge/domain/signing/signing.dart';
 import 'package:apk_forge/domain/tools/toolchain.dart';
 import 'package:apk_forge/services/adb_service.dart';
@@ -20,6 +23,7 @@ import 'package:apk_forge/services/apk_analyzer.dart';
 import 'package:apk_forge/services/apk_split_service.dart';
 import 'package:apk_forge/services/flutter_build_service.dart';
 import 'package:apk_forge/services/installed_apk_service.dart';
+import 'package:apk_forge/services/new_key_service.dart';
 import 'package:apk_forge/services/profile_runner.dart';
 import 'package:apk_forge/services/signing_service.dart';
 import 'package:apk_forge/services/tool_executor.dart';
@@ -333,6 +337,166 @@ void main() {
       );
 
       expect(log.lines, contains(startsWith('warning: zipalign not found')));
+    });
+  });
+
+  group('NewKeyService', () {
+    late NewKeyRequest request;
+    const service = NewKeyService(host: macHost);
+
+    setUp(() {
+      request = NewKeyForm(
+        folder: temp.path,
+        storePassword: 'hunter22',
+        confirmStorePassword: 'hunter22',
+        commonName: 'Jane Doe',
+      ).toRequest(macHost, DateTime(2026, 10, 21));
+    });
+
+    /// keytool answers by writing the keystore, as the real one does.
+    void keytoolWritesTheKeystore() =>
+        runner.when((c) => c.executable == '/jdk/keytool', (c) {
+          final keystore = c.arguments[c.arguments.indexOf('-keystore') + 1];
+          File(keystore).writeAsStringSync('keystore');
+          return ok();
+        });
+
+    Future<void> create() =>
+        service.create(executor, keytool: '/jdk/keytool', request: request);
+
+    test('makes the keystore with keytool, then a key.properties that '
+        'Gradle and profiles read', () async {
+      keytoolWritesTheKeystore();
+
+      await create();
+
+      final keytool = runner.calls.first;
+      expect(keytool.executable, '/jdk/keytool');
+      expect(
+        keytool.arguments,
+        keytoolGenerateKeyArguments(
+          request.keystorePath,
+          'upload',
+          distinguishedName: 'CN=Jane Doe',
+          validityDays: 9131,
+        ),
+      );
+      expect(keytool.environment, {
+        keystorePasswordVariable: 'hunter22',
+        keyPasswordVariable: 'hunter22',
+      });
+      final keys = parseKeyProperties(
+        File(request.keyPropertiesPath).readAsStringSync(),
+      );
+      expect(keys.storeFile, request.keystorePath);
+      expect(keys.keyAlias, 'upload');
+      expect(keys.storePassword, 'hunter22');
+      expect(keys.keyPassword, 'hunter22');
+    });
+
+    test('key.properties is made owner-only while it is still empty', () async {
+      keytoolWritesTheKeystore();
+      int? sizeWhenPrivate;
+      runner.when((c) => c.executable == '/bin/chmod', (c) {
+        sizeWhenPrivate = File(c.arguments.last).lengthSync();
+        return ok();
+      });
+
+      await create();
+
+      expect(runner.calls.last.arguments, ['600', request.keyPropertiesPath]);
+      expect(sizeWhenPrivate, 0);
+    });
+
+    test('no password in an argument or the log', () async {
+      keytoolWritesTheKeystore();
+
+      await create();
+
+      for (final call in runner.calls) {
+        expect(call.arguments.join(' '), isNot(contains('hunter22')));
+      }
+      expect(log.lines.join('\n'), isNot(contains('hunter22')));
+    });
+
+    test('a keystore or key.properties already there: keytool never runs, '
+        'and nothing changes', () async {
+      for (final existing in [
+        request.keystorePath,
+        request.keyPropertiesPath,
+      ]) {
+        File(existing).writeAsStringSync('earlier');
+
+        await expectLater(
+          create(),
+          throwsA(
+            isA<ToolFailure>()
+                .having((f) => f.title, 'title', 'Nothing was written')
+                .having((f) => f.details, 'details', [
+                  '$existing already exists.',
+                ]),
+          ),
+        );
+        expect(runner.calls, isEmpty);
+        expect(File(existing).readAsStringSync(), 'earlier');
+        File(existing).deleteSync();
+      }
+    });
+
+    test('keytool fails: its reason, and no key.properties', () async {
+      runner.when(
+        (c) => c.executable == '/jdk/keytool',
+        (_) => failed(
+          1,
+          stdout: fixture('keytool_genkeypair_read_only_folder.txt'),
+        ),
+      );
+
+      await expectLater(
+        create(),
+        throwsA(
+          isA<ToolFailure>()
+              .having((f) => f.title, 'title', 'keytool could not make the key')
+              .having((f) => f.details, 'details', [
+                'ro/x.jks (Permission denied)',
+              ]),
+        ),
+      );
+      expect(File(request.keyPropertiesPath).existsSync(), isFalse);
+      expect(runner.calls.where((c) => c.executable == '/bin/chmod'), isEmpty);
+    });
+
+    test(
+      'key.properties can\'t be made private: neither file is left',
+      () async {
+        keytoolWritesTheKeystore();
+        runner.when((c) => c.executable == '/bin/chmod', (_) => failed(1));
+
+        await expectLater(
+          create(),
+          throwsA(
+            isA<ToolFailure>().having(
+              (f) => f.title,
+              'title',
+              startsWith('Could not make ${request.keyPropertiesPath} private'),
+            ),
+          ),
+        );
+        expect(File(request.keystorePath).existsSync(), isFalse);
+        expect(File(request.keyPropertiesPath).existsSync(), isFalse);
+      },
+    );
+
+    test('on Windows, which has no file modes, chmod doesn\'t run', () async {
+      keytoolWritesTheKeystore();
+      const windows = NewKeyService(
+        host: Host(os: HostOs.windows, environment: {}),
+      );
+
+      await windows.create(executor, keytool: '/jdk/keytool', request: request);
+
+      expect(runner.calls.map((c) => c.executable), ['/jdk/keytool']);
+      expect(File(request.keyPropertiesPath).existsSync(), isTrue);
     });
   });
 

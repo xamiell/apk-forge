@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/system/host.dart';
 import '../domain/analysis/apk_report.dart';
 import '../domain/failure.dart';
+import '../domain/tools/toolchain.dart';
 import '../domain/profiles/key_properties.dart';
 import '../domain/profiles/profile.dart';
 import '../domain/profiles/profile_plan.dart';
@@ -312,10 +313,7 @@ final profileRunCheckProvider = FutureProvider.autoDispose
         return ProfileRunCheck(
           inputs: inputs,
           plan: plan,
-          keyFailure: const ToolFailure(
-            'keytool was not found',
-            details: ['Install a JDK, or set JAVA_HOME.'],
-          ),
+          keyFailure: keytoolMissing,
         );
       }
       final log = ref.read(logProvider.notifier);

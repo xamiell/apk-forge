@@ -17,7 +17,7 @@ the tool's own reason, not a generic error.
 |---|---|
 | **Defaults** | What Build and Sign share, set once at the top: the architectures (any mix of `armeabi-v7a`, `arm64-v8a` and `x86_64`) and the signature schemes (Auto, or the ones you mark). Build and Sign show what they take from it. It folds into one line. |
 | **Build** | Runs `flutter build apk` on any Flutter project, for the architectures in Defaults. Choose release or debug, and one universal APK or one APK per ABI (`--split-per-abi`, offered with two or more architectures). Optional Dart obfuscation keeps the symbols you need to read crash traces. The command is previewed before you run it. |
-| **Sign** | Signs the APK selected in Analyze APK, the APKs a build just produced, or any APK you pick (from CI, another machine, a store), with your `.jks`, `.keystore` or `.p12` and the schemes in Defaults. It checks the alignment first and fixes it if needed, writes `<name>-signed.apk` without touching the original, and verifies that the result carries exactly the key you chose. **Split per ABI and sign** turns a universal APK (one from CI, say) into one signed APK per architecture in Defaults. |
+| **Sign** | Signs the APK selected in Analyze APK, the APKs a build just produced, or any APK you pick (from CI, another machine, a store), with your `.jks`, `.keystore` or `.p12` and the schemes in Defaults. It checks the alignment first and fixes it if needed, writes `<name>-signed.apk` without touching the original, and verifies that the result carries exactly the key you chose. **Split per ABI and sign** turns a universal APK (one from CI, say) into one signed APK per architecture in Defaults. **New key…** makes an upload key, a keystore and the `key.properties` Gradle reads, in the folder you choose, and loads it. |
 | **Signing profiles** | Saves the steps to turn one APK into a signed APK per device, each with its ABI, its key (a `key.properties` file) and its folder, and runs them in one go. Every run is kept as a report you can copy or export. |
 | **Analyze APK** | For any APK: whether the signature verifies; the schemes it carries (v1 to v4); the signer certificate (DN, SHA-256, SHA-1), a rotated key's lineage, and whether it is **your key** or the Android debug key; release or debug (`debuggable`); package, version and SDK levels; native code per ABI, flagging an ABI with no Flutter engine; size, MD5 and SHA-256. **Compare with…** puts it next to another APK (a previous release, another build) or the app installed on the device, and lists every difference, worst first: another signer, a lower versionCode, a debug build, lost ABIs, new permissions. |
 | **Analyze device** | For the device on USB: maker, brand, model and codename; Android version, API level, security patch, build and build type; chip, ABIs, memory page size (16 KB pages are flagged), RAM, storage and screen; battery, locale and time zone. With an APK selected, it tells you which ABI the APK would run as, which version is installed, and whether installing would be a fresh install, an upgrade, a reinstall or a downgrade, or would be refused for another key. **Compare with the installed app** compares the two side by side. One click copies it all as text. |
@@ -100,6 +100,35 @@ Open the APK in **Analyze APK**, load a key in **Sign** and press
 other APK files…** picks one or more APKs instead. Each one is written next
 to the original as `<name>-signed.apk`, or to the output folder if you set
 one.
+
+### Make a new upload key
+
+To publish a new app you need an upload key. **New key…** at the top of
+**Sign** makes one:
+
+1. Choose a folder (**Create folder** makes it) and the keystore's file
+   name, `upload-keystore.jks` by default.
+2. Choose the alias (`upload` by default) and the type:
+   - **PKCS12**, keytool's default and what Flutter's signing guide makes:
+     one password for the keystore and its key;
+   - **JKS**, when the key needs a password of its own.
+3. Enter the password twice. keytool needs at least 6 characters.
+4. Fill in the certificate: your name or your company's, the country code,
+   and the rest if you want. The key is valid for 25 years by default.
+   Google Play needs one valid past 22 October 2033.
+5. Press **Create key**. It writes the keystore and a `key.properties` next
+   to it, with the fields Flutter's guide uses and the keystore's full path.
+   **Sign** then has the key loaded, ready to sign, and the log shows its
+   SHA-1 and SHA-256, which Firebase and Google's APIs ask for.
+
+To build with it, copy `key.properties` into the project's `android/`
+folder, or point a signing profile's target at it.
+
+Nothing is overwritten: a keystore or `key.properties` already in the
+folder stops it, because keytool would add the key to the existing
+keystore. `key.properties` holds the passwords in plain text, as Gradle
+reads them, so only you can read it. Back up both files together: without
+them you can't sign updates with this key. And keep them out of git.
 
 ### Split a universal APK per ABI
 
@@ -263,7 +292,9 @@ device.
 ## Security
 
 - **Passwords stay in memory.** They are never written to disk or settings,
-  and they're gone when you quit.
+  and they're gone when you quit. The one exception is the `key.properties`
+  that **New key** writes because you asked for it: only you can read it,
+  and it's never overwritten.
 - **Passwords never go on a command line.** `apksigner` and `keytool` read
   them from environment variables (`--ks-pass env:…`, `-storepass:env …`),
   so they don't show up in `ps`. Any output line that contains one is masked

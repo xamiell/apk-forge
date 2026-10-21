@@ -9,7 +9,7 @@ import '../../state/profiles.dart';
 import '../../state/providers.dart';
 import '../common/widgets.dart';
 import '../theme.dart';
-import 'create_folder_button.dart';
+import '../common/create_folder_button.dart';
 import 'target_sheet.dart';
 
 /// The Targets step: a table of the profile's targets, each one opened in

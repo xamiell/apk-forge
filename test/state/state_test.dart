@@ -10,12 +10,14 @@ import 'package:apk_forge/domain/profiles/key_properties.dart';
 import 'package:apk_forge/domain/profiles/profile.dart';
 import 'package:apk_forge/domain/profiles/profile_run.dart';
 import 'package:apk_forge/domain/signing/keystore.dart';
+import 'package:apk_forge/domain/signing/new_key.dart';
 import 'package:apk_forge/domain/signing/signing.dart';
 import 'package:apk_forge/domain/tools/toolchain.dart';
 import 'package:apk_forge/state/actions/build_action.dart';
 import 'package:apk_forge/state/actions/create_folder_action.dart';
 import 'package:apk_forge/state/actions/install_action.dart';
 import 'package:apk_forge/state/actions/load_keys_action.dart';
+import 'package:apk_forge/state/actions/new_key_action.dart';
 import 'package:apk_forge/state/actions/profile_run_action.dart';
 import 'package:apk_forge/state/actions/sign_actions.dart';
 import 'package:apk_forge/state/apks.dart';
@@ -297,6 +299,65 @@ void main() {
         ),
       );
     });
+  });
+
+  test(
+    'a new key is made and loaded in Sign, its passwords never saved',
+    () async {
+      runner
+        ..when((c) => c.arguments.contains('-genkeypair'), (c) {
+          File(c.arguments[c.arguments.indexOf('-keystore') + 1])
+              .writeAsStringSync('keystore');
+          return ok();
+        })
+        ..when(
+          (c) => c.arguments.contains('-list'),
+          (_) => ok(fixture('keytool_list.txt')),
+        );
+      final form = NewKeyForm(
+        folder: temp.path,
+        alias: 'forge-test',
+        type: KeystoreType.jks,
+        storePassword: 'hunter22',
+        confirmStorePassword: 'hunter22',
+        keyUsesStorePassword: false,
+        keyPassword: 'swordfish',
+        confirmKeyPassword: 'swordfish',
+        commonName: 'Jane Doe',
+      );
+
+      final made = await container.read(newKeyActionProvider).run(form);
+
+      expect(made, isTrue);
+      final sign = container.read(signingFormProvider);
+      expect(sign.keystorePath, p.join(temp.path, 'upload-keystore.jks'));
+      expect(sign.storePassword, 'hunter22');
+      expect(sign.keyUsesStorePassword, isFalse);
+      expect(sign.keyPassword, 'swordfish');
+      expect(sign.alias, 'forge-test');
+      expect(sign.problem, isNull);
+      final saved = '${store.values}';
+      expect(saved, isNot(contains('hunter22')));
+      expect(saved, isNot(contains('swordfish')));
+    },
+  );
+
+  test('a created folder is checked again for the new key', () async {
+    final folder = p.join(temp.path, 'keys');
+    final form = NewKeyForm(folder: folder);
+    final missing = container
+        .read(newKeyProblemsProvider(form))
+        .where((problem) => problem.field == NewKeyField.folder);
+    expect(missing.single.missingFolder, folder);
+
+    await container.read(createFolderActionProvider).run(folder);
+
+    expect(
+      container
+          .read(newKeyProblemsProvider(form))
+          .where((problem) => problem.field == NewKeyField.folder),
+      isEmpty,
+    );
   });
 
   test('another keystore forgets the password and the keys', () {

@@ -221,14 +221,15 @@ void main() {
       ]);
     });
 
-    test('a throwaway key for the smoke test: both passwords from the '
+    test('a new key: its type and validity, both passwords from the '
         'environment', () {
       expect(
         keytoolGenerateKeyArguments(
           '/tmp/kiosk.jks',
           'kiosk',
           distinguishedName: 'CN=Kiosk, O=Example, C=US',
-          storeType: 'JKS',
+          validityDays: 9131,
+          storeType: KeystoreType.jks,
         ),
         [
           '-J-Duser.language=en',
@@ -249,7 +250,7 @@ void main() {
           '-keysize',
           '2048',
           '-validity',
-          '365',
+          '9131',
           '-dname',
           'CN=Kiosk, O=Example, C=US',
         ],
