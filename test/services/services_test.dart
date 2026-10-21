@@ -131,6 +131,10 @@ void main() {
               KeyLoadFailure.keyPasswordWrong,
           'apksigner_sign_wrong_store_password.txt':
               KeyLoadFailure.storePasswordWrong,
+          'apksigner_sign_wrong_key_password_pkcs12.txt':
+              KeyLoadFailure.keyPasswordWrong,
+          'apksigner_sign_wrong_store_password_pkcs12.txt':
+              KeyLoadFailure.storePasswordWrong,
         };
         for (final MapEntry(key: name, value: expected) in cases.entries) {
           final runner = FakeProcessRunner()

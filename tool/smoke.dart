@@ -279,13 +279,14 @@ Future<void> main(List<String> args) async {
     );
     check(false, 'a wrong password fails');
   } on ToolFailure catch (failure) {
+    const wrong = KeyLoadFailure.storePasswordWrong;
     check(
-      failure.title.startsWith('Signing failed'),
-      'a wrong password fails: ${failure.title}',
+      failure.title == wrong.problem,
+      'a wrong password says so: ${failure.title}',
     );
     check(
-      failure.details.any((line) => line.contains('password was incorrect')),
-      '  with the reason: ${failure.details.join(' / ')}',
+      failure.details.contains(wrong.fix),
+      '  with what to do: ${failure.details.join(' / ')}',
     );
     check(
       !failure.toString().contains(password),

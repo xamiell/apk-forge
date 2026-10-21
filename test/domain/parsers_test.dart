@@ -274,6 +274,21 @@ void main() {
       );
     });
 
+    test('a PKCS12 keystore says it in other words', () {
+      expect(
+        parseKeyLoadFailure(
+          fixture('apksigner_sign_wrong_key_password_pkcs12.txt'),
+        ),
+        KeyLoadFailure.keyPasswordWrong,
+      );
+      expect(
+        parseKeyLoadFailure(
+          fixture('apksigner_sign_wrong_store_password_pkcs12.txt'),
+        ),
+        KeyLoadFailure.storePasswordWrong,
+      );
+    });
+
     test('another failure is not about the key', () {
       expect(
         parseKeyLoadFailure(fixture('apksigner_verify_not_zip.txt')),
@@ -295,6 +310,12 @@ void main() {
       expect(
         parseKeyOpenFailure(
           fixture('keytool_certreq_wrong_store_password.txt'),
+        ),
+        'The keystore password (storePassword) is wrong.',
+      );
+      expect(
+        parseKeyOpenFailure(
+          fixture('keytool_certreq_wrong_store_password_pkcs12.txt'),
         ),
         'The keystore password (storePassword) is wrong.',
       );

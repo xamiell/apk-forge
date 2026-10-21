@@ -23,11 +23,14 @@ macOS with Flutter 3.47.5 and Android SDK build-tools 36.0.0.
 | `apksigner_sign_key_password_missing.txt` | `apksigner sign --ks … --ks-pass env:… --ks-key-alias upload --out … <apk>` with its input closed (exit code 2) | a throwaway JKS whose key has a password of its own (`CN=APK Forge Key Password`), without `--key-pass`: what it wrote to stderr. Its stdout was only the prompt `Key "upload" password for signer #1: ` (captured 2026-10-19 with build-tools 36.0.0) |
 | `apksigner_sign_wrong_key_password.txt` | the same with `--key-pass env:…` (exit code 2) | that keystore, a wrong key password: stderr |
 | `apksigner_sign_wrong_store_password.txt` | the same (exit code 2) | that keystore, a wrong keystore password: stderr |
+| `apksigner_sign_wrong_store_password_pkcs12.txt` | `apksigner sign --ks … --ks-pass env:… --ks-key-alias upload --out … <apk>` with its input closed (exit code 2) | a throwaway PKCS12 keystore (`CN=APK Forge PKCS12`), a wrong keystore password: stderr. PKCS12 words it `keystore password was incorrect` (captured 2026-10-21 with build-tools 36.0.0 and JDK 21) |
+| `apksigner_sign_wrong_key_password_pkcs12.txt` | the same with `--key-pass env:…` (exit code 2) | that keystore, the right keystore password and a wrong key password: stderr |
 | `keytool_certreq_ok.txt` | `keytool -J-Duser.language=en -certreq` | a throwaway JKS whose key has its own password, both passwords right (captured 2026-10-18) |
 | `keytool_certreq_wrong_key_password.txt` | the same (exit code 1) | the same keystore, a wrong key password |
 | `keytool_certreq_wrong_store_password.txt` | the same (exit code 1) | the same keystore, a wrong keystore password |
 | `keytool_certreq_no_alias.txt` | the same (exit code 1) | the same keystore, an alias it doesn't have |
 | `keytool_list_wrong_password.txt` | `keytool -J-Duser.language=en -list -v` (exit code 1) | that keystore, a wrong keystore password: `-v` adds the stack trace |
+| `keytool_certreq_wrong_store_password_pkcs12.txt` | `keytool -J-Duser.language=en -certreq` (exit code 1) | the PKCS12 keystore of `apksigner_sign_wrong_store_password_pkcs12.txt`, a wrong keystore password (captured 2026-10-21) |
 | `keytool_list.txt` | `keytool -J-Duser.language=en -list -v` | a throwaway JKS with an RSA and an EC key |
 | `adb_device_info_emulator.txt` | `adb shell "<deviceInfoScript()>"` | Pixel 8 emulator, API 33 (`persist.sys.timezone` and `vendor.qemu.timezone` set to `Etc/UTC`; they held the host's zone) |
 | `adb_pm_path_single.txt` | `adb shell pm path com.google.android.apps.meetings` | a phone, Android 13: an app installed from Play as one APK (captured 2026-10-18) |
@@ -42,5 +45,6 @@ the key check's throwaway key (`CN=APK Forge Key Check`, whose certificate
 request is in `keytool_certreq_ok.txt`), the signing failures' throwaway key
 (`CN=APK Forge Key Password`), the schemes' throwaway key
 (`CN=APK Forge Schemes`), the v4 checks' throwaway keys
-(`CN=APK Forge Idsig`, `CN=APK Forge Other Idsig`) and the Android debug
-certificate are not secret.
+(`CN=APK Forge Idsig`, `CN=APK Forge Other Idsig`), the PKCS12 failures'
+throwaway key (`CN=APK Forge PKCS12`) and the Android debug certificate are
+not secret.
