@@ -1,0 +1,25 @@
+Signer #1:
+
+Certificate #1:
+Owner: CN=APK Forge Bundle, O=Example, C=US
+Issuer: CN=APK Forge Bundle, O=Example, C=US
+Serial number: 7ae2d6d93b6b2ca7
+Valid from: Wed Oct 21 14:25:13 AST 2026 until: Sat Oct 21 14:25:13 AST 2051
+Certificate fingerprints:
+	 SHA1: 69:33:F1:FE:B1:AA:B7:3F:EF:37:1A:7A:85:DC:AB:A3:71:57:45:3D
+	 SHA256: 81:8F:D3:29:73:3D:B2:F5:28:CD:DA:E7:E7:BF:B0:38:2E:7C:F9:12:12:77:66:7E:3D:9E:49:62:02:F9:ED:37
+Signature algorithm name: SHA384withRSA
+Subject Public Key Algorithm: 2048-bit RSA key
+Version: 3
+
+Extensions: 
+
+#1: ObjectId: 2.5.29.14 Criticality=false
+SubjectKeyIdentifier [
+KeyIdentifier [
+0000: D0 E7 0D A4 FA 24 04 28   89 42 B6 85 9B CE EE 85  .....$.(.B......
+0010: F2 37 2B C1                                        .7+.
+]
+]
+
+

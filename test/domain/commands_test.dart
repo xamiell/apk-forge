@@ -2,6 +2,7 @@ import 'package:apk_forge/core/process/command.dart';
 import 'package:apk_forge/core/system/host.dart';
 import 'package:apk_forge/domain/build/build_options.dart';
 import 'package:apk_forge/domain/build/flutter_build.dart';
+import 'package:apk_forge/domain/signing/bundle.dart';
 import 'package:apk_forge/domain/signing/keystore.dart';
 import 'package:apk_forge/domain/signing/signing.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -55,6 +56,45 @@ void main() {
             .copyWith(abis: {AndroidAbi.x8664, AndroidAbi.arm64V8a})
             .effectivePackaging,
         ApkPackaging.splitPerAbi,
+      );
+    });
+
+    test('an App Bundle: flutter build appbundle, never split', () {
+      final options = const BuildOptions().copyWith(
+        abis: {AndroidAbi.arm64V8a},
+        packaging: ApkPackaging.appBundle,
+        obfuscate: true,
+        symbolsDir: '/w/symbols',
+      );
+
+      expect(options.effectivePackaging, ApkPackaging.appBundle);
+      expect(flutterBuildArguments(options), [
+        'build',
+        'appbundle',
+        '--release',
+        '--target-platform',
+        'android-arm64',
+        '--obfuscate',
+        '--split-debug-info=/w/symbols',
+      ]);
+      expect(
+        const BuildOptions(packaging: ApkPackaging.appBundle).outputSummary,
+        'One App Bundle (.aab) with every architecture, to upload to a store.',
+      );
+      expect(
+        options.outputSummary,
+        'One App Bundle (.aab) with arm64-v8a, to upload to a store.',
+      );
+    });
+
+    test('an App Bundle is saved and comes back', () {
+      final saved = const BuildOptions(packaging: ApkPackaging.appBundle)
+          .toJson();
+
+      expect(saved['packaging'], 'appBundle');
+      expect(
+        BuildOptions.fromJson(saved, abis: {AndroidAbi.arm64V8a}).packaging,
+        ApkPackaging.appBundle,
       );
     });
 
@@ -380,31 +420,100 @@ void main() {
       },
     );
 
-    test('signedApkPath never overwrites the original', () {
+    test('jarsigner signs with the passwords in the environment only', () {
+      const own = SigningRequest(
+        keystorePath: '/k.jks',
+        storePassword: 'hunter2',
+        alias: 'upload',
+        keyPassword: 'swordfish',
+      );
+
+      final arguments = jarsignerSignArguments(
+        own,
+        input: '/tmp/app-release.aab',
+        output: '/out/app-release-signed.aab.partial',
+      );
+
+      expect(arguments, [
+        '-J-Duser.language=en',
+        '-J-Duser.country=US',
+        '-keystore',
+        '/k.jks',
+        '-storepass:env',
+        keystorePasswordVariable,
+        '-keypass:env',
+        keyPasswordVariable,
+        '-signedjar',
+        '/out/app-release-signed.aab.partial',
+        '/tmp/app-release.aab',
+        'upload',
+      ]);
+      expect(arguments.join(' '), isNot(contains('hunter2')));
+      expect(arguments.join(' '), isNot(contains('swordfish')));
+      // A key that uses the keystore password gets no -keypass.
       expect(
-        signedApkPath('/out/app-release.apk', null, macHost),
+        jarsignerSignArguments(
+          const SigningRequest(
+            keystorePath: '/k.jks',
+            storePassword: 'hunter2',
+            alias: 'upload',
+          ),
+          input: 'in.aab',
+          output: 'out.aab',
+        ),
+        isNot(contains('-keypass:env')),
+      );
+    });
+
+    test(
+      'a bundle is checked by jarsigner, and its signers read by keytool',
+      () {
+        expect(jarsignerVerifyArguments('/out/a.aab'), [
+          '-J-Duser.language=en',
+          '-J-Duser.country=US',
+          '-verify',
+          '/out/a.aab',
+        ]);
+        expect(keytoolPrintJarCertificatesArguments('/out/a.aab'), [
+          '-J-Duser.language=en',
+          '-J-Duser.country=US',
+          '-printcert',
+          '-jarfile',
+          '/out/a.aab',
+        ]);
+      },
+    );
+
+    test('signedFilePath never overwrites the original', () {
+      expect(
+        signedFilePath('/out/app-release.apk', null, macHost),
         '/out/app-release-signed.apk',
       );
       expect(
-        signedApkPath('/out/app-release.apk', '/signed', macHost),
+        signedFilePath('/out/app-release.apk', '/signed', macHost),
         '/signed/app-release-signed.apk',
       );
       expect(
-        signedApkPath('/out/app-signed.apk', null, macHost),
+        signedFilePath('/out/app-signed.apk', null, macHost),
         '/out/app-signed-signed.apk',
       );
       // Only when the name would be the input itself does it number the copy.
       expect(
-        signedApkPath('/out/app.apk', ' ', macHost),
+        signedFilePath('/out/app.apk', ' ', macHost),
         '/out/app-signed.apk',
+      );
+      // An App Bundle stays one.
+      expect(
+        signedFilePath('/out/app-release.aab', '/signed', macHost),
+        '/signed/app-release-signed.aab',
       );
     });
 
-    test('signedApkPath on Windows', () {
+    test('signedFilePath on Windows', () {
       const windows = Host(os: HostOs.windows, environment: {});
 
       expect(
-        signedApkPath(r'C:\out\app.apk', r'D:\signed', windows),
+        signedFilePath(r'C:\out\app.apk', r'D:\signed', windows),
         r'D:\signed\app-signed.apk',
       );
     });

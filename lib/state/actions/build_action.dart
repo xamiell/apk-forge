@@ -4,6 +4,7 @@ import '../../core/system/host.dart';
 import '../../domain/build/build_options.dart';
 import '../../domain/build/flutter_build.dart';
 import '../../domain/failure.dart';
+import '../../domain/signing/signing.dart';
 import '../../services/flutter_build_service.dart';
 import '../apks.dart';
 import '../forms.dart';
@@ -12,8 +13,9 @@ import '../task_notifier.dart';
 import '../toolchain_notifier.dart';
 import 'sign_actions.dart';
 
-/// Builds with the Build panel's options, then signs every APK with the key
-/// in Sign when "Sign after build" is on.
+/// Builds with the Build panel's options, then signs every APK, or the App
+/// Bundle, with the key in Sign when "Sign after build" is on. Only APKs go
+/// to the APK list: Analyze APK reads APKs only.
 class BuildAction {
   const BuildAction({
     required this.task,
@@ -63,25 +65,28 @@ class BuildAction {
         ),
       };
 
-      final apks = await builder.build(
+      final files = await builder.build(
         executor,
         flutter: flutter,
         options: options,
       );
+      final apks = files.where((file) => !isAppBundle(file)).toList();
       for (final apk in apks) {
         list.add(apk, ApkOrigin.built, select: false);
       }
       executor.log.success(
-        'Built ${apks.length} APK${apks.length == 1 ? '' : 's'}.',
+        apks.length == files.length
+            ? 'Built ${apks.length} APK${apks.length == 1 ? '' : 's'}.'
+            : 'Built ${files.map(host.path.basename).join(', ')}.',
       );
 
       if (signWith == null) {
-        list.select(apks.last);
+        if (apks.isNotEmpty) list.select(apks.last);
       } else {
         await signer.signAll(
           executor,
           toolchain: toolchain,
-          paths: apks,
+          paths: files,
           request: signWith.request,
           expectedSha256: signWith.expectedSha256,
         );

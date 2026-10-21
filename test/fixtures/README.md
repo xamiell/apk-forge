@@ -39,6 +39,17 @@ macOS with Flutter 3.47.5 and Android SDK build-tools 36.0.0.
 | `adb_pm_path_single.txt` | `adb shell pm path com.google.android.apps.meetings` | a phone, Android 13: an app installed from Play as one APK (captured 2026-10-18) |
 | `adb_pm_path_bundle.txt` | `adb shell pm path com.github.android` | the same phone: an app installed from Play as an App Bundle, `base.apk` plus an ABI and a density split |
 | `adb_installed_package_settings.txt` | `adb shell "<installedPackageScript('com.android.settings')>"` | a physical device, Android 14 |
+| `flutter_build_appbundle.txt` | `flutter build appbundle --release --target-platform android-arm,android-arm64,android-x64 --obfuscate --split-debug-info=…` | the sample: stdout and stderr. The home folder in one Gradle warning is replaced by `/Users/dev` (captured 2026-10-21 with Flutter 3.47.5) |
+| `jarsigner_verify_bundle.txt` | `jarsigner -J-Duser.language=en -J-Duser.country=US -verify <aab>` | that bundle without its debug signature, signed by `jarsigner` with the throwaway PKCS12 key `CN=APK Forge Bundle` (captured 2026-10-21 with JDK 21) |
+| `jarsigner_verify_unsigned.txt` | the same | that bundle without its debug signature, unsigned |
+| `jarsigner_verify_signed_over_debug.txt` | the same (exit code 1) | that bundle signed by `jarsigner` on top of its debug signature, with jarsigner's default digest: it no longer verifies |
+| `keytool_printcert_jarfile.txt` | `keytool -J-Duser.language=en -J-Duser.country=US -printcert -jarfile <aab>` | the bundle of `jarsigner_verify_bundle.txt` |
+| `keytool_printcert_jarfile_two_signers.txt` | the same | that bundle signed on top of its debug signature with `-sigalg SHA256withRSA -digestalg SHA-256`: it verifies, with two signers |
+| `keytool_printcert_jarfile_unsigned.txt` | the same | the bundle without its debug signature, unsigned |
+| `jarsigner_sign_wrong_store_password_pkcs12.txt` | `jarsigner -J-Duser.language=en -J-Duser.country=US -keystore … -storepass:env … -keypass:env … -signedjar … <aab> upload` with its input closed (exit code 1) | the PKCS12 keystore, a wrong keystore password |
+| `jarsigner_sign_wrong_store_password_jks.txt` | the same (exit code 1) | a throwaway JKS whose key has a password of its own (`CN=APK Forge Bundle Key Password`), a wrong keystore password |
+| `jarsigner_sign_wrong_key_password.txt` | the same (exit code 1) | that JKS, a wrong key password. A PKCS12 keystore with a wrong `-keypass` prints the same |
+| `jarsigner_sign_key_password_missing.txt` | the same without `-keypass` (exit code 1) | that JKS: what it printed before giving up on the prompt |
 | `flutter_build_split.txt` | `flutter build apk --release --split-per-abi --obfuscate --split-debug-info=…` | the sample |
 | `flutter_build_debug.txt` | `flutter build apk --debug --target-platform android-arm64` | the sample |
 
@@ -49,5 +60,6 @@ request is in `keytool_certreq_ok.txt`), the signing failures' throwaway key
 (`CN=APK Forge Key Password`), the schemes' throwaway key
 (`CN=APK Forge Schemes`), the v4 checks' throwaway keys
 (`CN=APK Forge Idsig`, `CN=APK Forge Other Idsig`), the PKCS12 failures'
-throwaway key (`CN=APK Forge PKCS12`) and the Android debug certificate are
-not secret.
+throwaway key (`CN=APK Forge PKCS12`), the App Bundle's throwaway keys
+(`CN=APK Forge Bundle`, `CN=APK Forge Bundle Key Password`) and the Android
+debug certificate are not secret.

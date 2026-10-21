@@ -7,6 +7,14 @@ const keytoolMissing = ToolFailure(
   details: ['Install a JDK, or set JAVA_HOME.'],
 );
 
+/// What signing an App Bundle says when jarsigner isn't found.
+const jarsignerMissing = ToolFailure(
+  'jarsigner was not found',
+  details: [
+    'It comes with a JDK, next to keytool. Install a JDK, or set JAVA_HOME.',
+  ],
+);
+
 /// The external programs the app drives, as found on this machine.
 ///
 /// A `null` path means the tool wasn't found, and the panels that need it
@@ -22,6 +30,7 @@ class Toolchain {
     this.aapt2,
     this.adb,
     this.keytool,
+    this.jarsigner,
   });
 
   final String? flutter;
@@ -33,6 +42,9 @@ class Toolchain {
   final String? aapt2;
   final String? adb;
   final String? keytool;
+
+  /// Signs App Bundles. It comes with the JDK, next to [keytool].
+  final String? jarsigner;
 
   bool get canBuild => flutter != null;
   bool get canSign => apksigner != null;
@@ -57,6 +69,7 @@ class Toolchain {
     aapt2: aapt2,
     adb: adb,
     keytool: keytool,
+    jarsigner: jarsigner,
   );
 }
 
@@ -83,7 +96,8 @@ class ToolOverrides {
 /// Android SDK: the override, `ANDROID_HOME`, `ANDROID_SDK_ROOT`, then the
 /// folder Android Studio installs to on each OS. build-tools: the newest
 /// version that has `apksigner`. Flutter: the override, then `PATH`. keytool:
-/// `JAVA_HOME`, `PATH`, then Android Studio's bundled JDK.
+/// `JAVA_HOME`, `PATH`, then Android Studio's bundled JDK. jarsigner: next to
+/// keytool, in the same JDK.
 class ToolchainLocator {
   const ToolchainLocator({required this.host, required this.probe});
 
@@ -103,6 +117,7 @@ class ToolchainLocator {
       return probe.fileExists(candidate) ? candidate : null;
     }
 
+    final keytool = _keytool();
     return Toolchain(
       flutter: _flutter(overrides.flutterSdk),
       androidSdk: sdk,
@@ -113,8 +128,18 @@ class ToolchainLocator {
       zipalign: inBuildTools(host.executableName('zipalign')),
       aapt2: inBuildTools(host.executableName('aapt2')),
       adb: _adb(sdk),
-      keytool: _keytool(),
+      keytool: keytool,
+      jarsigner: keytool == null ? null : _nextTo(keytool, 'jarsigner'),
     );
+  }
+
+  /// [name] in [tool]'s folder, when it's there.
+  String? _nextTo(String tool, String name) {
+    final candidate = host.path.join(
+      host.path.dirname(tool),
+      host.executableName(name),
+    );
+    return probe.fileExists(candidate) ? candidate : null;
   }
 
   String? _androidSdk(String? override) {

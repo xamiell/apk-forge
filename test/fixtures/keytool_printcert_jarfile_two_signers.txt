@@ -1,0 +1,39 @@
+Signer #1:
+
+Certificate #1:
+Owner: CN=APK Forge Bundle, O=Example, C=US
+Issuer: CN=APK Forge Bundle, O=Example, C=US
+Serial number: 61e4834d0ea77d2e
+Valid from: Wed Oct 21 14:33:22 AST 2026 until: Sat Oct 21 14:33:22 AST 2051
+Certificate fingerprints:
+	 SHA1: 50:6D:D7:8F:08:50:FB:DF:07:01:C2:0B:06:AF:19:E0:9A:43:36:96
+	 SHA256: 72:F9:CA:C0:D2:C2:A5:B4:6C:87:E8:1E:68:B1:49:08:CD:24:D4:D9:5A:FE:B9:4F:1F:7F:5F:D1:67:4E:A7:67
+Signature algorithm name: SHA384withRSA
+Subject Public Key Algorithm: 2048-bit RSA key
+Version: 3
+
+Extensions: 
+
+#1: ObjectId: 2.5.29.14 Criticality=false
+SubjectKeyIdentifier [
+KeyIdentifier [
+0000: 80 F1 C6 A6 36 32 52 40   7B 77 24 5F 00 4D D0 79  ....62R@.w$_.M.y
+0010: 40 2D 27 26                                        @-'&
+]
+]
+
+
+Signer #2:
+
+Certificate #1:
+Owner: C=US, O=Android, CN=Android Debug
+Issuer: C=US, O=Android, CN=Android Debug
+Serial number: 1
+Valid from: Thu Feb 16 19:39:27 AST 2023 until: Sat Feb 08 19:39:27 AST 2053
+Certificate fingerprints:
+	 SHA1: 3F:CA:74:23:2F:A8:7B:94:47:12:B7:5B:FA:AF:9B:83:0B:21:E3:49
+	 SHA256: D2:F8:BD:40:93:3B:5C:A6:51:0D:E0:37:1C:90:59:CA:47:7B:0F:7A:E7:1B:BB:3D:31:A6:5F:CA:44:B5:21:52
+Signature algorithm name: SHA256withRSA
+Subject Public Key Algorithm: 2048-bit RSA key
+Version: 1
+

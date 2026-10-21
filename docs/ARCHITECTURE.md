@@ -1,7 +1,7 @@
 # Architecture
 
-APK Forge is one screen over five external tools: `flutter`, `apksigner`,
-`zipalign`, `aapt2`, `keytool` and `adb`. The design goal is that everything
+APK Forge is one screen over the external tools: `flutter`, `apksigner`,
+`zipalign`, `aapt2`, `keytool`, `jarsigner` and `adb`. The design goal is that everything
 that decides something (which command to run, what a tool's output means,
 what to warn about) is plain Dart that a test can drive without the tools,
 and that the code which actually starts the tools is thin.
@@ -72,7 +72,8 @@ in New key, and the `key.properties` files a signing profile points to
   - `APK_FORGE_KS_PASS` holds the keystore password, and `APK_FORGE_KEY_PASS`
     holds a key password of its own;
   - for example `apksigner --ks-pass env:APK_FORGE_KS_PASS --key-pass
-    env:APK_FORGE_KEY_PASS`, and `keytool -storepass:env … -keypass:env …`.
+    env:APK_FORGE_KEY_PASS`, and `keytool` and `jarsigner -storepass:env …
+    -keypass:env …`.
 - `Command.secrets` lists them; the log and `ToolFailure.fromResult` mask
   them. `KeyProperties` and `OpenedKey` leave them out of `toString`.
 - `SettingsStore` receives explicit maps without them: the forms, the
@@ -205,6 +206,30 @@ The input is never modified or overwritten (`signedApkPath`).
 4. `NewKeyAction` reads the new keystore with `keytool -list`, loads it in
    Sign (`SigningFormNotifier.useKey`), and logs both paths and the key's
    SHA-1 and SHA-256.
+
+### An App Bundle
+
+`apksigner` can't read an App Bundle (`ApkFormatException: Missing
+AndroidManifest.xml`): a bundle carries a JAR signature only, made with
+`jarsigner`. `ToolchainLocator` finds `jarsigner` next to `keytool`, in the
+same JDK. `ApkBatchSigner` sends a `.aab` to `BundleSigningService.sign`,
+from Build or from Sign's file picker:
+
+1. `copyZipEntries` writes a temporary copy without the JAR signature
+   (`isJarSignatureFile`). Flutter signs its bundle with the debug key, and
+   `jarsigner` signing on top of it keeps that signer, or breaks the bundle,
+   depending on the digest.
+2. `jarsigner` signs the copy to `<name>-signed.aab.partial`
+   (`jarsignerSignArguments`, the passwords in the environment). A key that
+   doesn't open is named by `parseKeyLoadFailure`, as for an APK.
+3. `jarsigner -verify` must say `jar verified.` (`parseJarsignerVerify`).
+   `keytool -printcert -jarfile` must list one signer
+   (`parseJarSigners`), with the selected key's SHA-256.
+4. Only then is the `.partial` renamed to `<name>-signed.aab`
+   (`signedFilePath`). The temporary copy is deleted, even on a failure.
+
+A bundle isn't zipaligned: the store aligns the APKs it makes from it. It
+isn't added to the APK list either, because Analyze APK reads APKs only.
 
 ### Splitting a universal APK per ABI
 

@@ -183,6 +183,7 @@ class _ToolTable extends StatelessWidget {
       'aapt2': toolchain.aapt2,
       'adb': toolchain.adb,
       'keytool': toolchain.keytool,
+      'jarsigner': toolchain.jarsigner,
     };
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,

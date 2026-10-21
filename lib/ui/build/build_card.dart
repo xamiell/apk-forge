@@ -23,6 +23,7 @@ class BuildCard extends ConsumerWidget {
     final busy = ref.watch(taskProvider.select((task) => task.isRunning));
     final problems = ref.watch(buildProblemsProvider);
     final release = options.mode == BuildMode.release;
+    final bundle = options.effectivePackaging == ApkPackaging.appBundle;
 
     return SectionCard(
       title: 'Build',
@@ -136,10 +137,15 @@ class BuildCard extends ConsumerWidget {
             contentPadding: EdgeInsets.zero,
             dense: true,
             controlAffinity: ListTileControlAffinity.leading,
-            title: const Text('Sign the APKs with the key in Sign'),
-            subtitle: const Text(
-              'Off: they keep Gradle\'s signature (debug key, or the project\'s key.properties).',
-              style: TextStyle(fontSize: 12),
+            title: Text(
+              bundle
+                  ? 'Sign the bundle with the key in Sign'
+                  : 'Sign the APKs with the key in Sign',
+            ),
+            subtitle: Text(
+              'Off: ${bundle ? 'it keeps' : 'they keep'} Gradle\'s signature '
+              '(debug key, or the project\'s key.properties).',
+              style: const TextStyle(fontSize: 12),
             ),
             value: options.signAfterBuild,
             onChanged: (value) => notifier.update(
