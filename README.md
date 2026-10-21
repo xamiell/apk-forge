@@ -1,15 +1,16 @@
 # APK Forge
 
-A desktop app to **build, sign, verify and install Android APKs** from one
-screen, instead of remembering the flags of `flutter build`, `zipalign`,
-`apksigner`, `jarsigner`, `keytool` and `adb`.
+A desktop app to **build, sign, verify and install Android APKs and App
+Bundles** from one screen, instead of remembering the flags of
+`flutter build`, `zipalign`, `apksigner`, `jarsigner`, `keytool`,
+`bundletool` and `adb`.
 
 APK Forge doesn't reimplement any of them. It drives the official tools you
 already have installed, shows the exact command before and while it runs,
 and streams every line of output into a log. When something fails you see
 the tool's own reason, not a generic error.
 
-![APK Forge: Build, Sign and Install on the left; Analyze APK, Analyze device and the log on the right](docs/screenshot.png)
+![APK Forge: Defaults, Build and Sign on the left; Analyze APK with a signed APK, Analyze device with an emulator, and the log on the right](docs/screenshot.png)
 
 ## Features
 
@@ -19,9 +20,9 @@ the tool's own reason, not a generic error.
 | **Build** | Runs `flutter build apk`, or `flutter build appbundle` for a store such as Google Play, on any Flutter project, for the architectures in Defaults. Choose release or debug, and one universal APK, one APK per ABI (`--split-per-abi`, offered with two or more architectures), or an App Bundle (`.aab`). Optional Dart obfuscation keeps the symbols you need to read crash traces. The command is previewed before you run it. |
 | **Sign** | Signs the APK selected in Analyze APK, the APKs a build just produced, or any APK you pick (from CI, another machine, a store), with your `.jks`, `.keystore` or `.p12` and the schemes in Defaults. It checks the alignment first and fixes it if needed, writes `<name>-signed.apk` without touching the original, and verifies that the result carries exactly the key you chose. An App Bundle, built or picked, is signed with `jarsigner` to `<name>-signed.aab`, without the debug signature Flutter gave it. **Split per ABI and sign** turns a universal APK (one from CI, say) into one signed APK per architecture in Defaults. **New key…** makes an upload key, a keystore and the `key.properties` Gradle reads, in the folder you choose, and loads it. |
 | **Signing profiles** | Saves the steps to turn one APK into a signed APK per device, each with its ABI, its key (a `key.properties` file) and its folder, and runs them in one go. Every run is kept as a report you can copy or export. |
-| **Analyze APK** | For any APK: whether the signature verifies; the schemes it carries (v1 to v4); the signer certificate (DN, SHA-256, SHA-1), a rotated key's lineage, and whether it is **your key** or the Android debug key; release or debug (`debuggable`); package, version and SDK levels; native code per ABI, flagging an ABI with no Flutter engine; size, MD5 and SHA-256. **Compare with…** puts it next to another APK (a previous release, another build) or the app installed on the device, and lists every difference, worst first: another signer, a lower versionCode, a debug build, lost ABIs, new permissions. |
+| **Analyze APK** | For any APK: whether the signature verifies; the schemes it carries (v1 to v4); the signer certificate (DN, SHA-256, SHA-1), a rotated key's lineage, and whether it is **your key** or the Android debug key; release or debug (`debuggable`); package, version and SDK levels; native code per ABI, flagging an ABI with no Flutter engine; size, MD5 and SHA-256. An App Bundle (`.aab`) opens too: its files, its manifest and its JAR signature. **Compare with…** puts an APK next to another APK (a previous release, another build) or the app installed on the device, and lists every difference, worst first: another signer, a lower versionCode, a debug build, lost ABIs, new permissions. |
 | **Analyze device** | For the device on USB: maker, brand, model and codename; Android version, API level, security patch, build and build type; chip, ABIs, memory page size (16 KB pages are flagged), RAM, storage and screen; battery, locale and time zone. With an APK selected, it tells you which ABI the APK would run as, which version is installed, and whether installing would be a fresh install, an upgrade, a reinstall or a downgrade, or would be refused for another key. **Compare with the installed app** compares the two side by side. One click copies it all as text. |
-| **Install** | Installs the selected APK with `adb install -r` (optionally `-d` to allow a downgrade). It warns first when the APK has no native code for the device, or is signed with another key than the installed app, and explains the common install failures. |
+| **Install** | Installs the selected APK with `adb install -r` (optionally `-d` to allow a downgrade). It warns first when the APK has no native code for the device, or is signed with another key than the installed app, and explains the common install failures. An App Bundle is installed the way a store delivers it: `bundletool` makes the device's APKs from it, signed with the key in Sign, and installs them. |
 | **Log** | Every command and its output, live, with errors and warnings colored. A failed step also shows its reason in a banner above the log, Gradle's "What went wrong" included. **Cancel** stops the running step. |
 
 ## Requirements
@@ -31,7 +32,7 @@ the tool's own reason, not a generic error.
 | Flutter SDK | Build | [flutter.dev](https://docs.flutter.dev/get-started/install), on your `PATH` or set in Tools |
 | Android SDK build-tools: `apksigner`, `zipalign`, `aapt2` | Sign, signing profiles, Analyze APK | Android Studio → SDK Manager |
 | Android SDK platform-tools: `adb` | Analyze device, Install, comparing with the installed app | Android Studio → SDK Manager |
-| A JDK: `keytool`, `jarsigner`, and Java for `apksigner` | Sign, signing profiles, App Bundles | Android Studio's bundled JDK works |
+| A JDK: `keytool`, `jarsigner`, and `java` for `apksigner` and the bundletool jar | Sign, New key, signing profiles, App Bundles | Android Studio's bundled JDK works |
 | `bundletool` | Reading and installing App Bundles | Not in the SDK: the official jar from [github.com/google/bundletool](https://github.com/google/bundletool/releases), or `brew install bundletool` |
 
 You don't configure paths by hand. At startup the app reads your login
@@ -345,6 +346,7 @@ can try it before you send it:
 If the store signs your app with its own key (Google Play's app signing), a
 build installed this way and one from the store can't update each other:
 uninstall one first.
+
 **Compare with the installed app** shows everything that differs. For that,
 the installed APK is copied to a temporary folder, read and deleted. An app
 installed from Play comes as a `base.apk` plus splits; the base and the ABI
@@ -354,10 +356,13 @@ no MD5 or SHA-256 to compare, and it's never "the same file" as an APK.
 
 ## Security
 
-- **Passwords stay in memory.** They are never written to disk or settings,
-  and they're gone when you quit. The one exception is the `key.properties`
-  that **New key** writes because you asked for it: only you can read it,
-  and it's never overwritten.
+- **Passwords stay in memory.** They are never written to settings, and
+  they're gone when you quit. Two files hold one, and only you can read
+  them:
+  - the `key.properties` that **New key** writes because you asked for it,
+    which is never overwritten;
+  - while an App Bundle installs, the temporary file bundletool reads it
+    from, deleted as soon as the install ends.
 - **Passwords never go on a command line.** `apksigner`, `jarsigner` and
   `keytool` read them from environment variables (`--ks-pass env:…`,
   `-storepass:env …`). `bundletool`, which can't, reads them from a
@@ -417,8 +422,9 @@ dart format .
 ```
 
 The unit tests never run the real tools. Every parser is tested against real
-output captured from `apksigner`, `jarsigner`, `aapt2`, `keytool`, `adb`
-and `flutter build` (see [test/fixtures](test/fixtures/README.md)).
+output captured from `apksigner`, `jarsigner`, `aapt2`, `keytool`, `adb`,
+`bundletool`, `java` and `flutter` (see
+[test/fixtures](test/fixtures/README.md)).
 
 `tool/smoke.dart` runs the real tools end to end against a throwaway
 project and keystore: reading the keys, a split and obfuscated build,

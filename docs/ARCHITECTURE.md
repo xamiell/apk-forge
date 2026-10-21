@@ -1,10 +1,11 @@
 # Architecture
 
 APK Forge is one screen over the external tools: `flutter`, `apksigner`,
-`zipalign`, `aapt2`, `keytool`, `jarsigner` and `adb`. The design goal is that everything
-that decides something (which command to run, what a tool's output means,
-what to warn about) is plain Dart that a test can drive without the tools,
-and that the code which actually starts the tools is thin.
+`zipalign`, `aapt2`, `keytool`, `jarsigner`, `java`, `bundletool` and `adb`.
+The design goal is that everything that decides something (which command
+to run, what a tool's output means, what to warn about) is plain Dart that a
+test can drive without the tools, and that the code which actually starts
+the tools is thin.
 
 ## 1. Layers
 
@@ -82,7 +83,7 @@ in New key, and the `key.properties` files a signing profile points to
   only.
 - A profile run's record (§7) keeps a key's alias and its `key.properties`
   path, never what's in the file.
-- New key (§7) writes the only file that holds a password: the
+- New key (§7) writes the only file that keeps a password: the
   `key.properties` you ask for, next to the new keystore.
   - The sheet keeps the passwords in its `NewKeyForm` while it's open, and
     the task in its `NewKeyRequest`. Both leave them out of `toString`.
@@ -132,14 +133,16 @@ A test covers each of these. Keep it that way when a new tool takes a secret.
 
 - **One task at a time.** `TaskNotifier.run` refuses to start a second one,
   holds the cancel token, and turns a `ToolFailure` into the error banner.
-  Builds, signings, key loading and installs go through it. Listing devices,
-  analyzing an APK and reading an installed app don't: they change nothing.
+  Builds, signings, profile runs, key loading, new keys and installs go
+  through it. Listing devices, analyzing an APK and reading an installed app
+  don't: they change nothing.
 - **Actions** (`state/actions/`) are plain classes, one per job: build, sign,
-  split and sign, run a profile, load keys, install. Each takes what it uses
-  in its constructor: the services, a `TaskRunner`, an `ApkSink` for the
-  APKs it writes, and functions that read the forms when the button is
-  pressed (`SigningSetup` says what Sign signs with, or why it can't). Their
-  providers are where that's wired; no action receives `ref`.
+  split and sign, run a profile, load keys, make a new key, create a folder,
+  install. Each takes what it uses in its constructor: the services, a
+  `TaskRunner`, an `ApkSink` for the APKs it writes, and functions that read
+  the forms when the button is pressed (`SigningSetup` says what Sign signs
+  with, or why it can't). Their providers are where that's wired; no action
+  receives `ref`.
 - **Forms** (`state/forms.dart`) persist their non-secret fields through
   `SettingsStore` on every change. What Build and Sign share, the
   architectures and the signature schemes, lives once in `defaultsProvider`:
@@ -202,7 +205,7 @@ A test covers each of these. Keep it that way when a new tool takes a secret.
    `<name>-signed.apk`. On any failure the `.partial` files are deleted, and
    an earlier signed APK stays as it was.
 
-The input is never modified or overwritten (`signedApkPath`).
+The input is never modified or overwritten (`signedFilePath`).
 
 ### A new key
 
