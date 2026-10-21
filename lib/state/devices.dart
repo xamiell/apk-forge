@@ -154,7 +154,11 @@ final installedComparisonProvider =
       final candidate = await ref.watch(
         apkReportProvider(key.candidate).future,
       );
-      return compareApks(installed.report, candidate);
+      return compareApks(
+        installed.report,
+        candidate,
+        referenceIsSplit: installed.files.isSplit,
+      );
     });
 
 /// Why installing [apk] on [serial] would be refused for its signer: it is

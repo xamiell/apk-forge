@@ -92,7 +92,8 @@ class ApkComparison {
   /// Every value compared, in the report's order.
   final List<ComparedField> fields;
 
-  /// The two files have the same SHA-256.
+  /// The two files have the same SHA-256. Never for an app installed as
+  /// splits, which isn't one file.
   final bool sameFile;
 
   /// Permissions the compared APK asks for and the reference doesn't.
@@ -121,7 +122,16 @@ class ApkComparison {
 /// A part that either report couldn't read (a missing tool, not an APK) is
 /// listed in [ApkComparison.notCompared] instead of showing as a
 /// difference.
-ApkComparison compareApks(ApkReport reference, ApkReport candidate) {
+///
+/// [referenceIsSplit]: the reference is an app installed as several APKs,
+/// `base.apk` and its splits. Its size is theirs together, and it has no
+/// hash of its own: its MD5 and SHA-256 aren't compared, and it's never the
+/// same file as the candidate.
+ApkComparison compareApks(
+  ApkReport reference,
+  ApkReport candidate, {
+  bool referenceIsSplit = false,
+}) {
   final fields = <ComparedField>[];
   final notCompared = <NotCompared>[];
   final verdict = signerVerdict(reference.signature, candidate.signature);
@@ -368,15 +378,17 @@ ApkComparison compareApks(ApkReport reference, ApkReport candidate) {
       formatBytes(candidate.sizeBytes),
     ),
   );
-  fields.add(ComparedField('File', 'MD5', reference.md5, candidate.md5));
-  fields.add(
-    ComparedField('File', 'SHA-256', reference.sha256, candidate.sha256),
-  );
+  if (!referenceIsSplit) {
+    fields.add(ComparedField('File', 'MD5', reference.md5, candidate.md5));
+    fields.add(
+      ComparedField('File', 'SHA-256', reference.sha256, candidate.sha256),
+    );
+  }
 
   return ApkComparison(
     signer: verdict,
     fields: fields,
-    sameFile: reference.sha256 == candidate.sha256,
+    sameFile: !referenceIsSplit && reference.sha256 == candidate.sha256,
     referenceSigners: [
       for (final signer in referenceSignature?.signers ?? const [])
         ?signer.sha256,

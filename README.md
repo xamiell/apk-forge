@@ -349,7 +349,8 @@ uninstall one first.
 the installed APK is copied to a temporary folder, read and deleted. An app
 installed from Play comes as a `base.apk` plus splits; the base and the ABI
 splits are compared, and the density and language splits stay on the
-device.
+device. Its size is of those files together. It isn't one file, so it has
+no MD5 or SHA-256 to compare, and it's never "the same file" as an APK.
 
 ## Security
 

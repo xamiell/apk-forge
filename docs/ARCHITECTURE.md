@@ -384,6 +384,10 @@ candidate, compared as an update over it.
   versionCode, a signature that doesn't verify (`ComparedField.blocksUpdate`).
 - **A part either report couldn't read** is a `NotCompared`, never a
   difference.
+- **An app installed as splits isn't one file** (`referenceIsSplit`). Its
+  report's size is the files compared together, but its hashes are
+  `base.apk`'s alone, so they aren't compared, and it's never the same
+  file as the candidate.
 
 `apkComparisonProvider` compares two APKs of the list from their reports,
 so nothing is read twice. `installedComparisonProvider` compares with the
