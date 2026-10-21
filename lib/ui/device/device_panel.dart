@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/format/format.dart';
 import '../../domain/devices/device_info.dart';
 import '../../domain/devices/devices.dart';
+import '../../domain/signing/signing.dart';
 import '../../state/apks.dart';
 import '../../state/devices.dart';
 import '../../state/forms.dart';
@@ -424,7 +425,8 @@ class _SelectedApkOnDevice extends ConsumerWidget {
                 ),
               ),
             ),
-          if (installed case AsyncData(value: _?))
+          // Compare reads APKs only, not bundles.
+          if (installed case AsyncData(value: _?) when !isAppBundle(path))
             Align(
               alignment: Alignment.centerLeft,
               child: TextButton.icon(

@@ -6,6 +6,7 @@ import '../domain/failure.dart';
 import '../domain/profiles/key_properties.dart';
 import '../domain/signing/keystore.dart';
 import '../domain/signing/new_key.dart';
+import 'owner_only_file.dart';
 import 'tool_executor.dart';
 
 /// Makes a new upload key: the keystore, with keytool, and the
@@ -62,8 +63,9 @@ class NewKeyService {
     }
 
     try {
-      await _writeOwnerOnly(
+      await writeOwnerOnly(
         executor,
+        host,
         properties,
         formatKeyProperties(request.keyProperties),
       );
@@ -73,44 +75,6 @@ class NewKeyService {
       rethrow;
     }
   }
-
-  /// Writes [content] to [file], which must not exist, readable by its
-  /// owner before the passwords go in.
-  Future<void> _writeOwnerOnly(
-    ToolExecutor executor,
-    File file,
-    String content,
-  ) async {
-    try {
-      await file.create(exclusive: true);
-    } on FileSystemException catch (error) {
-      throw _writeFailure(file, error);
-    }
-    // Windows has no file modes: the file takes the folder's permissions.
-    if (host.os != HostOs.windows) {
-      final chmod = await executor.run(
-        Command('/bin/chmod', ownerOnlyArguments(file.path)),
-        echoOutput: false,
-      );
-      if (!chmod.succeeded) {
-        throw ToolFailure.fromResult(
-          'Could not make ${file.path} private',
-          chmod,
-        );
-      }
-    }
-    try {
-      await file.writeAsString(content, flush: true);
-    } on FileSystemException catch (error) {
-      throw _writeFailure(file, error);
-    }
-  }
-
-  ToolFailure _writeFailure(File file, FileSystemException error) =>
-      ToolFailure(
-        'Could not write ${file.path}',
-        details: [error.osError?.message ?? error.message],
-      );
 
   Future<void> _delete(File file) async {
     try {

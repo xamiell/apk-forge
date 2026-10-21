@@ -2,6 +2,8 @@ import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../domain/signing/signing.dart';
+
 import '../../domain/devices/device_info.dart';
 import '../../state/apks.dart';
 import '../../state/devices.dart';
@@ -28,14 +30,15 @@ class ApkPanel extends ConsumerWidget {
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (list.selectedPath != null) ...[
+          // Compare reads APKs only, not bundles.
+          if (list.selectedPath case final path? when !isAppBundle(path)) ...[
             _CompareButton(list: list),
             const SizedBox(width: 8),
           ],
           FilledButton.tonalIcon(
             onPressed: () async {
               final files = await openFiles(
-                acceptedTypeGroups: const [apkTypes],
+                acceptedTypeGroups: const [apkTypes, appBundleTypes],
               );
               for (final file in files) {
                 notifier.add(file.path, ApkOrigin.opened);

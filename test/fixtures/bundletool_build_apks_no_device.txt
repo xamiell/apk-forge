@@ -1,0 +1,16 @@
+[BT:1.18.3] Error: Unable to find the requested device.
+com.android.tools.build.bundletool.model.exceptions.CommandExecutionException: Unable to find the requested device.
+	at com.android.tools.build.bundletool.model.exceptions.InternalExceptionBuilder.build(InternalExceptionBuilder.java:57)
+	at com.android.tools.build.bundletool.device.DeviceAnalyzer.lambda$getAndValidateDevice$1(DeviceAnalyzer.java:161)
+	at java.base/java.util.Optional.orElseThrow(Optional.java:403)
+	at com.android.tools.build.bundletool.device.DeviceAnalyzer.getAndValidateDevice(DeviceAnalyzer.java:157)
+	at com.android.tools.build.bundletool.device.DeviceAnalyzer.getDeviceSpec(DeviceAnalyzer.java:63)
+	at com.android.tools.build.bundletool.commands.BuildApksModule.provideDeviceSpec(BuildApksModule.java:137)
+	at com.android.tools.build.bundletool.commands.BuildApksModule_ProvideDeviceSpecFactory.provideDeviceSpec(BuildApksModule_ProvideDeviceSpecFactory.java:36)
+	at com.android.tools.build.bundletool.commands.BuildApksModule_ProvideDeviceSpecFactory.get(BuildApksModule_ProvideDeviceSpecFactory.java:27)
+	at com.android.tools.build.bundletool.commands.BuildApksModule_ProvideDeviceSpecFactory.get(BuildApksModule_ProvideDeviceSpecFactory.java:10)
+	at dagger.internal.DoubleCheck.get(DoubleCheck.java:47)
+	at com.android.tools.build.bundletool.commands.DaggerBuildApksManagerComponent.create(DaggerBuildApksManagerComponent.java:217)
+	at com.android.tools.build.bundletool.commands.BuildApksCommand.execute(BuildApksCommand.java:981)
+	at com.android.tools.build.bundletool.BundleToolMain.main(BundleToolMain.java:84)
+	at com.android.tools.build.bundletool.BundleToolMain.main(BundleToolMain.java:56)

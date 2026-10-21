@@ -4,6 +4,7 @@ import 'package:apk_forge/domain/analysis/badging.dart';
 import 'package:apk_forge/domain/analysis/findings.dart';
 import 'package:apk_forge/domain/analysis/signature.dart';
 import 'package:apk_forge/domain/signing/abi_split.dart';
+import 'package:apk_forge/domain/signing/bundle.dart';
 import 'package:apk_forge/domain/signing/keystore.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -520,6 +521,93 @@ void main() {
         abiSplitFileName('/ci/app-release.apk', 'arm64-v8a', macHost),
         'app-release-arm64-v8a.apk',
       );
+    });
+  });
+
+  group('an App Bundle', () {
+    ZipEntry entry(String name) => ZipEntry(
+      name: name,
+      compressedSize: 1,
+      uncompressedSize: 1,
+      isCompressed: false,
+    );
+
+    test('its files read as an APK\'s: each module\'s native code, and the '
+        'JAR signature at the root', () {
+      final contents = ApkContents.fromBundleEntries([
+        entry('META-INF/MANIFEST.MF'),
+        entry('META-INF/UPLOAD.SF'),
+        entry('META-INF/UPLOAD.RSA'),
+        entry('BundleConfig.pb'),
+        entry('base/manifest/AndroidManifest.xml'),
+        entry('base/lib/arm64-v8a/libapp.so'),
+        entry('base/lib/arm64-v8a/libflutter.so'),
+        entry('base/lib/x86_64/libflutter.so'),
+        entry('base/root/META-INF/library.version'),
+      ]);
+
+      expect(contents.nativeLibraries, {
+        'arm64-v8a': ['libapp.so', 'libflutter.so'],
+        'x86_64': ['libflutter.so'],
+      });
+      expect(contents.flutter, FlutterCompilation.aot);
+      expect(contents.hasJarSignature, isTrue);
+      expect(contents.entryCount, 9);
+    });
+
+    test('its JAR signature, as a signature report', () {
+      final report = bundleSignatureReport(
+        const JarVerification(JarVerdict.verified),
+        const [
+          JarSigner(
+            owner: 'CN=Upload',
+            sha256: 'aa',
+            sha1: 'bb',
+            keyAlgorithm: '2048-bit RSA key',
+          ),
+        ],
+      );
+
+      expect(report.verifies, isTrue);
+      expect(report.schemes, {'v1': true});
+      final signer = report.signers.single;
+      expect(signer.distinguishedName, 'CN=Upload');
+      expect(signer.sha256, 'aa');
+      expect(signer.sha1, 'bb');
+      expect(signer.keyAlgorithm, 'RSA');
+      expect(signer.keySize, 2048);
+      expect(
+        bundleSignatureReport(
+          const JarVerification(JarVerdict.unsigned),
+          const [],
+        ).errors,
+        ['The bundle is not signed.'],
+      );
+    });
+
+    test('has no v2 or v3 signature, and that\'s not a problem', () {
+      ApkReport report(String path) => ApkReport(
+        path: path,
+        sizeBytes: 1,
+        md5: '',
+        sha256: '',
+        contents: const ApkContents(),
+        badging: const Badging(targetSdk: 36),
+        signature: bundleSignatureReport(
+          const JarVerification(JarVerdict.verified),
+          const [JarSigner(owner: 'CN=Upload', sha256: 'aa')],
+        ),
+      );
+
+      List<String> titles(ApkReport report) =>
+          apkFindings(report).map((finding) => finding.title).toList();
+
+      expect(report('/out/app.aab').isBundle, isTrue);
+      expect(
+        titles(report('/out/app.aab')),
+        isNot(contains('No v2 or v3 signature')),
+      );
+      expect(titles(report('/out/app.apk')), contains('No v2 or v3 signature'));
     });
   });
 }

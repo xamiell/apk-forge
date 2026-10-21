@@ -14,8 +14,7 @@ import '../toolchain_notifier.dart';
 import 'sign_actions.dart';
 
 /// Builds with the Build panel's options, then signs every APK, or the App
-/// Bundle, with the key in Sign when "Sign after build" is on. Only APKs go
-/// to the APK list: Analyze APK reads APKs only.
+/// Bundle, with the key in Sign when "Sign after build" is on.
 class BuildAction {
   const BuildAction({
     required this.task,
@@ -70,18 +69,17 @@ class BuildAction {
         flutter: flutter,
         options: options,
       );
-      final apks = files.where((file) => !isAppBundle(file)).toList();
-      for (final apk in apks) {
-        list.add(apk, ApkOrigin.built, select: false);
+      for (final file in files) {
+        list.add(file, ApkOrigin.built, select: false);
       }
       executor.log.success(
-        apks.length == files.length
-            ? 'Built ${apks.length} APK${apks.length == 1 ? '' : 's'}.'
-            : 'Built ${files.map(host.path.basename).join(', ')}.',
+        files.any(isAppBundle)
+            ? 'Built ${files.map(host.path.basename).join(', ')}.'
+            : 'Built ${files.length} APK${files.length == 1 ? '' : 's'}.',
       );
 
       if (signWith == null) {
-        if (apks.isNotEmpty) list.select(apks.last);
+        list.select(files.last);
       } else {
         await signer.signAll(
           executor,

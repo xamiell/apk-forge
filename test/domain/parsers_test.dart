@@ -5,6 +5,8 @@ import 'package:apk_forge/domain/devices/devices.dart';
 import 'package:apk_forge/domain/signing/bundle.dart';
 import 'package:apk_forge/domain/signing/keystore.dart';
 import 'package:apk_forge/domain/signing/signing.dart';
+import 'package:apk_forge/domain/tools/bundletool.dart';
+import 'package:apk_forge/domain/tools/java.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../helpers/fakes.dart';
@@ -388,6 +390,8 @@ void main() {
 
       expect(signers, hasLength(1));
       expect(signers.single.owner, 'CN=APK Forge Bundle, O=Example, C=US');
+      expect(signers.single.sha1, '6933f1feb1aab73fef371a7a85dcaba37157453d');
+      expect(signers.single.keyAlgorithm, '2048-bit RSA key');
       expect(
         signers.single.sha256,
         '818fd329733db2f528cddae7e7bfb0382e7cf9121277667e3d9e496202f9ed37',
@@ -487,6 +491,104 @@ void main() {
       ]);
 
       expect(entries.single.canSign, isFalse);
+    });
+  });
+
+  group('parseBundleManifest', () {
+    test('reads what bundletool dumps of a bundle\'s manifest', () {
+      final manifest = parseBundleManifest(
+        fixture('bundletool_dump_manifest.txt'),
+      );
+
+      expect(manifest.packageName, 'io.example.sample_app');
+      expect(manifest.versionCode, '1');
+      expect(manifest.versionName, '1.0.0');
+      expect(manifest.minSdk, 24);
+      expect(manifest.targetSdk, 36);
+      expect(manifest.compileSdk, 36);
+      expect(manifest.label, 'sample_app');
+      expect(manifest.debuggable, isFalse);
+      expect(manifest.launchableActivity, 'io.example.sample_app.MainActivity');
+      expect(
+        manifest.permissions,
+        contains(
+          'io.example.sample_app.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION',
+        ),
+      );
+    });
+
+    test('a label that is a resource is left out', () {
+      expect(
+        parseBundleManifest([
+          '<manifest package="a.b">',
+          '<application android:label="@string/app_name" '
+              'android:debuggable="true">',
+        ]).label,
+        isNull,
+      );
+    });
+  });
+
+  group('bundletool\'s failures', () {
+    test('a wrong keystore or key password is named, as for an APK', () {
+      final cases = {
+        'bundletool_build_apks_wrong_password.txt':
+            KeyLoadFailure.storePasswordWrong,
+        'bundletool_build_apks_wrong_key_password.txt':
+            KeyLoadFailure.keyPasswordWrong,
+        'bundletool_build_apks_wrong_key_password_pkcs12.txt':
+            KeyLoadFailure.keyPasswordWrong,
+      };
+      for (final MapEntry(key: name, value: expected) in cases.entries) {
+        expect(parseKeyLoadFailure(fixture(name)), expected, reason: name);
+      }
+      expect(
+        parseKeyLoadFailure(fixture('bundletool_build_apks_no_device.txt')),
+        isNull,
+      );
+    });
+
+    test('Android\'s refusal is read from install-apks, with its hint', () {
+      final downgrade = parseInstallFailure(
+        fixture('bundletool_install_apks_downgrade.txt'),
+      )!;
+      final otherKey = parseInstallFailure(
+        fixture('bundletool_install_apks_other_key.txt'),
+      )!;
+
+      expect(downgrade.code, 'INSTALL_FAILED_VERSION_DOWNGRADE');
+      expect(downgrade.hint, installFailureHints[downgrade.code]);
+      expect(otherKey.code, 'INSTALL_FAILED_UPDATE_INCOMPATIBLE');
+      expect(
+        parseInstallFailure(fixture('bundletool_install_apks.txt')),
+        isNull,
+      );
+    });
+  });
+
+  group('parseJavaVersion', () {
+    test('reads the version java -version prints', () {
+      expect(parseJavaVersion(fixture('java_version.txt')), '21.0.10');
+    });
+
+    test('anything else is no version', () {
+      expect(parseJavaVersion(['[global]', 'home = /usr/bin']), isNull);
+    });
+  });
+
+  group('parseBundletoolVersion', () {
+    test('reads the version bundletool prints', () {
+      expect(
+        parseBundletoolVersion(fixture('bundletool_version.txt')),
+        '1.18.3',
+      );
+    });
+
+    test('anything else is no version', () {
+      expect(
+        parseBundletoolVersion(['Error: Unable to access jarfile']),
+        isNull,
+      );
     });
   });
 

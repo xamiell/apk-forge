@@ -39,6 +39,17 @@ macOS with Flutter 3.47.5 and Android SDK build-tools 36.0.0.
 | `adb_pm_path_single.txt` | `adb shell pm path com.google.android.apps.meetings` | a phone, Android 13: an app installed from Play as one APK (captured 2026-10-18) |
 | `adb_pm_path_bundle.txt` | `adb shell pm path com.github.android` | the same phone: an app installed from Play as an App Bundle, `base.apk` plus an ABI and a density split |
 | `adb_installed_package_settings.txt` | `adb shell "<installedPackageScript('com.android.settings')>"` | a physical device, Android 14 |
+| `bundletool_dump_manifest.txt` | `java -jar bundletool-all-1.18.3.jar dump manifest --bundle=<aab>` | the sample's release bundle, signed with a throwaway key (captured 2026-10-21) |
+| `bundletool_build_apks_wrong_password.txt` | `… build-apks --bundle=<aab> --output=… --connected-device --device-id=emulator-5554 --adb=… --ks=… --ks-key-alias=upload --ks-pass=file:… --key-pass=file:…` (exit code 1) | a throwaway PKCS12 keystore, a wrong password in both files: stderr |
+| `bundletool_build_apks_wrong_key_password.txt` | the same (exit code 1) | a throwaway JKS whose key has a password of its own, the right keystore password and a wrong key password |
+| `bundletool_build_apks_wrong_key_password_pkcs12.txt` | the same (exit code 1) | the PKCS12 keystore, the right keystore password and another `--key-pass` |
+| `bundletool_build_apks_no_device.txt` | the same with `--device-id=emulator-9999` (exit code 1) | a device that isn't connected |
+| `bundletool_install_apks.txt` | `… install-apks --apks=<apks> --device-id=emulator-5554 --adb=…` | an Android 13 emulator without the app: stderr. In the three `install-apks` captures, the system's temporary folder is shortened to `/var/folders/xx/T/` |
+| `bundletool_install_apks_downgrade.txt` | the same (exit code 1) | the emulator with a higher versionCode of the app installed, signed with the debug key: stderr |
+| `bundletool_install_apks_other_key.txt` | the same (exit code 1) | the emulator with the same version installed, signed with another throwaway key: stderr |
+| `flutter_version_machine.txt` | `flutter --version --machine` | Flutter 3.47.5 on macOS. The Flutter root is replaced by `/Users/dev/flutter` (captured 2026-10-21) |
+| `java_version.txt` | `java -version` (stderr) | Homebrew's OpenJDK 21.0.10 (captured 2026-10-21) |
+| `bundletool_version.txt` | `java -jar bundletool-all-1.18.3.jar version` | the official jar, from github.com/google/bundletool (captured 2026-10-21 with JDK 21) |
 | `flutter_build_appbundle.txt` | `flutter build appbundle --release --target-platform android-arm,android-arm64,android-x64 --obfuscate --split-debug-info=…` | the sample: stdout and stderr. The home folder in one Gradle warning is replaced by `/Users/dev` (captured 2026-10-21 with Flutter 3.47.5) |
 | `jarsigner_verify_bundle.txt` | `jarsigner -J-Duser.language=en -J-Duser.country=US -verify <aab>` | that bundle without its debug signature, signed by `jarsigner` with the throwaway PKCS12 key `CN=APK Forge Bundle` (captured 2026-10-21 with JDK 21) |
 | `jarsigner_verify_unsigned.txt` | the same | that bundle without its debug signature, unsigned |
@@ -61,5 +72,6 @@ request is in `keytool_certreq_ok.txt`), the signing failures' throwaway key
 (`CN=APK Forge Schemes`), the v4 checks' throwaway keys
 (`CN=APK Forge Idsig`, `CN=APK Forge Other Idsig`), the PKCS12 failures'
 throwaway key (`CN=APK Forge PKCS12`), the App Bundle's throwaway keys
-(`CN=APK Forge Bundle`, `CN=APK Forge Bundle Key Password`) and the Android
-debug certificate are not secret.
+(`CN=APK Forge Bundle`, `CN=APK Forge Bundle Key Password`), the install's
+throwaway keys (`CN=APK Forge Install A`, `B` and `Own`) and the Android debug
+certificate are not secret.

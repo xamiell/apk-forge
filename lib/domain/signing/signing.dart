@@ -184,12 +184,17 @@ enum KeyLoadFailure {
 /// app closes: "Failed to read … password …: standard input closed".
 /// jarsigner says "you must enter key password". For a wrong key password,
 /// jarsigner says the alias is "not a private key": Sign never offers an
-/// alias that isn't one.
+/// alias that isn't one. bundletool says "Incorrect keystore password." or
+/// "Incorrect key password.".
 KeyLoadFailure? parseKeyLoadFailure(Iterable<String> lines) {
   for (final line in lines) {
-    if (isStorePasswordWrong(line)) return KeyLoadFailure.storePasswordWrong;
+    if (isStorePasswordWrong(line) ||
+        line.contains('Incorrect keystore password')) {
+      return KeyLoadFailure.storePasswordWrong;
+    }
     if (line.contains('Failed to obtain key with alias') ||
         line.contains('UnrecoverableKeyException: Cannot recover key') ||
+        line.contains('Incorrect key password') ||
         (line.contains('key associated with') &&
             line.contains('not a private key'))) {
       return KeyLoadFailure.keyPasswordWrong;

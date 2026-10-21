@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../domain/devices/devices.dart';
+import '../../domain/signing/signing.dart';
 import '../../state/actions/install_action.dart';
 import '../../state/apks.dart';
 import '../../state/devices.dart';
@@ -42,6 +43,8 @@ class InstallCard extends ConsumerWidget {
 
     final problems = [
       if (apkPath == null) 'Select an APK in the list.',
+      if (apkPath != null && isAppBundle(apkPath))
+        ...ref.watch(bundleInstallProblemsProvider),
       if (selected == null) 'Select a device.',
       if (selected != null && !selected.isReady)
         selected.state == 'unauthorized'
@@ -128,7 +131,20 @@ class InstallCard extends ConsumerWidget {
             onChanged: (value) =>
                 optionsNotifier.setAllowDowngrade(value ?? false),
           ),
-          if (apkPath != null) InfoRow('APK', host.path.basename(apkPath)),
+          if (apkPath != null)
+            InfoRow(
+              isAppBundle(apkPath) ? 'App Bundle' : 'APK',
+              host.path.basename(apkPath),
+            ),
+          if (apkPath != null && isAppBundle(apkPath))
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                'bundletool makes this device\'s APKs from it, signed with the '
+                'key in Sign, as a store would.',
+                style: TextStyle(fontSize: 12, color: context.status.muted),
+              ),
+            ),
           if (abiMismatch)
             Padding(
               padding: const EdgeInsets.only(top: 6),

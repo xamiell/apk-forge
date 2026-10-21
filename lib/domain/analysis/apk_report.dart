@@ -1,4 +1,5 @@
 import '../../core/zip/zip_directory.dart';
+import '../signing/signing.dart';
 import 'badging.dart';
 import 'signature.dart';
 
@@ -20,7 +21,24 @@ class ApkContents {
     this.entryCount = 0,
   });
 
-  factory ApkContents.fromEntries(List<ZipEntry> entries) {
+  factory ApkContents.fromEntries(List<ZipEntry> entries) =>
+      ApkContents._fromNames([for (final entry in entries) entry.name]);
+
+  /// An App Bundle's files, read as an APK's: each module keeps its native
+  /// code and assets under its own folder (`base/lib/arm64-v8a/…`), and the
+  /// JAR signature is at the root.
+  factory ApkContents.fromBundleEntries(List<ZipEntry> entries) =>
+      ApkContents._fromNames([
+        for (final entry in entries)
+          switch (entry.name.split('/')) {
+            [_, 'lib' || 'assets', ...] => entry.name.substring(
+              entry.name.indexOf('/') + 1,
+            ),
+            _ => entry.name,
+          },
+      ]);
+
+  factory ApkContents._fromNames(List<String> names) {
     final libraries = <String, List<String>>{};
     var jarSignatureFile = false;
     var jarManifest = false;
@@ -28,8 +46,7 @@ class ApkContents {
     var aot = false;
     var jit = false;
 
-    for (final entry in entries) {
-      final name = entry.name;
+    for (final name in names) {
       final parts = name.split('/');
       if (parts.length == 3 && parts[0] == 'lib' && parts[2].endsWith('.so')) {
         libraries.putIfAbsent(parts[1], () => []).add(parts[2]);
@@ -60,7 +77,7 @@ class ApkContents {
           : aot
           ? FlutterCompilation.aot
           : FlutterCompilation.jit,
-      entryCount: entries.length,
+      entryCount: names.length,
     );
   }
 
@@ -142,6 +159,10 @@ class ApkReport {
   );
 
   bool get hasJarSignature => contents.hasJarSignature;
+
+  /// An App Bundle (`.aab`): its manifest comes from bundletool, and its
+  /// signature is a JAR signature from jarsigner.
+  bool get isBundle => isAppBundle(path);
 
   /// Whether it carries a signature: a signer apksigner read, or a v1 (JAR)
   /// signature in its files. `null` when apksigner couldn't check it.

@@ -1,0 +1,20 @@
+The APKs have been extracted in the directory: /var/folders/xx/T/2181582529951079079
+[BT:1.18.3] Error: Installation of the app failed.
+com.android.tools.build.bundletool.model.exceptions.CommandExecutionException: Installation of the app failed.
+	at com.android.tools.build.bundletool.model.exceptions.InternalExceptionBuilder.build(InternalExceptionBuilder.java:57)
+	at com.android.tools.build.bundletool.device.DdmlibDevice.installApks(DdmlibDevice.java:210)
+	at com.android.tools.build.bundletool.commands.InstallApksCommand.lambda$execute$1(InstallApksCommand.java:234)
+	at com.android.tools.build.bundletool.device.AdbRunner.run(AdbRunner.java:81)
+	at com.android.tools.build.bundletool.device.AdbRunner.run(AdbRunner.java:61)
+	at com.android.tools.build.bundletool.commands.InstallApksCommand.execute(InstallApksCommand.java:233)
+	at com.android.tools.build.bundletool.BundleToolMain.main(BundleToolMain.java:118)
+	at com.android.tools.build.bundletool.BundleToolMain.main(BundleToolMain.java:56)
+Caused by: com.android.ddmlib.InstallException: Failed to commit install session 880002399 with command package install-commit 880002399. Error: INSTALL_FAILED_UPDATE_INCOMPATIBLE: Existing package io.example.sample_app signatures do not match newer version; ignoring!
+	at com.android.ddmlib.SplitApkInstallerBase.installCommit(SplitApkInstallerBase.java:154)
+	at com.android.ddmlib.SplitApkInstaller.install(SplitApkInstaller.java:85)
+	at com.android.ddmlib.IDeviceSharedImpl.installPackages(IDeviceSharedImpl.java:395)
+	at com.android.ddmlib.internal.DeviceImpl.lambda$installPackages$34(DeviceImpl.java:1484)
+	at com.android.ddmlib.internal.DeviceImpl.logRun3(DeviceImpl.java:1826)
+	at com.android.ddmlib.internal.DeviceImpl.installPackages(DeviceImpl.java:1481)
+	at com.android.tools.build.bundletool.device.DdmlibDevice.installApks(DdmlibDevice.java:194)
+	... 6 more

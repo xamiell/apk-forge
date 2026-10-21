@@ -11,6 +11,9 @@
 //
 //   APK_FORGE_SMOKE_PASS=… dart run tool/smoke.dart <flutter project> <keystore> <alias> <output dir>
 //
+// With APK_FORGE_SMOKE_BUNDLETOOL set to a bundletool jar, it also reads the
+// signed App Bundle's manifest.
+//
 // Use a throwaway project and keystore; it writes APKs and symbols.
 import 'dart:convert';
 import 'dart:io';
@@ -64,10 +67,13 @@ Future<void> main(List<String> args) async {
     Host.current(Platform.environment),
   );
   final host = Host.current(environment);
-  final toolchain = ToolchainLocator(
-    host: host,
-    probe: const IoFileProbe(),
-  ).locate(const ToolOverrides());
+  final toolchain = ToolchainLocator(host: host, probe: const IoFileProbe())
+      .locate(
+        // bundletool doesn't come with the SDK: give the jar to read a bundle.
+        ToolOverrides(
+          bundletool: Platform.environment['APK_FORGE_SMOKE_BUNDLETOOL'],
+        ).cleaned(),
+      );
   final log = _PrintLog([password]);
   final executor = ToolExecutor(IoProcessRunner(host), log);
   var failures = 0;
@@ -343,6 +349,26 @@ Future<void> main(List<String> args) async {
     '  signed by "$alias" only, the debug signature gone '
     '(${host.path.basename(signedBundle.path)})',
   );
+
+  if (toolchain.bundletoolLaunch == null) {
+    stdout.writeln(
+      '  SKIP  reading the bundle: set APK_FORGE_SMOKE_BUNDLETOOL to a '
+      'bundletool jar',
+    );
+  } else {
+    final bundleReport = await const ApkAnalyzer().analyze(
+      executor,
+      toolchain: toolchain,
+      path: signedBundle.path,
+    );
+    check(
+      bundleReport.badging?.packageName != null &&
+          bundleReport.signature?.verifies == true &&
+          bundleReport.signature!.signers.single.sha256 == key.sha256,
+      '  Analyze reads it: ${bundleReport.badging?.packageName} '
+      '${bundleReport.badging?.versionName}, JAR signature by "$alias"',
+    );
+  }
 
   stdout.writeln('\n== New key');
   await _newKeys(

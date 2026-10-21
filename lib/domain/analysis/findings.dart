@@ -81,7 +81,11 @@ List<Finding> apkFindings(
     }
     final modernScheme = signature.scheme('v2') || signature.scheme('v3');
     final targetSdk = badging?.targetSdk;
-    if (!modernScheme && targetSdk != null && targetSdk >= 30) {
+    // A bundle carries a JAR signature only: the store signs its APKs.
+    if (!report.isBundle &&
+        !modernScheme &&
+        targetSdk != null &&
+        targetSdk >= 30) {
       findings.add(
         Finding(
           FindingLevel.error,

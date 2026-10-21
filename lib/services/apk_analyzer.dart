@@ -9,11 +9,15 @@ import '../domain/analysis/badging.dart';
 import '../domain/analysis/signature.dart';
 import '../domain/failure.dart';
 import '../domain/signing/signing.dart';
+import '../domain/tools/bundletool.dart';
+import '../domain/signing/bundle.dart';
 import '../domain/tools/toolchain.dart';
 import 'tool_executor.dart';
 
 /// Builds an [ApkReport]: hashes and the file list in Dart, the manifest
 /// with aapt2, and the signature (and a v3 key rotation) with apksigner.
+/// An App Bundle's manifest comes from bundletool instead, and its JAR
+/// signature from jarsigner and keytool.
 ///
 /// A missing tool or a tool error leaves its part empty with the reason,
 /// instead of failing the whole report.
@@ -31,6 +35,15 @@ class ApkAnalyzer {
     }
     final size = await file.length();
     final digests = await fileDigests(path);
+    if (isAppBundle(path)) {
+      return _analyzeBundle(
+        executor,
+        toolchain: toolchain,
+        path: path,
+        size: size,
+        digests: digests,
+      );
+    }
 
     ApkContents contents = const ApkContents();
     String? contentsError;
@@ -123,6 +136,87 @@ class ApkAnalyzer {
       signatureError: signatureError,
     );
   }
+}
+
+/// An App Bundle's report: its files in Dart, its manifest with
+/// bundletool, and its JAR signature with jarsigner, then keytool for the
+/// signers' fingerprints.
+Future<ApkReport> _analyzeBundle(
+  ToolExecutor executor, {
+  required Toolchain toolchain,
+  required String path,
+  required int size,
+  required ({String md5, String sha256}) digests,
+}) async {
+  ApkContents contents = const ApkContents();
+  String? contentsError;
+  try {
+    contents = ApkContents.fromBundleEntries(await readZipDirectory(path));
+  } on ZipFormatException catch (error) {
+    contentsError = error.message;
+  } on FileSystemException catch (error) {
+    contentsError = error.message;
+  }
+
+  Badging? badging;
+  String? badgingError;
+  final launch = toolchain.bundletoolLaunch;
+  if (launch == null) {
+    badgingError =
+        'A bundle\'s manifest is read with bundletool: set it in '
+        'Tools.';
+  } else {
+    final result = await executor.run(
+      Command(
+        launch.executable,
+        bundletoolDumpManifestArguments(launch.arguments, path),
+      ),
+      echoOutput: false,
+    );
+    if (result.stdout.any((line) => line.trimLeft().startsWith('<manifest'))) {
+      badging = parseBundleManifest(result.stdout)
+          .withNativeCode(contents.nativeLibraries.keys.toList());
+    } else {
+      badgingError = errorDetails(result).join('\n');
+    }
+  }
+
+  SignatureReport? signature;
+  String? signatureError;
+  final jarsigner = toolchain.jarsigner;
+  if (jarsigner == null) {
+    signatureError = jarsignerMissing.details.join(' ');
+  } else {
+    final verify = await executor.run(
+      Command(jarsigner, jarsignerVerifyArguments(path)),
+      echoOutput: false,
+    );
+    final verification = parseJarsignerVerify(verify.allLines);
+    final keytool = toolchain.keytool;
+    final signers =
+        keytool == null || verification.verdict == JarVerdict.unsigned
+        ? const <JarSigner>[]
+        : parseJarSigners(
+            (await executor.run(
+              Command(keytool, keytoolPrintJarCertificatesArguments(path)),
+              echoOutput: false,
+            )).allLines,
+          );
+    signature = bundleSignatureReport(verification, signers);
+  }
+
+  return ApkReport(
+    path: path,
+    sizeBytes: size,
+    md5: digests.md5,
+    sha256: digests.sha256,
+    contents: contents,
+    contentsError: contentsError,
+    badging: badging,
+    badgingError: badgingError,
+    signature: signature,
+    signatureError: signatureError,
+  );
 }
 
 /// Whether `apksigner verify` got as far as its verdict, instead of

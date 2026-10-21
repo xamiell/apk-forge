@@ -134,6 +134,12 @@ class _Report extends ConsumerWidget {
                         color: colors.error,
                         icon: Icons.gpp_bad_outlined,
                       ),
+              if (report.isBundle)
+                Pill(
+                  'App Bundle',
+                  color: colors.info,
+                  icon: Icons.inventory_2_outlined,
+                ),
               if (report.contents.flutter != null)
                 Pill(
                   report.contents.flutter == FlutterCompilation.aot
@@ -156,6 +162,7 @@ class _Report extends ConsumerWidget {
                 : _SignatureDetails(
                     signature: signature,
                     hasJarSignature: report.hasJarSignature,
+                    bundle: report.isBundle,
                   ),
           ),
           _Section(
@@ -284,10 +291,14 @@ class _SignatureDetails extends StatelessWidget {
   const _SignatureDetails({
     required this.signature,
     required this.hasJarSignature,
+    required this.bundle,
   });
 
   final SignatureReport signature;
   final bool hasJarSignature;
+
+  /// A bundle has a JAR signature only: the v1 to v4 schemes are an APK's.
+  final bool bundle;
 
   @override
   Widget build(BuildContext context) {
@@ -318,8 +329,22 @@ class _SignatureDetails extends StatelessWidget {
           spacing: 6,
           runSpacing: 6,
           children: [
-            for (final name in const ['v1', 'v2', 'v3', 'v3.1', 'v4'])
-              scheme(name),
+            if (bundle)
+              Tooltip(
+                message:
+                    'A bundle carries a JAR signature only: the store signs '
+                    'the APKs it makes from it.',
+                child: Pill(
+                  'JAR signature',
+                  color: signature.verifies ? colors.ok : colors.error,
+                  icon: signature.verifies
+                      ? Icons.check_rounded
+                      : Icons.close_rounded,
+                ),
+              )
+            else
+              for (final name in const ['v1', 'v2', 'v3', 'v3.1', 'v4'])
+                scheme(name),
           ],
         ),
         if (signature.v4Problem case final problem?)
