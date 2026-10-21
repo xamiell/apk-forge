@@ -2,7 +2,7 @@
 
 A desktop app to **build, sign, verify and install Android APKs** from one
 screen, instead of remembering the flags of `flutter build`, `zipalign`,
-`apksigner`, `keytool` and `adb`.
+`apksigner`, `jarsigner`, `keytool` and `adb`.
 
 APK Forge doesn't reimplement any of them. It drives the official tools you
 already have installed, shows the exact command before and while it runs,
@@ -16,8 +16,8 @@ the tool's own reason, not a generic error.
 | Panel | What it does |
 |---|---|
 | **Defaults** | What Build and Sign share, set once at the top: the architectures (any mix of `armeabi-v7a`, `arm64-v8a` and `x86_64`) and the signature schemes (Auto, or the ones you mark). Build and Sign show what they take from it. It folds into one line. |
-| **Build** | Runs `flutter build apk` on any Flutter project, for the architectures in Defaults. Choose release or debug, and one universal APK or one APK per ABI (`--split-per-abi`, offered with two or more architectures). Optional Dart obfuscation keeps the symbols you need to read crash traces. The command is previewed before you run it. |
-| **Sign** | Signs the APK selected in Analyze APK, the APKs a build just produced, or any APK you pick (from CI, another machine, a store), with your `.jks`, `.keystore` or `.p12` and the schemes in Defaults. It checks the alignment first and fixes it if needed, writes `<name>-signed.apk` without touching the original, and verifies that the result carries exactly the key you chose. **Split per ABI and sign** turns a universal APK (one from CI, say) into one signed APK per architecture in Defaults. **New key…** makes an upload key, a keystore and the `key.properties` Gradle reads, in the folder you choose, and loads it. |
+| **Build** | Runs `flutter build apk`, or `flutter build appbundle` for a store such as Google Play, on any Flutter project, for the architectures in Defaults. Choose release or debug, and one universal APK, one APK per ABI (`--split-per-abi`, offered with two or more architectures), or an App Bundle (`.aab`). Optional Dart obfuscation keeps the symbols you need to read crash traces. The command is previewed before you run it. |
+| **Sign** | Signs the APK selected in Analyze APK, the APKs a build just produced, or any APK you pick (from CI, another machine, a store), with your `.jks`, `.keystore` or `.p12` and the schemes in Defaults. It checks the alignment first and fixes it if needed, writes `<name>-signed.apk` without touching the original, and verifies that the result carries exactly the key you chose. An App Bundle, built or picked, is signed with `jarsigner` to `<name>-signed.aab`, without the debug signature Flutter gave it. **Split per ABI and sign** turns a universal APK (one from CI, say) into one signed APK per architecture in Defaults. **New key…** makes an upload key, a keystore and the `key.properties` Gradle reads, in the folder you choose, and loads it. |
 | **Signing profiles** | Saves the steps to turn one APK into a signed APK per device, each with its ABI, its key (a `key.properties` file) and its folder, and runs them in one go. Every run is kept as a report you can copy or export. |
 | **Analyze APK** | For any APK: whether the signature verifies; the schemes it carries (v1 to v4); the signer certificate (DN, SHA-256, SHA-1), a rotated key's lineage, and whether it is **your key** or the Android debug key; release or debug (`debuggable`); package, version and SDK levels; native code per ABI, flagging an ABI with no Flutter engine; size, MD5 and SHA-256. **Compare with…** puts it next to another APK (a previous release, another build) or the app installed on the device, and lists every difference, worst first: another signer, a lower versionCode, a debug build, lost ABIs, new permissions. |
 | **Analyze device** | For the device on USB: maker, brand, model and codename; Android version, API level, security patch, build and build type; chip, ABIs, memory page size (16 KB pages are flagged), RAM, storage and screen; battery, locale and time zone. With an APK selected, it tells you which ABI the APK would run as, which version is installed, and whether installing would be a fresh install, an upgrade, a reinstall or a downgrade, or would be refused for another key. **Compare with the installed app** compares the two side by side. One click copies it all as text. |
@@ -31,7 +31,7 @@ the tool's own reason, not a generic error.
 | Flutter SDK | Build | [flutter.dev](https://docs.flutter.dev/get-started/install), on your `PATH` or set in Tools |
 | Android SDK build-tools: `apksigner`, `zipalign`, `aapt2` | Sign, signing profiles, Analyze APK | Android Studio → SDK Manager |
 | Android SDK platform-tools: `adb` | Analyze device, Install, comparing with the installed app | Android Studio → SDK Manager |
-| A JDK: `keytool`, and Java for `apksigner` | Sign, signing profiles | Android Studio's bundled JDK works |
+| A JDK: `keytool`, `jarsigner`, and Java for `apksigner` | Sign, signing profiles, App Bundles | Android Studio's bundled JDK works |
 
 You don't configure paths by hand. At startup the app reads your login
 shell's environment, the same one your terminal has. An app opened from
@@ -82,7 +82,8 @@ xattr -dr com.apple.quarantine "/Applications/APK Forge.app"
 1. **Defaults:** choose the architectures, and the signature schemes if
    you don't want apksigner to pick them. Fold the card once they're set.
 2. **Build:** choose the project folder, release or debug, and the output
-   (universal or split per ABI). Turn on obfuscation if you want it.
+   (universal, split per ABI, or App Bundle). Turn on obfuscation if you
+   want it.
 3. **Sign:** choose your keystore, enter its password, press **Load keys**
    and pick the key. The panel shows the key's owner and SHA-256, so you can
    confirm it's the right one before signing.
@@ -93,13 +94,28 @@ xattr -dr com.apple.quarantine "/Applications/APK Forge.app"
 Uncheck **Sign the APKs with the key in Sign** to keep Gradle's own
 signature: the debug key, or the project's `key.properties`.
 
+**App Bundle** builds the `.aab` that stores take, Google Play among them
+(it requires one for a new app). The store makes and signs the APK for each
+device from it, so it isn't split per ABI here.
+With signing on, the bundle is signed with the key in Sign:
+- with `jarsigner`, because `apksigner` can't read a bundle;
+- after removing the debug signature Flutter gave it. Signed on top of it,
+  a bundle keeps both signers, or no longer verifies;
+- then checked: it must verify and carry only your key's SHA-256.
+
+The signed bundle is `<name>-signed.aab`, next to the one Flutter wrote or
+in Sign's output folder. `jarsigner` warns in the log that the certificate
+is self-signed and the signature has no timestamp. That's normal for an
+upload key. Analyze APK and Install don't read bundles yet.
+
 ### Re-sign an APK you already have
 
 Open the APK in **Analyze APK**, load a key in **Sign** and press
 **Sign `<name>`**: Sign works on the APK selected in Analyze APK. **Sign
-other APK files…** picks one or more APKs instead. Each one is written next
-to the original as `<name>-signed.apk`, or to the output folder if you set
-one.
+other APK or AAB files…** picks one or more APKs or App Bundles instead,
+such as a bundle from CI. Each one is written next to the original as
+`<name>-signed.apk` or `<name>-signed.aab`, or to the output folder if you
+set one.
 
 ### Make a new upload key
 
@@ -295,8 +311,9 @@ device.
   and they're gone when you quit. The one exception is the `key.properties`
   that **New key** writes because you asked for it: only you can read it,
   and it's never overwritten.
-- **Passwords never go on a command line.** `apksigner` and `keytool` read
-  them from environment variables (`--ks-pass env:…`, `-storepass:env …`),
+- **Passwords never go on a command line.** `apksigner`, `jarsigner` and
+  `keytool` read them from environment variables (`--ks-pass env:…`,
+  `-storepass:env …`),
   so they don't show up in `ps`. Any output line that contains one is masked
   in the log and in error messages.
 - **The app saves only paths and choices** (project folder, keystore path,
@@ -352,15 +369,16 @@ dart format .
 ```
 
 The unit tests never run the real tools. Every parser is tested against real
-output captured from `apksigner`, `aapt2`, `keytool`, `adb` and
-`flutter build` (see [test/fixtures](test/fixtures/README.md)).
+output captured from `apksigner`, `jarsigner`, `aapt2`, `keytool`, `adb`
+and `flutter build` (see [test/fixtures](test/fixtures/README.md)).
 
 `tool/smoke.dart` runs the real tools end to end against a throwaway
 project and keystore: reading the keys, a split and obfuscated build,
 signing, analysis, splitting a universal build per ABI and signing the
 splits, a signing profile with two targets and two throwaway keys of its
-own (one with a key password of its own), and a wrong password. It makes
-and deletes those two keys itself.
+own (one with a key password of its own), a wrong password, an App Bundle
+built and signed, and a new key of each type made as **New key** makes
+them. It makes and deletes its own keys itself.
 
 ```bash
 APK_FORGE_SMOKE_PASS=… dart run tool/smoke.dart <flutter project> <keystore> <alias> <output dir>
