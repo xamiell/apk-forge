@@ -172,7 +172,7 @@ String? parseKeyOpenFailure(Iterable<String> lines) {
     if (line.contains('UnrecoverableKeyException')) {
       return 'The key password (keyPassword) is wrong.';
     }
-    if (line.contains('password was incorrect')) {
+    if (isStorePasswordWrong(line)) {
       return 'The keystore password (storePassword) is wrong.';
     }
     final alias = _missingAlias.firstMatch(line);
@@ -189,3 +189,10 @@ String? parseKeyOpenFailure(Iterable<String> lines) {
 }
 
 final _missingAlias = RegExp(r'Alias <(.+)> does not exist');
+
+/// Whether [line] is the JDK saying the keystore password is wrong, as
+/// keytool and apksigner both print it. The words depend on the keystore's
+/// type: "Keystore was tampered with, or password was incorrect" for JKS,
+/// "keystore password was incorrect" for PKCS12.
+bool isStorePasswordWrong(String line) =>
+    line.contains('password was incorrect');

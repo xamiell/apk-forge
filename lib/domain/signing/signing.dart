@@ -184,11 +184,7 @@ enum KeyLoadFailure {
 /// the app closes: "Failed to read … password …: standard input closed".
 KeyLoadFailure? parseKeyLoadFailure(Iterable<String> lines) {
   for (final line in lines) {
-    if (line.contains(
-      'Keystore was tampered with, or password was incorrect',
-    )) {
-      return KeyLoadFailure.storePasswordWrong;
-    }
+    if (isStorePasswordWrong(line)) return KeyLoadFailure.storePasswordWrong;
     if (line.contains('Failed to obtain key with alias') ||
         line.contains('UnrecoverableKeyException: Cannot recover key')) {
       return KeyLoadFailure.keyPasswordWrong;
