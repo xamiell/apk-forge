@@ -98,6 +98,10 @@ choose Open, or remove the quarantine flag:
 xattr -dr com.apple.quarantine "/Applications/APK Forge.app"
 ```
 
+`main` holds the released versions, each tagged (`v1.1.0`), and `develop`
+the work in progress. What changed in each version is in
+[CHANGELOG.md](CHANGELOG.md).
+
 ## Using it
 
 ### Build and sign a Flutter app
@@ -477,6 +481,22 @@ rules, including how secrets are handled, are in
 - Before a pull request: `dart format .`, `dart analyze lib test tool` with
   no issues, and `flutter test`. Check the change against ARCHITECTURE's
   "Every change" list.
+
+### Releasing
+
+A version, 1.1.0 say, goes from `develop` to `main` like this:
+
+1. A `release/1.1.0` branch from `develop` adds the version's section to
+   [CHANGELOG.md](CHANGELOG.md), from the issues and pull requests merged
+   since the last version, and sets `version: 1.1.0+<build>` in
+   `pubspec.yaml`. The build number goes up by one with each version.
+2. A pull request from it to `main` says what the version brings. Merge it
+   with a merge commit, not squashed or rebased, so `main` keeps
+   `develop`'s commits.
+3. Tag the merge commit `v1.1.0`, and publish a GitHub release with the
+   version's section of the changelog as its notes.
+4. Merge `main` back into `develop`, so the next version starts from the
+   changelog and the version number.
 
 ## License
 
