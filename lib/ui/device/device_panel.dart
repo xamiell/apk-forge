@@ -5,9 +5,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/format/format.dart';
 import '../../domain/devices/device_info.dart';
 import '../../domain/devices/devices.dart';
+import '../../domain/signing/signing.dart';
 import '../../state/apks.dart';
 import '../../state/devices.dart';
 import '../../state/forms.dart';
+import '../analysis/comparison_view.dart';
 import '../common/widgets.dart';
 import '../theme.dart';
 
@@ -366,7 +368,21 @@ class _SelectedApkOnDevice extends ConsumerWidget {
       _ => null,
     };
     final apkRuns = apkAbis.isEmpty || abi != null;
-    final color = !apkRuns || outcome == InstallOutcome.downgrade
+    // Another key than the installed app's: the update would be refused,
+    // whatever the versionCode says.
+    final otherKey =
+        installed is AsyncData<InstalledPackage?> &&
+        installed.value != null &&
+        ref
+                .watch(
+                  installSignerWarningProvider((
+                    serial: device.serial,
+                    apk: path,
+                  )),
+                )
+                .value !=
+            null;
+    final color = !apkRuns || otherKey || outcome == InstallOutcome.downgrade
         ? colors.warning
         : colors.ok;
 
@@ -397,6 +413,9 @@ class _SelectedApkOnDevice extends ConsumerWidget {
               child: Text(
                 !apkRuns
                     ? 'It won\'t install: no native code for this device.'
+                    : otherKey
+                    ? 'It won\'t install over the installed app: it is '
+                          'signed with another key.'
                     : 'Installing ${badging.versionName ?? ''} ($apkCode): '
                           '${outcome!.description}',
                 style: TextStyle(
@@ -404,6 +423,22 @@ class _SelectedApkOnDevice extends ConsumerWidget {
                   fontWeight: FontWeight.w600,
                   color: color,
                 ),
+              ),
+            ),
+          // Compare reads APKs only, not bundles.
+          if (installed case AsyncData(value: _?) when !isAppBundle(path))
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: () => showInstalledComparison(
+                  context,
+                  serial: device.serial,
+                  deviceName: device.displayName,
+                  package: package,
+                  candidate: path,
+                ),
+                icon: const Icon(Icons.compare_arrows_rounded, size: 16),
+                label: const Text('Compare with the installed app'),
               ),
             ),
         ],

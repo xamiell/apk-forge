@@ -16,7 +16,7 @@ List<String> buildProblems(BuildOptions options, Host host, FileProbe probe) {
     problems.add('The project has no android/ folder.');
   }
   if (options.abis.isEmpty) {
-    problems.add('Select at least one architecture.');
+    problems.add('Choose at least one architecture in Defaults.');
   }
   if (options.effectiveObfuscate && options.symbolsDir.trim().isEmpty) {
     problems.add('Obfuscation needs a folder for the symbols.');
@@ -34,9 +34,10 @@ List<String> flutterBuildArguments(BuildOptions options) {
       .where(options.abis.contains)
       .map((abi) => abi.flutterTarget)
       .join(',');
+  final bundle = options.effectivePackaging == ApkPackaging.appBundle;
   return [
     'build',
-    'apk',
+    bundle ? 'appbundle' : 'apk',
     options.mode == BuildMode.release ? '--release' : '--debug',
     '--target-platform',
     targets,
@@ -49,15 +50,16 @@ List<String> flutterBuildArguments(BuildOptions options) {
   ];
 }
 
-final _builtLine = RegExp(r'Built\s+(.+?\.apk)(?:\s+\([^)]*\))?\s*$');
+final _builtLine = RegExp(r'Built\s+(.+?\.(?:apk|aab))(?:\s+\([^)]*\))?\s*$');
 
-/// The APKs a `flutter build apk` run reports, as absolute paths.
+/// The APKs or App Bundle a `flutter build` run reports, as absolute paths.
 ///
-/// Flutter prints one line per APK, relative to the project:
-/// `✓ Built build/app/outputs/flutter-apk/app-release.apk (12.1MB)`.
+/// Flutter prints one line per file, relative to the project:
+/// `✓ Built build/app/outputs/flutter-apk/app-release.apk (12.1MB)`, or
+/// `✓ Built build/app/outputs/bundle/release/app-release.aab (42.6MB)`.
 /// Reading them, instead of guessing names, also covers flavors and custom
 /// output names.
-List<String> parseBuiltApks(
+List<String> parseBuiltFiles(
   Iterable<String> lines, {
   required String projectDir,
   required Host host,

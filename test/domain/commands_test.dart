@@ -2,8 +2,10 @@ import 'package:apk_forge/core/process/command.dart';
 import 'package:apk_forge/core/system/host.dart';
 import 'package:apk_forge/domain/build/build_options.dart';
 import 'package:apk_forge/domain/build/flutter_build.dart';
+import 'package:apk_forge/domain/signing/bundle.dart';
 import 'package:apk_forge/domain/signing/keystore.dart';
 import 'package:apk_forge/domain/signing/signing.dart';
+import 'package:apk_forge/domain/tools/bundletool.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../helpers/fakes.dart';
@@ -55,6 +57,73 @@ void main() {
             .copyWith(abis: {AndroidAbi.x8664, AndroidAbi.arm64V8a})
             .effectivePackaging,
         ApkPackaging.splitPerAbi,
+      );
+    });
+
+    test('an App Bundle: flutter build appbundle, never split', () {
+      final options = const BuildOptions().copyWith(
+        abis: {AndroidAbi.arm64V8a},
+        packaging: ApkPackaging.appBundle,
+        obfuscate: true,
+        symbolsDir: '/w/symbols',
+      );
+
+      expect(options.effectivePackaging, ApkPackaging.appBundle);
+      expect(flutterBuildArguments(options), [
+        'build',
+        'appbundle',
+        '--release',
+        '--target-platform',
+        'android-arm64',
+        '--obfuscate',
+        '--split-debug-info=/w/symbols',
+      ]);
+      expect(
+        const BuildOptions(packaging: ApkPackaging.appBundle).outputSummary,
+        'One App Bundle (.aab) with every architecture, to upload to a store.',
+      );
+      expect(
+        options.outputSummary,
+        'One App Bundle (.aab) with arm64-v8a, to upload to a store.',
+      );
+    });
+
+    test('an App Bundle is saved and comes back', () {
+      final saved = const BuildOptions(packaging: ApkPackaging.appBundle)
+          .toJson();
+
+      expect(saved['packaging'], 'appBundle');
+      expect(
+        BuildOptions.fromJson(saved, abis: {AndroidAbi.arm64V8a}).packaging,
+        ApkPackaging.appBundle,
+      );
+    });
+
+    test('the output summary says how many APKs, and with what', () {
+      const every = BuildOptions();
+      final two = every.copyWith(abis: {AndroidAbi.arm64V8a, AndroidAbi.x8664});
+
+      expect(every.outputSummary, 'One APK with every architecture.');
+      expect(
+        two.outputSummary,
+        'One APK with the 2 architectures in Defaults.',
+      );
+      expect(
+        two.copyWith(packaging: ApkPackaging.splitPerAbi).outputSummary,
+        'One APK per architecture: 2 APKs.',
+      );
+      expect(
+        every
+            .copyWith(
+              abis: {AndroidAbi.x8664},
+              packaging: ApkPackaging.splitPerAbi,
+            )
+            .outputSummary,
+        'One APK for x86_64. Split needs two or more architectures.',
+      );
+      expect(
+        every.copyWith(abis: {}).outputSummary,
+        'Choose an architecture in Defaults.',
       );
     });
 
@@ -126,7 +195,7 @@ void main() {
           macHost,
           probe,
         ),
-        ['Select at least one architecture.'],
+        ['Choose at least one architecture in Defaults.'],
       );
       expect(
         buildProblems(
@@ -146,6 +215,88 @@ void main() {
       alias: 'upload',
       keyPassword: 'k3y-pass',
     );
+
+    test('verify prints the certificates, and checks v4 with its .idsig; '
+        'lineage prints the rotation', () {
+      expect(apksignerVerifyArguments('/a b/app.apk'), [
+        'verify',
+        '--verbose',
+        '--print-certs',
+        '/a b/app.apk',
+      ]);
+      expect(
+        apksignerVerifyArguments(
+          '/a b/app.apk',
+          v4SignatureFile: '/a b/app.apk.idsig',
+        ),
+        [
+          'verify',
+          '--verbose',
+          '--print-certs',
+          '--v4-signature-file',
+          '/a b/app.apk.idsig',
+          '/a b/app.apk',
+        ],
+      );
+      expect(apksignerLineageArguments('/a b/app.apk'), [
+        'lineage',
+        '--in',
+        '/a b/app.apk',
+        '--print-certs',
+      ]);
+    });
+
+    test('the key check reads both passwords from the environment', () {
+      expect(keytoolCertreqArguments('/keys/release.jks', 'upload'), [
+        '-J-Duser.language=en',
+        '-J-Duser.country=US',
+        '-certreq',
+        '-keystore',
+        '/keys/release.jks',
+        '-alias',
+        'upload',
+        '-storepass:env',
+        keystorePasswordVariable,
+        '-keypass:env',
+        keyPasswordVariable,
+      ]);
+    });
+
+    test('a new key: its type and validity, both passwords from the '
+        'environment', () {
+      expect(
+        keytoolGenerateKeyArguments(
+          '/tmp/kiosk.jks',
+          'kiosk',
+          distinguishedName: 'CN=Kiosk, O=Example, C=US',
+          validityDays: 9131,
+          storeType: KeystoreType.jks,
+        ),
+        [
+          '-J-Duser.language=en',
+          '-J-Duser.country=US',
+          '-genkeypair',
+          '-keystore',
+          '/tmp/kiosk.jks',
+          '-storetype',
+          'JKS',
+          '-storepass:env',
+          keystorePasswordVariable,
+          '-keypass:env',
+          keyPasswordVariable,
+          '-alias',
+          'kiosk',
+          '-keyalg',
+          'RSA',
+          '-keysize',
+          '2048',
+          '-validity',
+          '9131',
+          '-dname',
+          'CN=Kiosk, O=Example, C=US',
+        ],
+      );
+    });
 
     test('the passwords travel in the environment, never in the arguments', () {
       final arguments = apksignerSignArguments(
@@ -216,6 +367,44 @@ void main() {
       );
     });
 
+    test('schemes: their label, their JSON, and what apksigner refuses', () {
+      const chosen = SigningSchemes(v1: false, v2: true, v3: true, v4: false);
+
+      expect(const SigningSchemes.automatic().label, 'Auto');
+      expect(chosen.label, 'v2, v3');
+      expect(
+        const SigningSchemes(v1: false, v2: false, v3: false, v4: false).label,
+        'none marked',
+      );
+      expect(SigningSchemes.fromJson(chosen.toJson()).label, 'v2, v3');
+      expect(SigningSchemes.fromJson(null).isAutomatic, isTrue);
+
+      // apksigner 36 writes an APK with no signature, and exits 0.
+      expect(
+        const SigningSchemes(v1: false, v2: false, v3: false).problem,
+        'Mark v1, v2 or v3.',
+      );
+      // It throws: v4 signing requires at least v2 or v3.
+      expect(
+        const SigningSchemes(v1: true, v2: false, v3: false, v4: true).problem,
+        'v4 needs v2 or v3.',
+      );
+      // A scheme left to apksigner: it signs with v2 and v3.
+      expect(const SigningSchemes(v1: false).problem, isNull);
+      expect(const SigningSchemes.automatic().problem, isNull);
+      expect(chosen.problem, isNull);
+    });
+
+    test('a problem with the schemes in Defaults says where they are', () {
+      expect(
+        defaultSchemesProblem(
+          const SigningSchemes(v1: false, v2: false, v3: false),
+        ),
+        'Signature schemes in Defaults: Mark v1, v2 or v3.',
+      );
+      expect(defaultSchemesProblem(const SigningSchemes.automatic()), isNull);
+    });
+
     test(
       'keytool lists in English and reads the password from the environment',
       () {
@@ -232,33 +421,171 @@ void main() {
       },
     );
 
-    test('signedApkPath never overwrites the original', () {
+    test('jarsigner signs with the passwords in the environment only', () {
+      const own = SigningRequest(
+        keystorePath: '/k.jks',
+        storePassword: 'hunter2',
+        alias: 'upload',
+        keyPassword: 'swordfish',
+      );
+
+      final arguments = jarsignerSignArguments(
+        own,
+        input: '/tmp/app-release.aab',
+        output: '/out/app-release-signed.aab.partial',
+      );
+
+      expect(arguments, [
+        '-J-Duser.language=en',
+        '-J-Duser.country=US',
+        '-keystore',
+        '/k.jks',
+        '-storepass:env',
+        keystorePasswordVariable,
+        '-keypass:env',
+        keyPasswordVariable,
+        '-signedjar',
+        '/out/app-release-signed.aab.partial',
+        '/tmp/app-release.aab',
+        'upload',
+      ]);
+      expect(arguments.join(' '), isNot(contains('hunter2')));
+      expect(arguments.join(' '), isNot(contains('swordfish')));
+      // A key that uses the keystore password gets no -keypass.
       expect(
-        signedApkPath('/out/app-release.apk', null, macHost),
+        jarsignerSignArguments(
+          const SigningRequest(
+            keystorePath: '/k.jks',
+            storePassword: 'hunter2',
+            alias: 'upload',
+          ),
+          input: 'in.aab',
+          output: 'out.aab',
+        ),
+        isNot(contains('-keypass:env')),
+      );
+    });
+
+    test(
+      'a bundle is checked by jarsigner, and its signers read by keytool',
+      () {
+        expect(jarsignerVerifyArguments('/out/a.aab'), [
+          '-J-Duser.language=en',
+          '-J-Duser.country=US',
+          '-verify',
+          '/out/a.aab',
+        ]);
+        expect(keytoolPrintJarCertificatesArguments('/out/a.aab'), [
+          '-J-Duser.language=en',
+          '-J-Duser.country=US',
+          '-printcert',
+          '-jarfile',
+          '/out/a.aab',
+        ]);
+      },
+    );
+
+    test('bundletool reads a bundle\'s manifest, and makes and installs the '
+        'device\'s APKs with the passwords in files', () {
+      const jar = ['-jar', '/tools/bt.jar'];
+
+      expect(bundletoolDumpManifestArguments(jar, '/out/a.aab'), [
+        '-jar',
+        '/tools/bt.jar',
+        'dump',
+        'manifest',
+        '--bundle=/out/a.aab',
+      ]);
+      expect(
+        bundletoolBuildApksArguments(
+          jar,
+          bundle: '/out/a.aab',
+          output: '/tmp/x/device.apks',
+          serial: 'emulator-5554',
+          adb: '/pt/adb',
+          keystore: '/k.jks',
+          alias: 'upload',
+          storePasswordFile: '/tmp/x/store.pass',
+          keyPasswordFile: '/tmp/x/key.pass',
+        ),
+        [
+          '-jar',
+          '/tools/bt.jar',
+          'build-apks',
+          '--bundle=/out/a.aab',
+          '--output=/tmp/x/device.apks',
+          '--connected-device',
+          '--device-id=emulator-5554',
+          '--adb=/pt/adb',
+          '--ks=/k.jks',
+          '--ks-key-alias=upload',
+          '--ks-pass=file:/tmp/x/store.pass',
+          '--key-pass=file:/tmp/x/key.pass',
+        ],
+      );
+      expect(
+        bundletoolInstallApksArguments(
+          const [],
+          apks: '/tmp/x/device.apks',
+          serial: 'emulator-5554',
+          adb: '/pt/adb',
+          allowDowngrade: true,
+        ),
+        [
+          'install-apks',
+          '--apks=/tmp/x/device.apks',
+          '--device-id=emulator-5554',
+          '--adb=/pt/adb',
+          '--allow-downgrade',
+        ],
+      );
+    });
+
+    test('signedFilePath never overwrites the original', () {
+      expect(
+        signedFilePath('/out/app-release.apk', null, macHost),
         '/out/app-release-signed.apk',
       );
       expect(
-        signedApkPath('/out/app-release.apk', '/signed', macHost),
+        signedFilePath('/out/app-release.apk', '/signed', macHost),
         '/signed/app-release-signed.apk',
       );
       expect(
-        signedApkPath('/out/app-signed.apk', null, macHost),
+        signedFilePath('/out/app-signed.apk', null, macHost),
         '/out/app-signed-signed.apk',
       );
       // Only when the name would be the input itself does it number the copy.
       expect(
-        signedApkPath('/out/app.apk', ' ', macHost),
+        signedFilePath('/out/app.apk', ' ', macHost),
         '/out/app-signed.apk',
+      );
+      // An App Bundle stays one.
+      expect(
+        signedFilePath('/out/app-release.aab', '/signed', macHost),
+        '/signed/app-release-signed.aab',
       );
     });
 
-    test('signedApkPath on Windows', () {
+    test('signedFilePath on Windows', () {
       const windows = Host(os: HostOs.windows, environment: {});
 
       expect(
-        signedApkPath(r'C:\out\app.apk', r'D:\signed', windows),
+        signedFilePath(r'C:\out\app.apk', r'D:\signed', windows),
         r'D:\signed\app-signed.apk',
       );
+    });
+
+    test('withDefaultOutputDir fills the folder only when none was chosen', () {
+      expect(request.withDefaultOutputDir('/ci').outputDir, '/ci');
+      expect(request.withDefaultOutputDir('/ci').secrets, request.secrets);
+
+      const chosen = SigningRequest(
+        keystorePath: '/k.jks',
+        storePassword: 'p',
+        alias: 'a',
+        outputDir: '/signed',
+      );
+      expect(chosen.withDefaultOutputDir('/ci').outputDir, '/signed');
     });
 
     test('zipalign aligns to 16 KB pages when build-tools can', () {

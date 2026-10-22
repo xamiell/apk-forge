@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../domain/analysis/findings.dart';
+import '../../domain/signing/signing.dart';
 import '../theme.dart';
 
 /// A titled panel.
@@ -76,6 +78,7 @@ class SyncedTextField extends StatefulWidget {
     this.onSubmitted,
     this.suffix,
     this.enabled = true,
+    this.problem,
   });
 
   final String value;
@@ -87,6 +90,9 @@ class SyncedTextField extends StatefulWidget {
   final Widget? suffix;
   final bool enabled;
 
+  /// Shown under the field, as [ProblemText] shows it.
+  final String? problem;
+
   @override
   State<SyncedTextField> createState() => _SyncedTextFieldState();
 }
@@ -95,9 +101,27 @@ class _SyncedTextFieldState extends State<SyncedTextField> {
   late final _controller = TextEditingController(text: widget.value);
   bool _revealed = false;
 
+  /// What this field sent through `onChanged` that the parent hasn't given
+  /// back yet. Keys typed faster than a frame arrive before the parent
+  /// rebuilds with the first of them; that late value is an echo, not a
+  /// change to show.
+  final _echoes = <String>[];
+
+  void _changed(String value) {
+    _echoes.add(value);
+    widget.onChanged(value);
+  }
+
   @override
   void didUpdateWidget(SyncedTextField oldWidget) {
     super.didUpdateWidget(oldWidget);
+    final echo = _echoes.indexOf(widget.value);
+    if (echo >= 0) {
+      _echoes.removeRange(0, echo + 1);
+      return;
+    }
+    // A change from outside (a Browse button, a reset): show it.
+    _echoes.clear();
     if (widget.value != _controller.text) {
       _controller.value = TextEditingValue(
         text: widget.value,
@@ -136,6 +160,7 @@ class _SyncedTextFieldState extends State<SyncedTextField> {
       decoration: InputDecoration(
         labelText: widget.label,
         hintText: widget.hint,
+        helper: widget.problem == null ? null : ProblemText([widget.problem!]),
         suffixIcon: (reveal == null && widget.suffix == null)
             ? null
             : Row(
@@ -143,7 +168,7 @@ class _SyncedTextFieldState extends State<SyncedTextField> {
                 children: [?reveal, ?widget.suffix],
               ),
       ),
-      onChanged: widget.onChanged,
+      onChanged: _changed,
       onSubmitted: widget.onSubmitted,
     );
   }
@@ -159,6 +184,7 @@ class PathField extends StatelessWidget {
     required this.onBrowse,
     this.hint,
     this.enabled = true,
+    this.problem,
   });
 
   final String label;
@@ -167,6 +193,7 @@ class PathField extends StatelessWidget {
   final VoidCallback onBrowse;
   final String? hint;
   final bool enabled;
+  final String? problem;
 
   @override
   Widget build(BuildContext context) {
@@ -175,6 +202,7 @@ class PathField extends StatelessWidget {
       hint: hint,
       value: value,
       enabled: enabled,
+      problem: problem,
       onChanged: onChanged,
       suffix: IconButton(
         tooltip: 'Browse…',
@@ -201,7 +229,9 @@ class FieldLabel extends StatelessWidget {
   );
 }
 
-/// Why a button is disabled, in the warning color.
+/// What stops something from running, or why a button is disabled: each
+/// one with the warning icon, in the warning color. Every screen shows a
+/// problem this way.
 class ProblemText extends StatelessWidget {
   const ProblemText(this.problems, {super.key});
 
@@ -220,7 +250,7 @@ class ProblemText extends StatelessWidget {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(Icons.info_outline, size: 14, color: color),
+                Icon(Icons.warning_amber_rounded, size: 14, color: color),
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text(
@@ -232,6 +262,35 @@ class ProblemText extends StatelessWidget {
             ),
           ),
       ],
+    );
+  }
+}
+
+/// "2 problems" with the warning icon, and the problems in its tooltip:
+/// for a list where there's no room to write them out.
+class ProblemCount extends StatelessWidget {
+  const ProblemCount(this.problems, {super.key});
+
+  final List<String> problems;
+
+  @override
+  Widget build(BuildContext context) {
+    if (problems.isEmpty) return const SizedBox.shrink();
+    final color = context.status.warning;
+    final count = problems.length;
+    return Tooltip(
+      message: problems.join('\n'),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.warning_amber_rounded, size: 14, color: color),
+          const SizedBox(width: 4),
+          Text(
+            '$count problem${count == 1 ? '' : 's'}',
+            style: TextStyle(fontSize: 12, color: color),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -303,6 +362,76 @@ class Pill extends StatelessWidget {
   );
 }
 
+/// Checks as tinted boxes, in the order given: the Analyze panel's findings,
+/// a comparison's verdicts.
+class FindingList extends StatelessWidget {
+  const FindingList({super.key, required this.findings});
+
+  final List<Finding> findings;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.status;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (final finding in findings)
+          Container(
+            margin: const EdgeInsets.only(bottom: 6),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: colors.forFinding(finding.level).withValues(alpha: 0.08),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: colors.forFinding(finding.level).withValues(alpha: 0.35),
+              ),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(
+                  findingIcon(finding.level),
+                  size: 18,
+                  color: colors.forFinding(finding.level),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        finding.title,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13,
+                        ),
+                      ),
+                      if (finding.detail != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2),
+                          child: SelectableText(
+                            finding.detail!,
+                            style: const TextStyle(fontSize: 12.5),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+IconData findingIcon(FindingLevel level) => switch (level) {
+  FindingLevel.ok => Icons.check_circle_rounded,
+  FindingLevel.info => Icons.info_rounded,
+  FindingLevel.warning => Icons.warning_amber_rounded,
+  FindingLevel.error => Icons.error_rounded,
+};
+
 /// A label and a selectable value, side by side.
 class InfoRow extends StatelessWidget {
   const InfoRow(
@@ -341,4 +470,108 @@ class InfoRow extends StatelessWidget {
       ],
     ),
   );
+}
+
+/// The signature schemes: apksigner's choice (Auto), or the ones marked.
+class SchemesField extends StatelessWidget {
+  const SchemesField({
+    super.key,
+    required this.schemes,
+    required this.onChanged,
+  });
+
+  final SigningSchemes schemes;
+  final ValueChanged<SigningSchemes> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final custom = !schemes.isAutomatic;
+    final problem = schemes.problem;
+    Widget chip(String label, bool? value, SigningSchemes Function(bool) set) =>
+        FilterChip(
+          label: Text(label),
+          selected: value ?? false,
+          onSelected: (on) => onChanged(set(on)),
+        );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SegmentedButton<bool>(
+          segments: const [
+            ButtonSegment(value: false, label: Text('Auto')),
+            ButtonSegment(value: true, label: Text('Choose')),
+          ],
+          selected: {custom},
+          showSelectedIcon: false,
+          onSelectionChanged: (selection) => onChanged(
+            selection.single
+                ? const SigningSchemes(v1: true, v2: true, v3: true, v4: false)
+                : const SigningSchemes.automatic(),
+          ),
+        ),
+        if (custom) ...[
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              chip('v1 (JAR)', schemes.v1, (v) => schemes.copyWith(v1: v)),
+              chip('v2', schemes.v2, (v) => schemes.copyWith(v2: v)),
+              chip('v3', schemes.v3, (v) => schemes.copyWith(v3: v)),
+              Tooltip(
+                message:
+                    'Also writes <apk>.idsig, for incremental installs '
+                    '(adb install --incremental).',
+                child: chip('v4', schemes.v4, (v) => schemes.copyWith(v4: v)),
+              ),
+            ],
+          ),
+        ],
+        const SizedBox(height: 6),
+        if (problem != null)
+          ProblemText([problem])
+        else
+          Text(
+            custom
+                ? 'Only the ones marked are written.'
+                : 'Auto: apksigner picks them by each APK\'s minSdk.',
+            style: TextStyle(fontSize: 12, color: context.status.muted),
+          ),
+      ],
+    );
+  }
+}
+
+/// A setting a card takes from the Workbench's Defaults, which is where it
+/// changes.
+class FromDefaults extends StatelessWidget {
+  const FromDefaults(this.text, {super.key, this.warning = false});
+
+  final String text;
+
+  /// [text] says what's wrong with it.
+  final bool warning;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.status;
+    return Tooltip(
+      message: 'Change it in Defaults, at the top of the Workbench.',
+      child: Row(
+        children: [
+          Pill('From Defaults', color: colors.info),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(
+                fontSize: 12.5,
+                color: warning ? colors.warning : null,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }

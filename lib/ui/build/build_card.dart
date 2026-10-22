@@ -5,11 +5,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/process/command.dart';
 import '../../domain/build/build_options.dart';
 import '../../domain/build/flutter_build.dart';
-import '../../state/actions.dart';
+import '../../state/actions/build_action.dart';
 import '../../state/forms.dart';
 import '../../state/providers.dart';
 import '../../state/task_notifier.dart';
-import '../../state/toolchain_notifier.dart';
 import '../common/widgets.dart';
 import '../theme.dart';
 
@@ -21,19 +20,10 @@ class BuildCard extends ConsumerWidget {
     final options = ref.watch(buildOptionsProvider);
     final notifier = ref.read(buildOptionsProvider.notifier);
     final host = ref.watch(hostProvider);
-    final signing = ref.watch(signingFormProvider);
     final busy = ref.watch(taskProvider.select((task) => task.isRunning));
-    final canBuild = ref.watch(
-      toolchainProvider.select((t) => t.value?.canBuild ?? false),
-    );
-
-    final problems = [
-      if (!canBuild) 'flutter was not found. Set it in Tools.',
-      ...buildProblems(options, host, ref.watch(fileProbeProvider)),
-      if (options.signAfterBuild && !signing.isReady)
-        'Signing: ${signing.problem}',
-    ];
+    final problems = ref.watch(buildProblemsProvider);
     final release = options.mode == BuildMode.release;
+    final bundle = options.effectivePackaging == ApkPackaging.appBundle;
 
     return SectionCard(
       title: 'Build',
@@ -73,31 +63,15 @@ class BuildCard extends ConsumerWidget {
                 notifier.update((o) => o.copyWith(mode: selection.single)),
           ),
           const SizedBox(height: 14),
-          Row(
-            children: [
-              const Expanded(child: FieldLabel('Architectures')),
-              TextButton(
-                onPressed: () => notifier.update(
-                  (o) => o.copyWith(abis: AndroidAbi.values.toSet()),
-                ),
-                child: const Text('All'),
-              ),
-            ],
-          ),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              for (final abi in AndroidAbi.values)
-                Tooltip(
-                  message: abi.description,
-                  child: FilterChip(
-                    label: Text(abi.abiName),
-                    selected: options.abis.contains(abi),
-                    onSelected: (_) => notifier.toggleAbi(abi),
-                  ),
-                ),
-            ],
+          const FieldLabel('Architectures'),
+          FromDefaults(
+            options.abis.isEmpty
+                ? 'None chosen: Build needs one.'
+                : [
+                    for (final abi in AndroidAbi.values)
+                      if (options.abis.contains(abi)) abi.abiName,
+                  ].join(', '),
+            warning: options.abis.isEmpty,
           ),
           const SizedBox(height: 14),
           const FieldLabel('Output'),
@@ -111,7 +85,7 @@ class BuildCard extends ConsumerWidget {
                       packaging != ApkPackaging.splitPerAbi || options.canSplit,
                   tooltip:
                       packaging == ApkPackaging.splitPerAbi && !options.canSplit
-                      ? 'Select two or more architectures to split'
+                      ? 'Choose two or more architectures in Defaults to split'
                       : null,
                 ),
             ],
@@ -122,7 +96,7 @@ class BuildCard extends ConsumerWidget {
           ),
           const SizedBox(height: 6),
           Text(
-            _outputSummary(options),
+            options.outputSummary,
             style: TextStyle(fontSize: 12, color: context.status.muted),
           ),
           const SizedBox(height: 8),
@@ -163,10 +137,15 @@ class BuildCard extends ConsumerWidget {
             contentPadding: EdgeInsets.zero,
             dense: true,
             controlAffinity: ListTileControlAffinity.leading,
-            title: const Text('Sign the APKs with the key in Sign'),
-            subtitle: const Text(
-              'Off: they keep Gradle\'s signature (debug key, or the project\'s key.properties).',
-              style: TextStyle(fontSize: 12),
+            title: Text(
+              bundle
+                  ? 'Sign the bundle with the key in Sign'
+                  : 'Sign the APKs with the key in Sign',
+            ),
+            subtitle: Text(
+              'Off: ${bundle ? 'it keeps' : 'they keep'} Gradle\'s signature '
+              '(debug key, or the project\'s key.properties).',
+              style: const TextStyle(fontSize: 12),
             ),
             value: options.signAfterBuild,
             onChanged: (value) => notifier.update(
@@ -180,7 +159,7 @@ class BuildCard extends ConsumerWidget {
           const SizedBox(height: 6),
           FilledButton.icon(
             onPressed: problems.isEmpty && !busy
-                ? () => ref.read(actionsProvider).build()
+                ? () => ref.read(buildActionProvider).run()
                 : null,
             icon: const Icon(Icons.play_arrow_rounded),
             label: Text(options.signAfterBuild ? 'Build and sign' : 'Build'),
@@ -189,21 +168,6 @@ class BuildCard extends ConsumerWidget {
       ),
     );
   }
-}
-
-String _outputSummary(BuildOptions options) {
-  final count = options.abis.length;
-  if (count == 0) return 'Select an architecture.';
-  if (options.effectivePackaging == ApkPackaging.splitPerAbi) {
-    return 'One APK per architecture: $count APKs.';
-  }
-  if (count == 1) {
-    return 'One APK for ${options.abis.single.abiName}. Split needs two or '
-        'more architectures.';
-  }
-  return count == AndroidAbi.values.length
-      ? 'One APK with every architecture.'
-      : 'One APK with the $count selected architectures.';
 }
 
 /// The exact command the button runs, so nothing happens behind the user's

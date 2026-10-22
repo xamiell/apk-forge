@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../domain/devices/devices.dart';
-import '../../state/actions.dart';
+import '../../domain/signing/signing.dart';
+import '../../state/actions/install_action.dart';
 import '../../state/apks.dart';
 import '../../state/devices.dart';
 import '../../state/forms.dart';
@@ -42,6 +43,8 @@ class InstallCard extends ConsumerWidget {
 
     final problems = [
       if (apkPath == null) 'Select an APK in the list.',
+      if (apkPath != null && isAppBundle(apkPath))
+        ...ref.watch(bundleInstallProblemsProvider),
       if (selected == null) 'Select a device.',
       if (selected != null && !selected.isReady)
         selected.state == 'unauthorized'
@@ -52,6 +55,19 @@ class InstallCard extends ConsumerWidget {
         selected != null &&
         apkAbis != null &&
         !isAbiCompatible(apkAbis, selected.abis);
+    // Another key than the installed app's, once both are read. A failure
+    // to read the installed app shows in the log, not here.
+    final signerWarning =
+        apkPath == null || selected == null || !selected.isReady
+        ? null
+        : ref
+              .watch(
+                installSignerWarningProvider((
+                  serial: selected.serial,
+                  apk: apkPath,
+                )),
+              )
+              .value;
 
     return SectionCard(
       title: 'Install',
@@ -115,7 +131,20 @@ class InstallCard extends ConsumerWidget {
             onChanged: (value) =>
                 optionsNotifier.setAllowDowngrade(value ?? false),
           ),
-          if (apkPath != null) InfoRow('APK', host.path.basename(apkPath)),
+          if (apkPath != null)
+            InfoRow(
+              isAppBundle(apkPath) ? 'App Bundle' : 'APK',
+              host.path.basename(apkPath),
+            ),
+          if (apkPath != null && isAppBundle(apkPath))
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                'bundletool makes this device\'s APKs from it, signed with the '
+                'key in Sign, as a store would.',
+                style: TextStyle(fontSize: 12, color: context.status.muted),
+              ),
+            ),
           if (abiMismatch)
             Padding(
               padding: const EdgeInsets.only(top: 6),
@@ -124,12 +153,17 @@ class InstallCard extends ConsumerWidget {
                     'the device runs ${selected.abis.join(', ')}.',
               ]),
             ),
+          if (signerWarning != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: ProblemText([signerWarning]),
+            ),
           const SizedBox(height: 8),
           ProblemText(problems),
           const SizedBox(height: 6),
           FilledButton.icon(
             onPressed: problems.isEmpty && !busy
-                ? () => ref.read(actionsProvider).install()
+                ? () => ref.read(installActionProvider).run()
                 : null,
             icon: const Icon(Icons.download_rounded),
             label: const Text('Install'),

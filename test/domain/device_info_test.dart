@@ -136,7 +136,7 @@ void main() {
     });
 
     test('only a package name reaches the device shell', () {
-      expect(isValidPackageName('com.on7labs.bancas'), isTrue);
+      expect(isValidPackageName('com.example.app'), isTrue);
       expect(isValidPackageName('io.example.sample_app'), isTrue);
       expect(isValidPackageName('single'), isFalse);
       expect(isValidPackageName('com.x; reboot'), isFalse);
@@ -159,7 +159,7 @@ void main() {
     });
 
     test('a 32-bit-only device runs no 64-bit-only APK', () {
-      // Seen on a Dspread D30: a 64-bit chip with 32-bit firmware.
+      // Seen on real hardware: a 64-bit chip with 32-bit firmware.
       expect(preferredAbi(['arm64-v8a'], ['armeabi-v7a', 'armeabi']), isNull);
       expect(
         preferredAbi(['arm64-v8a', 'armeabi-v7a'], ['armeabi-v7a', 'armeabi']),

@@ -134,6 +134,12 @@ class _Report extends ConsumerWidget {
                         color: colors.error,
                         icon: Icons.gpp_bad_outlined,
                       ),
+              if (report.isBundle)
+                Pill(
+                  'App Bundle',
+                  color: colors.info,
+                  icon: Icons.inventory_2_outlined,
+                ),
               if (report.contents.flutter != null)
                 Pill(
                   report.contents.flutter == FlutterCompilation.aot
@@ -144,7 +150,7 @@ class _Report extends ConsumerWidget {
             ],
           ),
           const SizedBox(height: 14),
-          _Findings(findings: findings),
+          FindingList(findings: findings),
           const SizedBox(height: 18),
           _Section(
             title: 'Signature',
@@ -156,6 +162,7 @@ class _Report extends ConsumerWidget {
                 : _SignatureDetails(
                     signature: signature,
                     hasJarSignature: report.hasJarSignature,
+                    bundle: report.isBundle,
                   ),
           ),
           _Section(
@@ -280,107 +287,38 @@ class _Section extends StatelessWidget {
   );
 }
 
-class _Findings extends StatelessWidget {
-  const _Findings({required this.findings});
-
-  final List<Finding> findings;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.status;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        for (final finding in findings)
-          Container(
-            margin: const EdgeInsets.only(bottom: 6),
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            decoration: BoxDecoration(
-              color: colors.forFinding(finding.level).withValues(alpha: 0.08),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(
-                color: colors.forFinding(finding.level).withValues(alpha: 0.35),
-              ),
-            ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Icon(
-                  switch (finding.level) {
-                    FindingLevel.ok => Icons.check_circle_rounded,
-                    FindingLevel.info => Icons.info_rounded,
-                    FindingLevel.warning => Icons.warning_amber_rounded,
-                    FindingLevel.error => Icons.error_rounded,
-                  },
-                  size: 18,
-                  color: colors.forFinding(finding.level),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        finding.title,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w600,
-                          fontSize: 13,
-                        ),
-                      ),
-                      if (finding.detail != null)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 2),
-                          child: SelectableText(
-                            finding.detail!,
-                            style: const TextStyle(fontSize: 12.5),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-      ],
-    );
-  }
-}
-
 class _SignatureDetails extends StatelessWidget {
   const _SignatureDetails({
     required this.signature,
     required this.hasJarSignature,
+    required this.bundle,
   });
 
   final SignatureReport signature;
   final bool hasJarSignature;
 
+  /// A bundle has a JAR signature only: the v1 to v4 schemes are an APK's.
+  final bool bundle;
+
   @override
   Widget build(BuildContext context) {
     final colors = context.status;
     Widget scheme(String name) {
-      final verified = signature.scheme(name);
-      // apksigner skips v1 for minSdk 24+, so show a v1 it didn't check.
-      final presentOnly = name == 'v1' && !verified && hasJarSignature;
+      final status = schemeStatus(
+        signature,
+        name,
+        hasJarSignature: hasJarSignature,
+      );
+      final (color, icon) = switch (status.state) {
+        SchemeState.verified => (colors.ok, Icons.check_rounded),
+        SchemeState.presentOnly => (colors.info, Icons.remove_rounded),
+        SchemeState.absent => (colors.muted, Icons.close_rounded),
+        SchemeState.unchecked => (colors.muted, Icons.question_mark_rounded),
+        SchemeState.failed => (colors.warning, Icons.close_rounded),
+      };
       return Tooltip(
-        message: presentOnly
-            ? 'A v1 signature is present; apksigner did not need it for this minSdk.'
-            : verified
-            ? 'Verified'
-            : 'Not present',
-        child: Pill(
-          presentOnly ? 'v1 present' : name,
-          color: verified
-              ? colors.ok
-              : presentOnly
-              ? colors.info
-              : colors.muted,
-          icon: verified
-              ? Icons.check_rounded
-              : presentOnly
-              ? Icons.remove_rounded
-              : Icons.close_rounded,
-        ),
+        message: status.description,
+        child: Pill(status.label, color: color, icon: icon),
       );
     }
 
@@ -391,14 +329,40 @@ class _SignatureDetails extends StatelessWidget {
           spacing: 6,
           runSpacing: 6,
           children: [
-            for (final name in const ['v1', 'v2', 'v3', 'v3.1', 'v4'])
-              scheme(name),
+            if (bundle)
+              Tooltip(
+                message:
+                    'A bundle carries a JAR signature only: the store signs '
+                    'the APKs it makes from it.',
+                child: Pill(
+                  'JAR signature',
+                  color: signature.verifies ? colors.ok : colors.error,
+                  icon: signature.verifies
+                      ? Icons.check_rounded
+                      : Icons.close_rounded,
+                ),
+              )
+            else
+              for (final name in const ['v1', 'v2', 'v3', 'v3.1', 'v4'])
+                scheme(name),
           ],
         ),
+        if (signature.v4Problem case final problem?)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(
+              'v4: $problem',
+              style: TextStyle(fontSize: 12.5, color: colors.warning),
+            ),
+          ),
         const SizedBox(height: 10),
         for (final signer in signature.signers) ...[
           InfoRow(
-            signature.signers.length > 1 ? signer.label : 'Signer',
+            signer.apiRange != null
+                ? 'Signer, ${signer.apiRange}'
+                : signature.signers.length > 1
+                ? signer.label
+                : 'Signer',
             signer.distinguishedName ?? '?',
           ),
           if (signer.sha256 != null)
@@ -422,6 +386,15 @@ class _SignatureDetails extends StatelessWidget {
             ),
           const SizedBox(height: 6),
         ],
+        if (signature.lineage.isNotEmpty)
+          InfoRow(
+            'Key rotated',
+            [
+              for (final signer in signature.lineage)
+                signer.distinguishedName ??
+                    (signer.sha256 == null ? '?' : shortDigest(signer.sha256!)),
+            ].join('  →  '),
+          ),
         for (final error in signature.errors)
           Text('ERROR: $error', style: monospace.copyWith(color: colors.error)),
         if (signature.warnings.isNotEmpty)

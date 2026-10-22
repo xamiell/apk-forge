@@ -1,0 +1,20 @@
+-----BEGIN NEW CERTIFICATE REQUEST-----
+MIICsjCCAZoCAQAwPTELMAkGA1UEBhMCVVMxEDAOBgNVBAoTB0V4YW1wbGUxHDAa
+BgNVBAMTE0FQSyBGb3JnZSBLZXkgQ2hlY2swggEiMA0GCSqGSIb3DQEBAQUAA4IB
+DwAwggEKAoIBAQCfurCkjN7iRLLbQ9UOL6JkeTkudbhPgRPZC1znNFCJmHCbIymt
++DSm2UmCXKT/ytxHHUgGH+PWeGjc0srBcjzkRlk58Rbzx9OZAsD1tSkXJs5FpWCV
+v3m489NT2qJKNumMn3DeogfX7Voc++whFwkWQLUhs9bwjPY8D+SziHEetBffDJ/2
+gXX0gWGh0m6huf04HHEBHBxLP9I21xur9/tFxFaqTLVoEGd2VuG35m21zMHBCZIu
+GzLEHUZaX94WfxeDegX01ls7cRM/pUNr1jsBhPLRgAXd7uw9YthQO3u3ghdBloNI
+hxWEV6t1cCcjtZQUzxoruDQ4kspFEVdTDZBxAgMBAAGgMDAuBgkqhkiG9w0BCQ4x
+ITAfMB0GA1UdDgQWBBRROC+9BCLsctSqOP6hJZXjsHP6XDANBgkqhkiG9w0BAQwF
+AAOCAQEAl0bO5zAX7NRi9iAMOKfRI4u9zn7/8bT3j4PdPIWW8ExdtNeAAACwbZ3Z
+nRAnBJxLwFgpOWDzqGXwIJUCZZFMEDMa6AyOCFaslpNKPxfI8QetqU1iFpJZhxVD
+H4qTRGvi2bHgKcmd877saCpotU58lAuSAFl1r3proXbPDqePfwNL3/xwUm4l/IGk
+lSsTxRASKx3j1VSwepBZHHjpltoKcp0UUac52RRIMxQkBEBCF6cjJ7FY/IpqU40v
+rBAZM1hnPcUq4YmbdPujuOC+EF1297YyegLoqjVpKszp7vmQdqNIuHSQM3EPfqjk
+7hliCURBiKo9HODvA4yeatfS6Miaww==
+-----END NEW CERTIFICATE REQUEST-----
+
+Warning:
+The JKS keystore uses a proprietary format. It is recommended to migrate to PKCS12 which is an industry standard format using "keytool -importkeystore -srckeystore /private/tmp/claude-501/-Users-eliaspujols-Projects-apk-forge/0e1f0b45-d90c-4e79-94ce-51d4a0e6d39b/scratchpad/keycheck/distinct.jks -destkeystore /private/tmp/claude-501/-Users-eliaspujols-Projects-apk-forge/0e1f0b45-d90c-4e79-94ce-51d4a0e6d39b/scratchpad/keycheck/distinct.jks -deststoretype pkcs12".

@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../domain/analysis/apk_report.dart';
+import '../domain/analysis/comparison.dart';
 import '../services/tool_executor.dart';
 import 'log_notifier.dart';
 import 'providers.dart';
@@ -37,18 +38,30 @@ class ApkList {
   }
 }
 
+/// Where the actions list the APKs they write. [ApkListNotifier] is the
+/// app's.
+abstract interface class ApkSink {
+  /// Lists [path] on top. Without [select], the selection stays.
+  void add(String path, ApkOrigin origin, {bool select});
+  void select(String path);
+}
+
 /// The APKs of this session: built, signed or opened. Not saved: the files
 /// may be gone next time.
 final apkListProvider = NotifierProvider<ApkListNotifier, ApkList>(
   ApkListNotifier.new,
 );
 
-class ApkListNotifier extends Notifier<ApkList> {
+class ApkListNotifier extends Notifier<ApkList> implements ApkSink {
   @override
   ApkList build() => const ApkList();
 
   /// Adds [path] on top, or moves it there if it's listed, and re-reads its
   /// report: the file may have changed (signed again to the same name).
+  ///
+  /// Without [select] it's still selected when nothing is: a list with
+  /// APKs always has one selected.
+  @override
   void add(String path, ApkOrigin origin, {bool select = true}) {
     final items = [
       ApkItem(path, origin),
@@ -56,11 +69,14 @@ class ApkListNotifier extends Notifier<ApkList> {
     ];
     state = ApkList(
       items: items,
-      selectedPath: select ? path : state.selectedPath,
+      selectedPath: select || state.selectedPath == null
+          ? path
+          : state.selectedPath,
     );
     ref.invalidate(apkReportProvider(path));
   }
 
+  @override
   void select(String path) =>
       state = ApkList(items: state.items, selectedPath: path);
 
@@ -95,3 +111,19 @@ final apkReportProvider = FutureProvider.family<ApkReport, String>((
   );
   return report;
 });
+
+/// [candidate] compared with [reference] as an update over it, from their
+/// reports: nothing is read twice.
+final apkComparisonProvider =
+    FutureProvider.family<
+      ApkComparison,
+      ({String reference, String candidate})
+    >((ref, pair) async {
+      final reference = await ref.watch(
+        apkReportProvider(pair.reference).future,
+      );
+      final candidate = await ref.watch(
+        apkReportProvider(pair.candidate).future,
+      );
+      return compareApks(reference, candidate);
+    });

@@ -1,12 +1,20 @@
+import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
+import 'package:apk_forge/core/files/file_digests.dart';
 import 'package:apk_forge/core/format/format.dart';
+import 'package:apk_forge/core/process/command.dart';
 import 'package:apk_forge/core/process/process_runner.dart';
+import 'package:apk_forge/core/system/host.dart';
 import 'package:apk_forge/core/system/shell_environment.dart';
 import 'package:apk_forge/core/zip/zip_directory.dart';
 import 'package:apk_forge/domain/failure.dart';
 import 'package:archive/archive.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+import '../helpers/fakes.dart';
+
 import 'package:path/path.dart' as p;
 
 void main() {
@@ -59,6 +67,135 @@ void main() {
     });
   });
 
+  group('copyZipEntries', () {
+    late Directory temp;
+
+    setUp(() => temp = Directory.systemTemp.createTempSync('apk_forge_test_'));
+    tearDown(() => temp.deleteSync(recursive: true));
+
+    String write(String name, List<int> bytes) {
+      final path = p.join(temp.path, name);
+      File(path).writeAsBytesSync(bytes);
+      return path;
+    }
+
+    Uint8List universal() => Uint8List.fromList(
+      ZipEncoder().encode(
+        Archive()
+          ..add(
+            ArchiveFile.bytes('lib/arm64-v8a/libapp.so', List.filled(300, 1))
+              ..compression = CompressionType.none,
+          )
+          ..add(
+            ArchiveFile.bytes('lib/x86_64/libapp.so', List.filled(300, 2))
+              ..compression = CompressionType.none,
+          )
+          ..add(ArchiveFile.string('AndroidManifest.xml', 'manifest ' * 50)),
+      ),
+    );
+
+    test('copies the entries it keeps exactly as they were stored', () async {
+      final input = write('app.apk', universal());
+      final output = p.join(temp.path, 'arm64.apk');
+
+      final kept = await copyZipEntries(
+        input,
+        output,
+        keep: (name) => !name.startsWith('lib/x86_64/'),
+      );
+
+      expect(kept, 2);
+      final before = {
+        for (final entry in await readZipDirectory(input)) entry.name: entry,
+      };
+      final after = await readZipDirectory(output);
+      expect(after.map((e) => e.name), [
+        'lib/arm64-v8a/libapp.so',
+        'AndroidManifest.xml',
+      ]);
+      for (final entry in after) {
+        expect(entry.isCompressed, before[entry.name]!.isCompressed);
+        expect(entry.compressedSize, before[entry.name]!.compressedSize);
+      }
+      final copy = ZipDecoder().decodeBytes(
+        File(output).readAsBytesSync(),
+        verify: true,
+      );
+      expect(
+        copy.findFile('lib/arm64-v8a/libapp.so')!.content,
+        List.filled(300, 1),
+      );
+      expect(
+        utf8.decode(copy.findFile('AndroidManifest.xml')!.content),
+        'manifest ' * 50,
+      );
+    });
+
+    test('leaves out an APK Signing Block and the comment', () async {
+      final zip = ZipEncoder().encode(
+        Archive()
+          ..add(ArchiveFile.string('classes.dex', 'dex'))
+          ..comment = 'built by CI',
+      );
+      final input = write(
+        'signed.apk',
+        _withSigningBlock(Uint8List.fromList(zip)),
+      );
+      final output = p.join(temp.path, 'copy.apk');
+      expect((await readZipDirectory(input)).single.name, 'classes.dex');
+
+      await copyZipEntries(input, output, keep: (_) => true);
+
+      final bytes = File(output).readAsBytesSync();
+      expect(latin1.decode(bytes), isNot(contains('APK Sig Block 42')));
+      expect(latin1.decode(bytes), isNot(contains('built by CI')));
+      final copy = ZipDecoder().decodeBytes(bytes, verify: true);
+      expect(utf8.decode(copy.findFile('classes.dex')!.content), 'dex');
+    });
+
+    test(
+      'moves a data descriptor\'s CRC and sizes into the local header',
+      () async {
+        final data = utf8.encode('streamed by a JAR tool');
+        final input = write(
+          'streamed.apk',
+          _zipWithDataDescriptor('classes.dex', data),
+        );
+        final output = p.join(temp.path, 'copy.apk');
+
+        await copyZipEntries(input, output, keep: (_) => true);
+
+        final bytes = File(output).readAsBytesSync();
+        final local = ByteData.sublistView(bytes);
+        expect(local.getUint16(6, Endian.little) & 0x08, 0);
+        expect(local.getUint32(14, Endian.little), getCrc32(data));
+        expect(local.getUint32(18, Endian.little), data.length);
+        expect(local.getUint32(22, Endian.little), data.length);
+        // The 16-byte descriptor is gone.
+        expect(bytes.length, File(input).lengthSync() - 16);
+        final copy = ZipDecoder().decodeBytes(bytes, verify: true);
+        expect(copy.findFile('classes.dex')!.content, data);
+      },
+    );
+
+    test('a broken entry fails and leaves no output', () async {
+      final zip = universal();
+      final view = ByteData.sublistView(zip);
+      // No comment: the end record is the last 22 bytes. The first entry now
+      // claims to be longer than the whole file.
+      final directory = view.getUint32(zip.length - 22 + 16, Endian.little);
+      view.setUint32(directory + 20, 0x7FFFFFFF, Endian.little);
+      final input = write('broken.apk', zip);
+      final output = p.join(temp.path, 'copy.apk');
+
+      await expectLater(
+        copyZipEntries(input, output, keep: (_) => true),
+        throwsA(isA<ZipFormatException>()),
+      );
+      expect(File(output).existsSync(), isFalse);
+    });
+  });
+
   test('parseEnvOutput keeps only the lines between the markers', () {
     const output =
         'Welcome to zsh!\n'
@@ -76,6 +213,53 @@ void main() {
     });
     expect(parseEnvOutput('no markers'), isEmpty);
   });
+
+  test(
+    'on Windows the app keeps its own environment: no shell to ask',
+    () async {
+      const host = Host(
+        os: HostOs.windows,
+        environment: {'Path': r'C:\Windows', 'USERPROFILE': r'C:\Users\dev'},
+      );
+
+      expect(await loadShellEnvironment(host), host.environment);
+    },
+  );
+
+  test('only a .bat or .cmd on Windows starts through the shell', () {
+    const windows = Host(os: HostOs.windows, environment: {});
+    const mac = Host(os: HostOs.macos, environment: {});
+
+    expect(startsThroughShell(windows, r'C:\flutter\bin\flutter.bat'), isTrue);
+    expect(
+      startsThroughShell(windows, r'C:\sdk\build-tools\36.0.0\apksigner.CMD'),
+      isTrue,
+    );
+    expect(
+      startsThroughShell(windows, r'C:\sdk\platform-tools\adb.exe'),
+      isFalse,
+    );
+    expect(startsThroughShell(mac, '/opt/tools/flutter.bat'), isFalse);
+  });
+
+  test(
+    'a tool that reads its input gets none, and ends instead of waiting',
+    () async {
+      final runner = IoProcessRunner(
+        Host(os: HostOs.macos, environment: Platform.environment),
+      );
+
+      // `cat` copies its input until it closes: with it left open, this
+      // never ends.
+      final result = await runner
+          .run(const Command('/bin/sh', ['-c', 'cat; echo "input closed"']))
+          .timeout(const Duration(seconds: 10));
+
+      expect(result.succeeded, isTrue);
+      expect(result.stdout, ['input closed']);
+    },
+    skip: Platform.isWindows ? 'needs a POSIX shell' : false,
+  );
 
   group('errorDetails', () {
     test('takes Gradle\'s "What went wrong" block without the advice', () {
@@ -144,7 +328,53 @@ void main() {
     );
   });
 
+  test(
+    'fileDigests reads a file\'s MD5 and SHA-256 in lowercase hex',
+    () async {
+      final temp = Directory.systemTemp.createTempSync('apk_forge_digests_');
+      addTearDown(() => temp.deleteSync(recursive: true));
+      final file = File(p.join(temp.path, 'abc.txt'))..writeAsStringSync('abc');
+
+      final digests = await fileDigests(file.path);
+
+      expect(digests.md5, '900150983cd24fb0d6963f7d28e17f72');
+      expect(
+        digests.sha256,
+        'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad',
+      );
+    },
+  );
+
   group('format', () {
+    test('formatDateTime shows the moment to the minute', () {
+      expect(
+        formatDateTime(DateTime(2026, 3, 7, 9, 5, 59)),
+        '2026-03-07 09:05',
+      );
+    });
+
+    test('formatDuration counts seconds, then minutes, then hours', () {
+      expect(formatDuration(const Duration(seconds: 42)), '42 s');
+      expect(
+        formatDuration(const Duration(minutes: 2, seconds: 5)),
+        '2 min 5 s',
+      );
+      expect(formatDuration(const Duration(hours: 1, minutes: 3)), '1 h 3 min');
+    });
+
+    test('shortPath keeps the file and its folder', () {
+      expect(
+        shortPath('/a/long/way/out/phone/app.apk', macHost),
+        '…/phone/app.apk',
+      );
+      expect(shortPath('/out/app.apk', macHost), '/out/app.apk');
+      const windows = Host(os: HostOs.windows, environment: {});
+      expect(
+        shortPath(r'C:\work\out\kiosk\app.apk', windows),
+        r'…\kiosk\app.apk',
+      );
+    });
+
     test('formatBytes', () {
       expect(formatBytes(512), '512 B');
       expect(formatBytes(15728640), '15.0 MB');
@@ -161,4 +391,88 @@ void main() {
       );
     });
   });
+}
+
+/// [zip] with a stand-in APK Signing Block between its entries and its
+/// central directory, where apksigner puts the real one.
+Uint8List _withSigningBlock(Uint8List zip) {
+  final view = ByteData.sublistView(zip);
+  var end = zip.length - 22;
+  while (view.getUint32(end, Endian.little) != 0x06054b50) {
+    end--;
+  }
+  final directory = view.getUint32(end + 16, Endian.little);
+  final block = BytesBuilder()
+    ..add(Uint8List(8))
+    ..add(utf8.encode('stand-in signature'))
+    ..add(Uint8List(8))
+    ..add(utf8.encode('APK Sig Block 42'));
+  final blockBytes = block.takeBytes();
+  final signed = Uint8List.fromList([
+    ...zip.sublist(0, directory),
+    ...blockBytes,
+    ...zip.sublist(directory),
+  ]);
+  ByteData.sublistView(signed).setUint32(
+    end + blockBytes.length + 16,
+    directory + blockBytes.length,
+    Endian.little,
+  );
+  return signed;
+}
+
+/// A ZIP with one stored entry whose CRC and sizes come after its data, in
+/// a data descriptor, as streaming writers (`jar`, Java's ZipOutputStream)
+/// write them.
+Uint8List _zipWithDataDescriptor(String name, List<int> data) {
+  final nameBytes = utf8.encode(name);
+  final crc = getCrc32(data);
+  final zip = BytesBuilder()
+    ..add(
+      (ByteData(30)
+            ..setUint32(0, 0x04034b50, Endian.little)
+            ..setUint16(4, 20, Endian.little)
+            ..setUint16(6, 0x08, Endian.little)
+            ..setUint16(26, nameBytes.length, Endian.little))
+          .buffer
+          .asUint8List(),
+    )
+    ..add(nameBytes)
+    ..add(data)
+    ..add(
+      (ByteData(16)
+            ..setUint32(0, 0x08074b50, Endian.little)
+            ..setUint32(4, crc, Endian.little)
+            ..setUint32(8, data.length, Endian.little)
+            ..setUint32(12, data.length, Endian.little))
+          .buffer
+          .asUint8List(),
+    );
+  final directory = zip.length;
+  zip
+    ..add(
+      (ByteData(46)
+            ..setUint32(0, 0x02014b50, Endian.little)
+            ..setUint16(4, 20, Endian.little)
+            ..setUint16(6, 20, Endian.little)
+            ..setUint16(8, 0x08, Endian.little)
+            ..setUint32(16, crc, Endian.little)
+            ..setUint32(20, data.length, Endian.little)
+            ..setUint32(24, data.length, Endian.little)
+            ..setUint16(28, nameBytes.length, Endian.little))
+          .buffer
+          .asUint8List(),
+    )
+    ..add(nameBytes)
+    ..add(
+      (ByteData(22)
+            ..setUint32(0, 0x06054b50, Endian.little)
+            ..setUint16(8, 1, Endian.little)
+            ..setUint16(10, 1, Endian.little)
+            ..setUint32(12, 46 + nameBytes.length, Endian.little)
+            ..setUint32(16, directory, Endian.little))
+          .buffer
+          .asUint8List(),
+    );
+  return zip.takeBytes();
 }

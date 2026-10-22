@@ -31,12 +31,18 @@ enum BuildMode {
   final String label;
 }
 
+/// What a build makes.
 enum ApkPackaging {
   /// One APK with every selected ABI inside.
-  universal('Universal APK'),
+  universal('Universal'),
 
   /// One APK per selected ABI (`--split-per-abi`).
-  splitPerAbi('Split per ABI');
+  splitPerAbi('Split per ABI'),
+
+  /// An Android App Bundle (`flutter build appbundle`): what a store such as
+  /// Google Play takes. The store makes and signs the APK for each device
+  /// from it.
+  appBundle('App Bundle');
 
   const ApkPackaging(this.label);
   final String label;
@@ -56,6 +62,26 @@ class BuildOptions {
     this.symbolsDir = '',
     this.signAfterBuild = true,
   });
+
+  /// What [toJson] saved, with [abis] from the Workbench's Defaults.
+  factory BuildOptions.fromJson(
+    Map<String, Object?> json, {
+    required Set<AndroidAbi> abis,
+  }) {
+    const defaults = BuildOptions();
+    return BuildOptions(
+      projectDir: json['projectDir'] as String? ?? '',
+      mode: BuildMode.values.asNameMap()[json['mode']] ?? defaults.mode,
+      abis: abis,
+      packaging:
+          ApkPackaging.values.asNameMap()[json['packaging']] ??
+          defaults.packaging,
+      obfuscate: json['obfuscate'] as bool? ?? false,
+      symbolsDir: json['symbolsDir'] as String? ?? '',
+      signAfterBuild:
+          json['signAfterBuild'] as bool? ?? defaults.signAfterBuild,
+    );
+  }
 
   final String projectDir;
   final BuildMode mode;
@@ -85,7 +111,33 @@ class BuildOptions {
   /// to split. [packaging] keeps the user's choice for when they select more
   /// ABIs again.
   ApkPackaging get effectivePackaging =>
-      canSplit ? packaging : ApkPackaging.universal;
+      packaging == ApkPackaging.splitPerAbi && !canSplit
+      ? ApkPackaging.universal
+      : packaging;
+
+  /// What the build writes, in a line for the Build panel.
+  String get outputSummary {
+    final count = abis.length;
+    if (count == 0) return 'Choose an architecture in Defaults.';
+    if (effectivePackaging == ApkPackaging.appBundle) {
+      final which = count == AndroidAbi.values.length
+          ? 'every architecture'
+          : count == 1
+          ? abis.single.abiName
+          : 'the $count architectures in Defaults';
+      return 'One App Bundle (.aab) with $which, to upload to a store.';
+    }
+    if (effectivePackaging == ApkPackaging.splitPerAbi) {
+      return 'One APK per architecture: $count APKs.';
+    }
+    if (count == 1) {
+      return 'One APK for ${abis.single.abiName}. Split needs two or more '
+          'architectures.';
+    }
+    return count == AndroidAbi.values.length
+        ? 'One APK with every architecture.'
+        : 'One APK with the $count architectures in Defaults.';
+  }
 
   BuildOptions copyWith({
     String? projectDir,
@@ -104,4 +156,14 @@ class BuildOptions {
     symbolsDir: symbolsDir ?? this.symbolsDir,
     signAfterBuild: signAfterBuild ?? this.signAfterBuild,
   );
+
+  /// Everything but [abis], which the Workbench's Defaults keeps.
+  Map<String, Object?> toJson() => {
+    'projectDir': projectDir,
+    'mode': mode.name,
+    'packaging': packaging.name,
+    'obfuscate': obfuscate,
+    'symbolsDir': symbolsDir,
+    'signAfterBuild': signAfterBuild,
+  };
 }

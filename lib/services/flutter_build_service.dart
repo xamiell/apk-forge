@@ -12,7 +12,8 @@ class FlutterBuildService {
 
   final Host host;
 
-  /// Builds [options] and returns the APKs Flutter reports, in its order.
+  /// Builds [options] and returns the APKs, or the App Bundle, Flutter
+  /// reports, in its order.
   Future<List<String>> build(
     ToolExecutor executor, {
     required String flutter,
@@ -29,15 +30,15 @@ class FlutterBuildService {
     if (!result.succeeded) {
       throw ToolFailure.fromResult('Build failed', result);
     }
-    final apks = parseBuiltApks(
+    final files = parseBuiltFiles(
       result.allLines,
       projectDir: project,
       host: host,
     );
-    if (apks.isEmpty) {
+    if (files.isEmpty) {
       throw const ToolFailure(
-        'The build finished but reported no APK',
-        details: ['No "✓ Built …apk" line in the output.'],
+        'The build finished but reported no APK or App Bundle',
+        details: ['No "✓ Built …" line in the output.'],
       );
     }
     if (options.effectiveObfuscate && !_hasSymbols(options.symbolsDir.trim())) {
@@ -49,7 +50,7 @@ class FlutterBuildService {
         '"flutter clean" in the project and build again.',
       );
     }
-    return apks;
+    return files;
   }
 }
 

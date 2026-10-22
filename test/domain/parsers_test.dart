@@ -2,7 +2,11 @@ import 'package:apk_forge/domain/analysis/badging.dart';
 import 'package:apk_forge/domain/analysis/signature.dart';
 import 'package:apk_forge/domain/build/flutter_build.dart';
 import 'package:apk_forge/domain/devices/devices.dart';
+import 'package:apk_forge/domain/signing/bundle.dart';
 import 'package:apk_forge/domain/signing/keystore.dart';
+import 'package:apk_forge/domain/signing/signing.dart';
+import 'package:apk_forge/domain/tools/bundletool.dart';
+import 'package:apk_forge/domain/tools/java.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../helpers/fakes.dart';
@@ -92,6 +96,60 @@ void main() {
       expect(report.scheme('v3'), isTrue);
     });
 
+    test('v1 is not verified from minSdk 24, even when it is there; v4 is, '
+        'with its .idsig', () {
+      // Signed with every scheme on: the APK has META-INF/UPLOAD.SF and .RSA.
+      final report = parseApksignerVerify(
+        fixture('apksigner_verify_all_schemes.txt'),
+      );
+
+      expect(report.verifies, isTrue);
+      expect(report.schemes, {
+        'v1': false,
+        'v2': true,
+        'v3': true,
+        'v3.1': false,
+        'v4': true,
+      });
+      expect(
+        report.signers.single.distinguishedName,
+        'CN=APK Forge Schemes, O=Example, C=US',
+      );
+    });
+
+    test('an .idsig that does not match the APK reads v4 false, and '
+        'apksigner says nothing else', () {
+      // Another APK's .idsig; another key's prints the same, byte for byte.
+      final report = parseApksignerVerify(
+        fixture('apksigner_verify_v4_idsig_mismatch.txt'),
+      );
+
+      expect(report.verifies, isTrue);
+      expect(report.schemes, {
+        'v1': false,
+        'v2': true,
+        'v3': true,
+        'v3.1': false,
+        'v4': false,
+      });
+      expect(report.errors, isEmpty);
+      expect(report.warnings, isEmpty);
+      expect(
+        report.signers.single.distinguishedName,
+        'CN=APK Forge Idsig, O=Example, C=US',
+      );
+    });
+
+    test('a corrupt .idsig stops apksigner before its verdict', () {
+      final report = parseApksignerVerify(
+        fixture('apksigner_verify_v4_idsig_corrupt.txt'),
+      );
+
+      expect(report.verifies, isFalse);
+      expect(report.errors, ['Invalid signature version.']);
+      expect(report.signers, isEmpty);
+    });
+
     test('an unsigned APK does not verify and says why', () {
       final report = parseApksignerVerify(
         fixture('apksigner_verify_unsigned.txt'),
@@ -120,6 +178,264 @@ void main() {
       expect(report.warnings, ['META-INF/x.txt not protected by signature.']);
       expect(report.errors, isEmpty);
     });
+
+    test('a v3 rotation shows only the new key', () {
+      final report = parseApksignerVerify(
+        fixture('apksigner_verify_rotated_v3.txt'),
+      );
+
+      expect(report.scheme('v3'), isTrue);
+      expect(report.scheme('v3.1'), isFalse);
+      expect(
+        report.signers.single.distinguishedName,
+        'CN=APK Forge New Key, O=Example, C=US',
+      );
+      expect(report.lineage, isEmpty);
+    });
+
+    test('a v3.1 rotation lists a signer per API range, newest first', () {
+      final report = parseApksignerVerify(
+        fixture('apksigner_verify_rotated_v31.txt'),
+      );
+
+      expect(report.scheme('v3.1'), isTrue);
+      expect(report.signers.map((s) => s.label), [
+        'Signer (minSdkVersion=33, maxSdkVersion=2147483647)',
+        'Signer (minSdkVersion=24, maxSdkVersion=32)',
+      ]);
+      expect(report.signers.map((s) => s.distinguishedName), [
+        'CN=APK Forge New Key, O=Example, C=US',
+        'CN=APK Forge Old Key, O=Example, C=US',
+      ]);
+      expect(report.signers.map((s) => s.apiRange), ['API 33+', 'API 24–32']);
+      expect(
+        parseApksignerVerify(fixture('apksigner_verify_old_key.txt'))
+            .signers
+            .single
+            .apiRange,
+        isNull,
+      );
+    });
+  });
+
+  group('parseApksignerLineage', () {
+    test('reads the rotation, oldest key first', () {
+      final lineage = parseApksignerLineage(
+        fixture('apksigner_lineage_rotated.txt'),
+      );
+
+      expect(lineage.map((s) => s.distinguishedName), [
+        'CN=APK Forge Old Key, O=Example, C=US',
+        'CN=APK Forge New Key, O=Example, C=US',
+      ]);
+      // The same certificates as `verify` prints for each key.
+      final oldKey = parseApksignerVerify(
+        fixture('apksigner_verify_old_key.txt'),
+      ).signers.single;
+      final newKey = parseApksignerVerify(
+        fixture('apksigner_verify_rotated_v3.txt'),
+      ).signers.single;
+      expect(lineage.first.sha256, oldKey.sha256);
+      expect(lineage.first.sha1, oldKey.sha1);
+      expect(lineage.last.sha256, newKey.sha256);
+    });
+
+    test('an APK whose key never rotated has none', () {
+      expect(
+        parseApksignerLineage(fixture('apksigner_lineage_none.txt')),
+        isEmpty,
+      );
+    });
+
+    test('withLineage keeps the rest of the report', () {
+      final report =
+          parseApksignerVerify(fixture('apksigner_verify_rotated_v3.txt'))
+              .withLineage(
+                parseApksignerLineage(fixture('apksigner_lineage_rotated.txt')),
+              );
+
+      expect(report.verifies, isTrue);
+      expect(report.scheme('v2'), isTrue);
+      expect(report.signers, hasLength(1));
+      expect(report.lineage, hasLength(2));
+    });
+  });
+
+  group('parseKeyLoadFailure', () {
+    test('says which password apksigner could not use', () {
+      expect(
+        parseKeyLoadFailure(fixture('apksigner_sign_key_password_missing.txt')),
+        KeyLoadFailure.keyPasswordMissing,
+      );
+      expect(
+        parseKeyLoadFailure(fixture('apksigner_sign_wrong_key_password.txt')),
+        KeyLoadFailure.keyPasswordWrong,
+      );
+      expect(
+        parseKeyLoadFailure(fixture('apksigner_sign_wrong_store_password.txt')),
+        KeyLoadFailure.storePasswordWrong,
+      );
+    });
+
+    test('a PKCS12 keystore says it in other words', () {
+      expect(
+        parseKeyLoadFailure(
+          fixture('apksigner_sign_wrong_key_password_pkcs12.txt'),
+        ),
+        KeyLoadFailure.keyPasswordWrong,
+      );
+      expect(
+        parseKeyLoadFailure(
+          fixture('apksigner_sign_wrong_store_password_pkcs12.txt'),
+        ),
+        KeyLoadFailure.storePasswordWrong,
+      );
+    });
+
+    test('jarsigner says it in its own words', () {
+      final cases = {
+        'jarsigner_sign_wrong_store_password_pkcs12.txt':
+            KeyLoadFailure.storePasswordWrong,
+        'jarsigner_sign_wrong_store_password_jks.txt':
+            KeyLoadFailure.storePasswordWrong,
+        'jarsigner_sign_wrong_key_password.txt':
+            KeyLoadFailure.keyPasswordWrong,
+        'jarsigner_sign_key_password_missing.txt':
+            KeyLoadFailure.keyPasswordMissing,
+      };
+      for (final MapEntry(key: name, value: expected) in cases.entries) {
+        expect(parseKeyLoadFailure(fixture(name)), expected, reason: name);
+      }
+    });
+
+    test('another failure is not about the key', () {
+      expect(
+        parseKeyLoadFailure(fixture('apksigner_verify_not_zip.txt')),
+        isNull,
+      );
+    });
+  });
+
+  group('parseKeyOpenFailure', () {
+    test('a certificate request printed: the key opens', () {
+      expect(parseKeyOpenFailure(fixture('keytool_certreq_ok.txt')), isNull);
+    });
+
+    test('says which password, or which alias, is wrong', () {
+      expect(
+        parseKeyOpenFailure(fixture('keytool_certreq_wrong_key_password.txt')),
+        'The key password (keyPassword) is wrong.',
+      );
+      expect(
+        parseKeyOpenFailure(
+          fixture('keytool_certreq_wrong_store_password.txt'),
+        ),
+        'The keystore password (storePassword) is wrong.',
+      );
+      expect(
+        parseKeyOpenFailure(
+          fixture('keytool_certreq_wrong_store_password_pkcs12.txt'),
+        ),
+        'The keystore password (storePassword) is wrong.',
+      );
+      expect(
+        parseKeyOpenFailure(fixture('keytool_certreq_no_alias.txt')),
+        'The keystore has no key "missing" (keyAlias).',
+      );
+    });
+
+    test('another keytool error keeps its message', () {
+      expect(
+        parseKeyOpenFailure([
+          'keytool error: java.lang.Exception: Keystore file does not exist: x',
+        ]),
+        'Keystore file does not exist: x',
+      );
+      expect(parseKeyOpenFailure(const []), 'keytool could not open the key.');
+    });
+  });
+
+  group('parseJarsignerVerify', () {
+    test('a signed bundle verifies', () {
+      expect(
+        parseJarsignerVerify(fixture('jarsigner_verify_bundle.txt')).verdict,
+        JarVerdict.verified,
+      );
+    });
+
+    test('a bundle without a JAR signature is unsigned', () {
+      expect(
+        parseJarsignerVerify(fixture('jarsigner_verify_unsigned.txt')).verdict,
+        JarVerdict.unsigned,
+      );
+    });
+
+    test('a bundle signed over the debug key no longer verifies, and why', () {
+      final verification = parseJarsignerVerify(
+        fixture('jarsigner_verify_signed_over_debug.txt'),
+      );
+
+      expect(verification.verdict, JarVerdict.invalid);
+      expect(
+        verification.reason,
+        'invalid SHA-256 signature file digest for '
+        'base/root/META-INF/androidx.activity_activity.version',
+      );
+    });
+  });
+
+  group('parseJarSigners', () {
+    test('each signer with its first certificate\'s SHA-256', () {
+      final signers = parseJarSigners(fixture('keytool_printcert_jarfile.txt'));
+
+      expect(signers, hasLength(1));
+      expect(signers.single.owner, 'CN=APK Forge Bundle, O=Example, C=US');
+      expect(signers.single.sha1, '6933f1feb1aab73fef371a7a85dcaba37157453d');
+      expect(signers.single.keyAlgorithm, '2048-bit RSA key');
+      expect(
+        signers.single.sha256,
+        '818fd329733db2f528cddae7e7bfb0382e7cf9121277667e3d9e496202f9ed37',
+      );
+    });
+
+    test('a bundle signed on top of the debug key has both', () {
+      expect(
+        parseJarSigners(fixture('keytool_printcert_jarfile_two_signers.txt'))
+            .map((signer) => signer.owner),
+        [
+          'CN=APK Forge Bundle, O=Example, C=US',
+          'C=US, O=Android, CN=Android Debug',
+        ],
+      );
+    });
+
+    test('an unsigned bundle has none', () {
+      expect(
+        parseJarSigners(fixture('keytool_printcert_jarfile_unsigned.txt')),
+        isEmpty,
+      );
+    });
+  });
+
+  group('parseKeytoolError', () {
+    test('keytool\'s reason, without the Java exception', () {
+      expect(
+        parseKeytoolError(fixture('keytool_genkeypair_no_folder.txt')),
+        'missing/dir/x.jks (No such file or directory)',
+      );
+      expect(
+        parseKeytoolError(fixture('keytool_genkeypair_read_only_folder.txt')),
+        'ro/x.jks (Permission denied)',
+      );
+      expect(
+        parseKeytoolError(fixture('keytool_genkeypair_bad_name.txt')),
+        'Incorrect AVA format',
+      );
+    });
+
+    test('no keytool error line: null', () {
+      expect(parseKeytoolError(fixture('keytool_list.txt')), isNull);
+    });
   });
 
   group('parseKeytoolList', () {
@@ -131,6 +447,7 @@ void main() {
       expect(rsa.entryType, 'PrivateKeyEntry');
       expect(rsa.canSign, isTrue);
       expect(rsa.owner, 'CN=APK Forge Test, O=Example, C=US');
+      expect(rsa.sha1, 'af21a6ec6f1652a52187ad3d62b847a655ee5cb6');
       expect(
         rsa.sha256,
         'b34c9445c5e411b045884f499034b5592ab109ec5cd1ca9cb584e54f582dcfa8',
@@ -177,9 +494,118 @@ void main() {
     });
   });
 
-  group('parseBuiltApks', () {
+  group('parseBundleManifest', () {
+    test('reads what bundletool dumps of a bundle\'s manifest', () {
+      final manifest = parseBundleManifest(
+        fixture('bundletool_dump_manifest.txt'),
+      );
+
+      expect(manifest.packageName, 'io.example.sample_app');
+      expect(manifest.versionCode, '1');
+      expect(manifest.versionName, '1.0.0');
+      expect(manifest.minSdk, 24);
+      expect(manifest.targetSdk, 36);
+      expect(manifest.compileSdk, 36);
+      expect(manifest.label, 'sample_app');
+      expect(manifest.debuggable, isFalse);
+      expect(manifest.launchableActivity, 'io.example.sample_app.MainActivity');
+      expect(
+        manifest.permissions,
+        contains(
+          'io.example.sample_app.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION',
+        ),
+      );
+    });
+
+    test('a label that is a resource is left out', () {
+      expect(
+        parseBundleManifest([
+          '<manifest package="a.b">',
+          '<application android:label="@string/app_name" '
+              'android:debuggable="true">',
+        ]).label,
+        isNull,
+      );
+    });
+  });
+
+  group('bundletool\'s failures', () {
+    test('a wrong keystore or key password is named, as for an APK', () {
+      final cases = {
+        'bundletool_build_apks_wrong_password.txt':
+            KeyLoadFailure.storePasswordWrong,
+        'bundletool_build_apks_wrong_key_password.txt':
+            KeyLoadFailure.keyPasswordWrong,
+        'bundletool_build_apks_wrong_key_password_pkcs12.txt':
+            KeyLoadFailure.keyPasswordWrong,
+      };
+      for (final MapEntry(key: name, value: expected) in cases.entries) {
+        expect(parseKeyLoadFailure(fixture(name)), expected, reason: name);
+      }
+      expect(
+        parseKeyLoadFailure(fixture('bundletool_build_apks_no_device.txt')),
+        isNull,
+      );
+    });
+
+    test('Android\'s refusal is read from install-apks, with its hint', () {
+      final downgrade = parseInstallFailure(
+        fixture('bundletool_install_apks_downgrade.txt'),
+      )!;
+      final otherKey = parseInstallFailure(
+        fixture('bundletool_install_apks_other_key.txt'),
+      )!;
+
+      expect(downgrade.code, 'INSTALL_FAILED_VERSION_DOWNGRADE');
+      expect(downgrade.hint, installFailureHints[downgrade.code]);
+      expect(otherKey.code, 'INSTALL_FAILED_UPDATE_INCOMPATIBLE');
+      expect(
+        parseInstallFailure(fixture('bundletool_install_apks.txt')),
+        isNull,
+      );
+    });
+  });
+
+  group('parseJavaVersion', () {
+    test('reads the version java -version prints', () {
+      expect(parseJavaVersion(fixture('java_version.txt')), '21.0.10');
+    });
+
+    test('anything else is no version', () {
+      expect(parseJavaVersion(['[global]', 'home = /usr/bin']), isNull);
+    });
+  });
+
+  group('parseBundletoolVersion', () {
+    test('reads the version bundletool prints', () {
+      expect(
+        parseBundletoolVersion(fixture('bundletool_version.txt')),
+        '1.18.3',
+      );
+    });
+
+    test('anything else is no version', () {
+      expect(
+        parseBundletoolVersion(['Error: Unable to access jarfile']),
+        isNull,
+      );
+    });
+  });
+
+  group('parseBuiltFiles', () {
+    test('reads the App Bundle a flutter build appbundle made', () {
+      expect(
+        parseBuiltFiles(
+          fixture('flutter_build_appbundle.txt'),
+          projectDir: '/work/app',
+          host: macHost,
+        ),
+        ['/work/app/build/app/outputs/bundle/release/app-release.aab'],
+      );
+    });
+
     test('reads every split, relative to the project', () {
-      final apks = parseBuiltApks(
+      final apks = parseBuiltFiles(
         fixture('flutter_build_split.txt'),
         projectDir: '/work/app',
         host: macHost,
@@ -193,7 +619,7 @@ void main() {
     });
 
     test('reads a debug line, which has no size', () {
-      final apks = parseBuiltApks(
+      final apks = parseBuiltFiles(
         fixture('flutter_build_debug.txt'),
         projectDir: '/work/app',
         host: macHost,
@@ -203,7 +629,7 @@ void main() {
     });
 
     test('ignores the warnings around them', () {
-      final apks = parseBuiltApks(
+      final apks = parseBuiltFiles(
         [
           'Warning: The generated ELF library contains unobfuscated DWARF debugging information.',
         ],
@@ -219,7 +645,7 @@ void main() {
     test('parseAdbDevices reads ready and unauthorized devices', () {
       final devices = parseAdbDevices([
         'List of devices attached',
-        '0123456789ABCDEF   device usb:1-1 product:D30M model:D30M device:D30M transport_id:1',
+        '0123456789ABCDEF   device usb:1-1 product:K10 model:K10 device:K10 transport_id:1',
         'emulator-5554          unauthorized transport_id:2',
         '',
       ]);
@@ -229,7 +655,7 @@ void main() {
         'emulator-5554',
       ]);
       expect(devices.first.isReady, isTrue);
-      expect(devices.first.model, 'D30M');
+      expect(devices.first.model, 'K10');
       expect(devices.last.isReady, isFalse);
       expect(devices.last.displayName, 'emulator-5554');
     });

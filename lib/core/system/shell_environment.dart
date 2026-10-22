@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'host.dart';
+
 const _startMarker = '__APK_FORGE_ENV_START__';
 const _endMarker = '__APK_FORGE_ENV_END__';
 
@@ -10,10 +12,11 @@ const _endMarker = '__APK_FORGE_ENV_END__';
 /// (`/usr/bin:/bin:/usr/sbin:/sbin`), so `flutter`, `java` and anything the
 /// user's shell profile adds are missing. On macOS and Linux this asks the
 /// user's login shell for its environment once, at startup. On Windows, and
-/// whenever the shell doesn't answer, the app's own environment is used.
-Future<Map<String, String>> loadShellEnvironment() async {
-  final own = Map<String, String>.of(Platform.environment);
-  if (Platform.isWindows) return own;
+/// whenever the shell doesn't answer, the app's own environment ([host]'s)
+/// is used.
+Future<Map<String, String>> loadShellEnvironment(Host host) async {
+  final own = Map<String, String>.of(host.environment);
+  if (host.isWindows) return own;
 
   final shell = own['SHELL'] ?? '/bin/zsh';
   try {

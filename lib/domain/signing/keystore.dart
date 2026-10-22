@@ -6,6 +6,7 @@ class KeystoreEntry {
     required this.alias,
     required this.entryType,
     this.owner,
+    this.sha1,
     this.sha256,
     this.validUntil,
     this.keyAlgorithm,
@@ -16,6 +17,10 @@ class KeystoreEntry {
   /// `PrivateKeyEntry` can sign; a `trustedCertEntry` can't.
   final String entryType;
   final String? owner;
+
+  /// Normalized with [normalizeDigest]. Firebase and Google's APIs ask for
+  /// it.
+  final String? sha1;
 
   /// Normalized with [normalizeDigest], ready to compare with apksigner's.
   final String? sha256;
@@ -40,6 +45,7 @@ List<KeystoreEntry> parseKeytoolList(Iterable<String> lines) {
   String? alias;
   var entryType = '';
   String? owner;
+  String? sha1;
   String? sha256;
   String? validUntil;
   String? keyAlgorithm;
@@ -52,6 +58,7 @@ List<KeystoreEntry> parseKeytoolList(Iterable<String> lines) {
           alias: alias!,
           entryType: entryType,
           owner: owner,
+          sha1: sha1,
           sha256: sha256,
           validUntil: validUntil,
           keyAlgorithm: keyAlgorithm,
@@ -60,7 +67,7 @@ List<KeystoreEntry> parseKeytoolList(Iterable<String> lines) {
     }
     alias = null;
     entryType = '';
-    owner = sha256 = validUntil = keyAlgorithm = null;
+    owner = sha1 = sha256 = validUntil = keyAlgorithm = null;
     inFirstCertificate = false;
   }
 
@@ -84,6 +91,8 @@ List<KeystoreEntry> parseKeytoolList(Iterable<String> lines) {
         owner = value;
       case 'Valid from' when inFirstCertificate && validUntil == null:
         validUntil = _validity.firstMatch(value)?.group(1)?.trim();
+      case 'SHA1' when inFirstCertificate && sha1 == null:
+        sha1 = normalizeDigest(value);
       case 'SHA256' when inFirstCertificate && sha256 == null:
         sha256 = normalizeDigest(value);
       case 'Subject Public Key Algorithm'
@@ -111,3 +120,116 @@ List<String> keytoolListArguments(String keystorePath) => [
   '-storepass:env',
   keystorePasswordVariable,
 ];
+
+/// `keytool` arguments that open [alias]'s private key with both passwords
+/// (from the environment) and print a certificate request: it fails on a
+/// wrong key password, which `-list` doesn't check. It writes nothing.
+List<String> keytoolCertreqArguments(String keystorePath, String alias) => [
+  '-J-Duser.language=en',
+  '-J-Duser.country=US',
+  '-certreq',
+  '-keystore',
+  keystorePath,
+  '-alias',
+  alias,
+  '-storepass:env',
+  keystorePasswordVariable,
+  '-keypass:env',
+  keyPasswordVariable,
+];
+
+/// The keystore types keytool can make.
+enum KeystoreType {
+  /// keytool's default since JDK 9, and what Flutter's signing guide makes.
+  pkcs12('PKCS12'),
+
+  /// The only one where the key can have a password of its own.
+  jks('JKS');
+
+  const KeystoreType(this.label);
+
+  /// Also `keytool -storetype`'s value.
+  final String label;
+}
+
+/// `keytool` arguments that make a keystore at [keystorePath] with one new
+/// 2048-bit RSA key, [alias], valid for [validityDays] from today. Both
+/// passwords are read from the environment. A PKCS12 keystore keeps one
+/// password for the store and its key; a JKS one can give the key its own.
+///
+/// keytool adds the key to a keystore that already exists, without a word:
+/// [keystorePath] must not exist.
+List<String> keytoolGenerateKeyArguments(
+  String keystorePath,
+  String alias, {
+  required String distinguishedName,
+  required int validityDays,
+  KeystoreType storeType = KeystoreType.pkcs12,
+}) => [
+  '-J-Duser.language=en',
+  '-J-Duser.country=US',
+  '-genkeypair',
+  '-keystore',
+  keystorePath,
+  '-storetype',
+  storeType.label,
+  '-storepass:env',
+  keystorePasswordVariable,
+  '-keypass:env',
+  keyPasswordVariable,
+  '-alias',
+  alias,
+  '-keyalg',
+  'RSA',
+  '-keysize',
+  '2048',
+  '-validity',
+  '$validityDays',
+  '-dname',
+  distinguishedName,
+];
+
+/// Why `keytool -certreq` couldn't open the key, in plain words; `null`
+/// when it printed the request, so the key opens.
+String? parseKeyOpenFailure(Iterable<String> lines) {
+  final all = lines.map((line) => line.trim()).toList();
+  if (all.contains('-----BEGIN NEW CERTIFICATE REQUEST-----')) return null;
+  for (final line in all) {
+    if (line.contains('UnrecoverableKeyException')) {
+      return 'The key password (keyPassword) is wrong.';
+    }
+    if (isStorePasswordWrong(line)) {
+      return 'The keystore password (storePassword) is wrong.';
+    }
+    final alias = _missingAlias.firstMatch(line);
+    if (alias != null) {
+      return 'The keystore has no key "${alias.group(1)}" (keyAlias).';
+    }
+    if (parseKeytoolError([line]) case final message?) return message;
+  }
+  return 'keytool could not open the key.';
+}
+
+/// The message of keytool's `keytool error: <exception>: <message>` line,
+/// without the Java exception's name; `null` when there is none.
+String? parseKeytoolError(Iterable<String> lines) {
+  for (final line in lines) {
+    final trimmed = line.trim();
+    if (!trimmed.startsWith(_keytoolError)) continue;
+    final message = trimmed.substring(_keytoolError.length);
+    final colon = message.indexOf(': ');
+    return colon >= 0 ? message.substring(colon + 2) : message;
+  }
+  return null;
+}
+
+const _keytoolError = 'keytool error: ';
+
+final _missingAlias = RegExp(r'Alias <(.+)> does not exist');
+
+/// Whether [line] is the JDK saying the keystore password is wrong, as
+/// keytool and apksigner both print it. The words depend on the keystore's
+/// type: "Keystore was tampered with, or password was incorrect" for JKS,
+/// "keystore password was incorrect" for PKCS12.
+bool isStorePasswordWrong(String line) =>
+    line.contains('password was incorrect');

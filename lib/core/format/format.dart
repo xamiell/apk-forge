@@ -1,3 +1,14 @@
+import '../system/host.dart';
+
+/// `/a/long/way/out/phone/app.apk` → `…/phone/app.apk`: the file and its
+/// folder, for a table cell. Show the whole path in a tooltip.
+String shortPath(String path, Host host) {
+  final p = host.path;
+  final folder = p.basename(p.dirname(path));
+  final short = '…${p.separator}$folder${p.separator}${p.basename(path)}';
+  return short.length < path.length ? short : path;
+}
+
 /// `15728640` → `15.0 MB`.
 String formatBytes(int bytes) {
   if (bytes < 1024) return '$bytes B';
@@ -31,4 +42,23 @@ String shortDigest(String digest) {
   final colon = colonDigest(digest);
   if (colon.length <= 23) return colon;
   return '${colon.substring(0, 11)}…${colon.substring(colon.length - 11)}';
+}
+
+/// `2026-10-19 09:05`: a moment to the minute, as the history shows it.
+String formatDateTime(DateTime time) =>
+    '${formatDate(time)} ${_two(time.hour)}:${_two(time.minute)}';
+
+/// `2026-10-19`: a day.
+String formatDate(DateTime time) =>
+    '${time.year}-${_two(time.month)}-${_two(time.day)}';
+
+String _two(int value) => value.toString().padLeft(2, '0');
+
+/// `42 s`, `2 min 5 s`, `1 h 3 min`: how long a run took.
+String formatDuration(Duration duration) {
+  final seconds = duration.inSeconds.remainder(60);
+  final minutes = duration.inMinutes.remainder(60);
+  if (duration.inHours > 0) return '${duration.inHours} h $minutes min';
+  if (duration.inMinutes > 0) return '$minutes min $seconds s';
+  return '${duration.inSeconds} s';
 }
