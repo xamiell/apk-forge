@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../state/devices.dart';
 import '../state/profiles.dart';
+import 'app_logo.dart';
 import 'analysis/apk_panel.dart';
 import 'build/build_card.dart';
 import 'defaults/defaults_card.dart';
@@ -45,7 +46,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             color: scheme.surface,
             child: Row(
               children: [
-                Icon(Icons.android_rounded, color: scheme.primary, size: 26),
+                const AppLogo(size: 26),
                 const SizedBox(width: 10),
                 Text(
                   'APK Forge',

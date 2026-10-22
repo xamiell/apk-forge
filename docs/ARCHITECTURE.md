@@ -19,7 +19,8 @@ lib/
   ui/         The screen and its panels.
   main.dart   Loads the shell environment and settings, starts the app.
 tool/
-  smoke.dart  The services against the real tools (see README).
+  smoke.dart     The services against the real tools (see README).
+  app_icon.dart  Draws the app icon from the header's logo (see README).
 ```
 
 **Dependencies only point down:** `ui → state → services → domain → core`.
