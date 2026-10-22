@@ -474,3 +474,10 @@ rules, including how secrets are handled, are in
 ## License
 
 [MIT](LICENSE) © 2026 Elias Pujols
+
+APK Forge's logo and app icon are the Android robot, drawn with the
+`android_rounded` glyph of Google's Material Icons, which ships with Flutter
+under the [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0).
+The Android robot is reproduced or modified from work created and shared by
+Google and used according to terms described in the
+[Creative Commons 3.0 Attribution License](https://creativecommons.org/licenses/by/3.0/).

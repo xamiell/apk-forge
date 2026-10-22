@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 /// APK Forge's logo: the Android robot in the theme's primary color. The
 /// window's header shows it, and `tool/app_icon.dart` draws the app icon
-/// from it.
+/// from it. The robot is Google's: the README's License section credits it.
 class AppLogo extends StatelessWidget {
   const AppLogo({super.key, required this.size});
 
