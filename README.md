@@ -434,6 +434,14 @@ APK_FORGE_SMOKE_PASS=… dart run tool/smoke.dart <flutter project> <keystore> <
 With `APK_FORGE_SMOKE_BUNDLETOOL` set to a bundletool jar, it also reads the
 signed App Bundle's manifest.
 
+The app icon is the logo in the window's header (`lib/ui/app_logo.dart`) on
+the dark theme. After a change to either, draw it again; it writes macOS's
+sizes:
+
+```bash
+flutter test tool/app_icon.dart
+```
+
 ### Project layout
 
 ```
@@ -443,7 +451,7 @@ lib/
   services/   one class per tool job, through a ProcessRunner
   state/      Riverpod notifiers (forms, the current task, the log) and the actions
   ui/         the screen and its panels
-tool/         the end-to-end smoke test
+tool/         the end-to-end smoke test, and the app icon's drawing
 test/         unit tests and the captured tool output
 ```
 
