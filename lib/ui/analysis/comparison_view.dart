@@ -107,7 +107,8 @@ class _InstalledComparisonDialog extends ConsumerWidget {
           : 'Installed as splits: ${files.pulledNames} compared'
                 '${files.notPulled.isEmpty ? '' : '; ${files.notPulledNames} '
                           'left out (resources only)'}. '
-                'Size and hashes are of those files.',
+                'Size is of the files compared. The app isn\'t one file, '
+                'so MD5 and SHA-256 aren\'t compared.',
       referenceInText: 'the installed app',
       candidateTitle: 'Selected',
       candidateName: host.path.basename(candidate),

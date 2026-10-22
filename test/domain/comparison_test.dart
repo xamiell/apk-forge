@@ -429,6 +429,43 @@ void main() {
       expect(comparison.updateBlockers, isEmpty);
     });
 
+    test('an app installed as splits has no hash: never the same file', () {
+      // Its hashes are base.apk's; bundletool's base-master.apk is that
+      // same file, without the split's native code.
+      final installed = _report(
+        size: 15100000,
+        badging: _release,
+        signature: _testKey,
+      );
+      final baseMaster = _report(
+        size: 787811,
+        contents: _contents(['AndroidManifest.xml', 'classes.dex']),
+        badging: _release,
+        signature: _testKey,
+      );
+
+      final comparison = compareApks(
+        installed,
+        baseMaster,
+        referenceIsSplit: true,
+      );
+
+      expect(comparison.sameFile, isFalse);
+      expect(
+        comparison.fields.map((f) => f.label),
+        isNot(anyOf(contains('MD5'), contains('SHA-256'))),
+      );
+      expect(_field(comparison, 'Size').differs, isTrue);
+      expect(
+        comparisonFindings(
+          comparison,
+          reference: 'the installed app',
+          candidate: 'the selected APK',
+        ).map((f) => f.title),
+        isNot(contains('The same file')),
+      );
+    });
+
     test('dropping native code altogether loses no device', () {
       final comparison = compareApks(
         _report(contents: _flutterArm64),

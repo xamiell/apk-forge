@@ -855,6 +855,67 @@ void main() {
     expect(comparison, isNull);
   });
 
+  group('compare with installed: the installed base.apk selected', () {
+    late String deviceBase;
+
+    setUp(() {
+      // The device's files, which `adb pull` copies.
+      deviceBase = writeApk(p.join(temp.path, 'device', 'base.apk'), []);
+      writeApk(p.join(temp.path, 'device', 'split_config.arm64_v8a.apk'), [
+        'arm64-v8a',
+      ]);
+      runner
+        ..when((c) => c.arguments.length > 2 && c.arguments[2] == 'pull', (c) {
+          final remote = p.posix.basename(c.arguments[3]);
+          File(p.join(temp.path, 'device', remote)).copySync(c.arguments[4]);
+          return ok();
+        })
+        ..whenFirstArg('dump', ok(fixture('aapt2_badging_release.txt')))
+        ..whenFirstArg('verify', ok(fixture('apksigner_verify_test_key.txt')));
+    });
+
+    /// Compares the installed app, listed by [pmPath], with a copy of its
+    /// base.apk: bundletool's base-master.apk is that same file.
+    Future<ApkComparison> compareWithBase(String pmPath) async {
+      runner.when(
+        (c) => c.arguments.contains('pm') && c.arguments.contains('path'),
+        (_) => ok(fixture(pmPath)),
+      );
+      final selected = File(deviceBase)
+          .copySync(p.join(temp.path, 'base-master.apk'))
+          .path;
+      container.read(apkListProvider.notifier).add(selected, ApkOrigin.opened);
+      final comparison = await container.read(
+        installedComparisonProvider((
+          serial: 'SER1',
+          package: 'com.github.android',
+          candidate: selected,
+        )).future,
+      );
+      return comparison!;
+    }
+
+    test('installed from one APK: the same file', () async {
+      final comparison = await compareWithBase('adb_pm_path_single.txt');
+
+      expect(comparison.sameFile, isTrue);
+      expect(comparison.fields.map((f) => f.label), contains('SHA-256'));
+      expect(comparison.differences, isEmpty);
+    });
+
+    test('installed as splits: no hash, so never the same file', () async {
+      final comparison = await compareWithBase('adb_pm_path_bundle.txt');
+
+      expect(comparison.sameFile, isFalse);
+      expect(
+        comparison.fields.map((f) => f.label),
+        isNot(anyOf(contains('MD5'), contains('SHA-256'))),
+      );
+      // Its size is base.apk and the ABI split together.
+      expect(comparison.differences.map((f) => f.label), contains('Size'));
+    });
+  });
+
   group('the Install warning about the signer', () {
     bool isDumpsys(Command c) => c.arguments.last.startsWith('dumpsys package');
     bool isPmPath(Command c) =>
