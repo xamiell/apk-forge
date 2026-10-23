@@ -1,11 +1,13 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/process/process_runner.dart';
 import '../core/system/host.dart';
+import '../domain/mcp/mcp_protocol.dart';
 import '../services/adb_service.dart';
 import '../services/apk_analyzer.dart';
 import '../services/apk_split_service.dart';
@@ -14,6 +16,7 @@ import '../services/bundle_signing_service.dart';
 import '../services/desktop_shell.dart';
 import '../services/flutter_build_service.dart';
 import '../services/installed_apk_service.dart';
+import '../services/mcp_server.dart';
 import '../services/new_key_service.dart';
 import '../services/profile_runner.dart';
 import '../services/signing_service.dart';
@@ -56,6 +59,24 @@ typedef FolderCreator = Future<void> Function(String path);
 final folderCreatorProvider = Provider<FolderCreator>(
   (ref) =>
       (path) => Directory(path).create(recursive: true),
+);
+
+/// Starts the MCP server on 127.0.0.1:[port] with [toolbox]'s tools.
+typedef McpServerStarter = Future<McpServerStop> Function({
+  required int port,
+  required String token,
+  required McpToolbox toolbox,
+});
+
+/// Overridden in tests, so they open no port.
+final mcpServerStarterProvider = Provider<McpServerStarter>(
+  (ref) => McpHttpServer.start,
+);
+
+/// Makes a new token for the MCP server. Overridden in tests.
+final mcpTokenMakerProvider = Provider<String Function()>(
+  (ref) =>
+      () => newMcpToken(Random.secure()),
 );
 
 final flutterBuildServiceProvider = Provider(
@@ -105,13 +126,15 @@ enum SettingsKey {
   signing('signing'),
   tools('tools'),
   profiles('profiles'),
-  profileHistory('profile_history');
+  profileHistory('profile_history'),
+  mcp('mcp');
 
   const SettingsKey(this.storageName);
   final String storageName;
 }
 
-/// Remembers the forms between launches. Passwords never come here.
+/// Remembers the forms between launches. Passwords never come here; the
+/// MCP server's token does (ARCHITECTURE §3).
 abstract interface class SettingsStore {
   Map<String, Object?>? read(SettingsKey key);
   void write(SettingsKey key, Map<String, Object?> value);

@@ -2,6 +2,7 @@ import 'package:apk_forge/domain/build/build_options.dart';
 import 'package:apk_forge/domain/profiles/profile.dart';
 import 'package:apk_forge/domain/profiles/profile_run.dart';
 import 'package:apk_forge/state/forms.dart';
+import 'package:apk_forge/state/mcp_notifier.dart';
 import 'package:apk_forge/state/profiles.dart';
 import 'package:apk_forge/state/providers.dart';
 import 'package:apk_forge/state/toolchain_notifier.dart';
@@ -148,6 +149,12 @@ Map<SettingsKey, Map<String, Object?>> savedByThisVersion() => {
       },
     ],
   },
+  SettingsKey.mcp: {
+    'enabled': true,
+    'port': 7741,
+    'token': 'tok3n',
+    'askToRun': false,
+  },
 };
 
 void main() {
@@ -216,9 +223,15 @@ void main() {
     expect(run.results.last.setup!.schemesFromDefaults, isTrue);
     expect(run.inputChecks!.mustBeUnsigned, isTrue);
     expect(run.buildToolsVersion, '36.0.0');
+
+    final mcp = container.read(mcpServerProvider).settings;
+    expect(mcp.enabled, isTrue);
+    expect(mcp.port, 7741);
+    expect(mcp.token, 'tok3n');
+    expect(mcp.askToRun, isFalse);
   });
 
-  test('saving what was read writes back exactly what was saved', () {
+  test('saving what was read writes back exactly what was saved', () async {
     container.read(defaultsProvider.notifier).update((d) => d);
     container.read(buildOptionsProvider.notifier).update((o) => o);
     container.read(signingFormProvider.notifier).update((f) => f);
@@ -227,6 +240,7 @@ void main() {
         .set(container.read(toolOverridesProvider));
     container.read(profilesProvider.notifier).select('p1');
     container.read(profileHistoryProvider.notifier).clear('no such profile');
+    await container.read(mcpServerProvider.notifier).setPort(7741);
 
     expect(store.values, savedByThisVersion());
   });
@@ -242,6 +256,7 @@ void main() {
           'tools',
           'profiles',
           'profile_history',
+          'mcp',
         ])
           'apk_forge.$name': '{"was": "$name"}',
       });
@@ -258,6 +273,7 @@ void main() {
           SettingsKey.tools: {'was': 'tools'},
           SettingsKey.profiles: {'was': 'profiles'},
           SettingsKey.profileHistory: {'was': 'profile_history'},
+          SettingsKey.mcp: {'was': 'mcp'},
         },
       );
     },

@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:apk_forge/core/process/command.dart';
@@ -6,6 +7,7 @@ import 'package:apk_forge/core/system/host.dart';
 import 'package:apk_forge/domain/analysis/comparison.dart';
 import 'package:apk_forge/domain/build/build_options.dart';
 import 'package:apk_forge/domain/failure.dart';
+import 'package:apk_forge/domain/mcp/mcp_protocol.dart';
 import 'package:apk_forge/domain/profiles/key_properties.dart';
 import 'package:apk_forge/domain/profiles/profile.dart';
 import 'package:apk_forge/domain/profiles/profile_run.dart';
@@ -24,6 +26,7 @@ import 'package:apk_forge/state/apks.dart';
 import 'package:apk_forge/state/devices.dart';
 import 'package:apk_forge/state/forms.dart';
 import 'package:apk_forge/state/log_notifier.dart';
+import 'package:apk_forge/state/mcp_tools.dart';
 import 'package:apk_forge/state/profiles.dart';
 import 'package:apk_forge/state/providers.dart';
 import 'package:apk_forge/state/task_notifier.dart';
@@ -1296,6 +1299,79 @@ void main() {
         for (final secret in [storePassword, keyPassword]) {
           expect(saved, isNot(contains(secret)));
           expect(log, isNot(contains(secret)));
+        }
+      });
+
+      test('over MCP: the same check and run, kept in the History, and no '
+          'password in any answer', () async {
+        runner.when(
+          (c) => c.arguments.contains('-certreq'),
+          (_) => ok(fixture('keytool_certreq_ok.txt')),
+        );
+        final toolbox = container.read(mcpToolboxProvider);
+        // The user allows the run when the app asks (on by default).
+        final asked = <String>[];
+        container.listen(mcpRunRequestProvider, (_, request) {
+          if (request == null) return;
+          asked.add(request.profile.name);
+          Future.microtask(
+            () => container
+                .read(mcpRunRequestProvider.notifier)
+                .answer(allow: true),
+          );
+        });
+        Future<Map<String, Object?>> call(
+          String name, [
+          Map<String, Object?> arguments = const {},
+        ]) async {
+          final answer = await answerMcpMessage({
+            'jsonrpc': '2.0',
+            'id': 1,
+            'method': 'tools/call',
+            'params': {'name': name, 'arguments': arguments},
+          }, toolbox: toolbox);
+          return answer!['result'] as Map<String, Object?>;
+        }
+
+        Map<String, Object?> data(Map<String, Object?> result) =>
+            jsonDecode(((result['content'] as List).single as Map)['text'])
+                as Map<String, Object?>;
+        final run = {
+          'profile': 'release',
+          'apks': [input],
+        };
+
+        final listed = await call('list_profiles');
+        final checked = await call('check_profile_run', run);
+        expect(runner.callsWithFirstArg('sign'), isEmpty);
+        final ran = await call('run_profile', run);
+        final runs = await call('list_runs', {'profile': 'Release'});
+
+        expect(data(checked)['canRun'], isTrue);
+        expect(asked, ['Release']);
+        expect(ran['isError'], isFalse);
+        expect(data(ran)['summary'], '2 signed · 1 skipped');
+        expect(
+          container.read(profileHistoryProvider).single.profileId,
+          profileId,
+        );
+        expect(
+          (data(runs)['runs'] as List).single['summary'],
+          '2 signed · 1 skipped',
+        );
+        for (final path in [
+          'out/phone/app-release-Phone.apk',
+          'out/kiosk/app-release-Kiosk.apk',
+        ]) {
+          expect(File(p.join(temp.path, path)).existsSync(), isTrue);
+        }
+        final said = [
+          for (final answer in [listed, checked, ran, runs]) jsonEncode(answer),
+          store.values.toString(),
+          ...container.read(logProvider).entries.map((e) => e.text),
+        ].join('\n');
+        for (final secret in [storePassword, keyPassword]) {
+          expect(said, isNot(contains(secret)));
         }
       });
 

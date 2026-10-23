@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../state/devices.dart';
+import '../state/mcp_notifier.dart';
+import '../state/mcp_tools.dart';
 import '../state/profiles.dart';
 import 'app_logo.dart';
 import 'analysis/apk_panel.dart';
@@ -10,6 +12,8 @@ import 'defaults/defaults_card.dart';
 import 'device/device_panel.dart';
 import 'install/install_card.dart';
 import 'log/log_panel.dart';
+import 'mcp/mcp_dialog.dart';
+import 'mcp/run_request_dialog.dart';
 import 'profiles/profiles_view.dart';
 import 'signing/signing_card.dart';
 import 'theme.dart';
@@ -30,12 +34,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     super.initState();
     // List the devices once at launch; the Install panel refreshes on demand.
     Future.microtask(() => ref.read(devicesProvider.notifier).refresh());
+    // The MCP server comes back on if it was on when the app closed.
+    Future.microtask(() => ref.read(mcpServerProvider.notifier).resume());
   }
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final view = ref.watch(appViewProvider);
+    ref.listen(mcpRunRequestProvider, (_, request) {
+      if (request != null) showRunRequestDialog(context, request);
+    });
     return Scaffold(
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -66,6 +75,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   ),
                 ),
                 const ToolchainBar(),
+                const McpButton(),
               ],
             ),
           ),
