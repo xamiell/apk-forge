@@ -13,10 +13,13 @@ the tools is thin.
 lib/
   core/       Process running, the host OS, ZIP reading and copying, file digests,
               formatting, log types.
-  domain/     Models, command builders, output parsers, findings. Pure.
+  domain/     Models, command builders, output parsers, findings, the MCP
+              protocol. Pure.
   services/   One class per tool job; runs commands through a ProcessRunner.
-  state/      Riverpod notifiers (forms, the current task, the log) and the
-              actions the buttons run (state/actions/).
+              The MCP server's HTTP listener (§9).
+  state/      Riverpod notifiers (forms, the current task, the log, the MCP
+              server), the actions the buttons run (state/actions/), and
+              the MCP tools.
   ui/         The screen and its panels.
   main.dart   Loads the shell environment and settings, starts the app.
 tool/
@@ -67,7 +70,8 @@ in New key, and the `key.properties` files a signing profile points to
   - The file is read when a run's check opens the keys
     (`ProfileKeyService.open`). Its passwords then live in that check's
     `OpenedKey`s (`ProfileRunCheck.keys`), only while the Run dialog is
-    open, and in the `SigningRequest`s and commands of the run.
+    open or an agent's run waits for Allow (`McpRunRequest`, §9), and in
+    the `SigningRequest`s and commands of the run.
   - The target editor reads the file too (`KeyFileSummary`), but keeps
     only whether each password is there.
 - They are passed to tools through environment variables, never arguments:
@@ -97,6 +101,16 @@ in New key, and the `key.properties` files a signing profile points to
   `writeOwnerOnly`, in a temporary folder. bundletool gets their paths
   (`--ks-pass=file:…`), and the folder is deleted when the install ends,
   failed or cancelled.
+
+- The MCP server's token (§9) is the one secret the settings keep, so the
+  command that registered a client keeps working across launches.
+  - It isn't a key's password: it lets a local MCP client call the
+    server's tools, nothing more. **New token** replaces it.
+  - It never goes to the log, a tool's answer or an error, and
+    `McpSettings` leaves it out of `toString`.
+- The MCP tools' answers are built from what the History and the Profiles
+  list already show: `ProfileRunRecord`, the plan, `KeyFileSummary`'s
+  alias, and an `OpenedKey`'s alias only.
 
 A test covers each of these. Keep it that way when a new tool takes a secret.
 
@@ -311,7 +325,7 @@ A run goes through three steps, each in its layer:
    pure, made from the inputs' reports.
    - It lists what stops the run: an input that fails the checks, a
      target's problems, or two targets that would write the same file.
-     A target's problems come from `targetProblems` (§10), such as a
+     A target's problems come from `targetProblems` (§11), such as a
      `key.properties` or folder missing on this machine, through
      `FileProbe`.
    - It skips a target the input has no native code or Flutter engine
@@ -399,12 +413,74 @@ installed app. `installSignerWarningProvider` gives Install's warning: it
 reads the installed version first (`dumpsys`) and copies the installed app
 only when there is one.
 
-## 9. Tests
+## 9. The MCP server
+
+An agent reaches the signing profiles through an MCP server inside the
+running app. The owner decided this in #10 (2026-10-22): one source of truth
+for the profiles, the History and the running task, instead of a second,
+headless app.
+
+| Layer | What | Where |
+|---|---|---|
+| `domain/mcp/` | JSON-RPC and MCP, answered over a `McpToolbox` (`answerMcpMessage`, `answerMcpBody`); what the HTTP side refuses (`refuseMcpRequest`); the four tools, how their arguments are read, and the JSON they answer with. | `mcp_protocol.dart`, `profile_tools.dart` |
+| `services/` | `McpHttpServer`: binds `127.0.0.1`, reads a request, writes what `domain/mcp` decided. | `mcp_server.dart` |
+| `state/` | `ProfileMcpTools`, the toolbox: plain, built from closures over the profiles, the History, the check, the approval and `ProfileRunAction`. `McpRunRequestNotifier`: the run waiting for Allow. `McpServerNotifier`: on, off, the port, the token and Ask before an agent runs, saved under `SettingsKey.mcp`. | `mcp_tools.dart`, `mcp_notifier.dart` |
+| `ui/mcp/` | The top bar's **MCP** pill, the Agent access dialog, and the dialog that asks to allow a run. | `mcp_dialog.dart`, `run_request_dialog.dart` |
+
+- **The tools do what the Profiles view does.**
+  - `check_profile_run` reads the `profileRunCheckProvider` the Run dialog
+    watches, listening to it until it's read.
+  - `run_profile` passes that check to `ProfileRunAction.run`. So the run
+    is the one task (§5), its progress goes to `ProfileRunNotifier`, and
+    its record goes to the History.
+  - With **Ask before an agent runs a profile** on (`McpSettings.askToRun`,
+    the default), a run whose check passed waits for the user first:
+    `McpRunRequestNotifier.ask` holds it, `HomeScreen` shows it with the
+    Run dialog's `RunPlanTable`, and Allow or Decline answers it. One
+    waits at a time; stopping the server or closing the app declines it.
+    The app asks, not the client, so it holds for any agent.
+  - `list_profiles` says a target's problems with `targetProblems`, as
+    every screen does.
+  - `run_profile`'s report is `runReportText`, as Copy writes it.
+- **An APK is read again** before each check (`apkReportProvider` is
+  invalidated), since an agent may have built it again since.
+- **What's refused, and how.**
+  - A wrong argument, an unknown or shared profile name, a missing APK, a
+    busy app, a check with a problem, a declined run or one asked while
+    another waits for Allow: an answer with `isError` and the reason, so
+    the agent can act on it.
+  - A protocol mistake (an unknown tool or method): a JSON-RPC error.
+- **The protocol, kept small.**
+  - It speaks MCP 2025-03-26 to 2025-11-25 over Streamable HTTP, answering
+    each `POST /mcp` with `application/json`.
+  - There's no event stream (a `GET` is 405) and no session.
+  - It handles `initialize`, `ping`, `tools/list` and `tools/call`; a
+    notification gets 202.
+  - `package:dart_mcp` (0.5.2) only has a stdio transport, so the handler
+    is written here.
+- **Who it answers** (`refuseMcpRequest`):
+  - It binds the loopback address only.
+  - Every request needs `Authorization: Bearer <token>`, compared in a
+    time that doesn't depend on where it differs.
+  - An `Origin` other than its own address is a web page reaching it
+    through the browser (DNS rebinding), refused with 403 even with the
+    token.
+  - A body over 1 MB is cut off.
+- **Its life.** It's off until it's turned on. Then it starts again at
+  every launch (`HomeScreen` calls `resume`) until it's turned off.
+  Turning it off, moving its port or making a new token closes the open
+  connections and declines a run waiting for Allow; a run already started
+  finishes as a task.
+- **It names no client.** The app shows what any MCP client needs: the
+  address (`mcpUrl`) and the `Authorization` header (`mcpAuthorization`).
+  The README gives one client's command as an example.
+
+## 10. Tests
 
 What is tested and how, the fake for each boundary, and the rules every
 test follows are in [TESTING.md](TESTING.md).
 
-## 10. Patterns
+## 11. Patterns
 
 | Pattern | Where | What it's for |
 |---|---|---|
@@ -413,14 +489,14 @@ test follows are in [TESTING.md](TESTING.md).
 | Pure builder and parser | `domain/`: the `…Arguments` builders and the `parse…` functions | What to run and what its output means, tested without the tools (§2, `test/fixtures`). |
 | Service per tool job | `services/` | Runs one job's commands through a `ToolExecutor`, and throws `ToolFailure`. |
 | Action per job | `state/actions/` | What a button does: read the forms, run the services as one task, put the results in the state (§5). |
-| Function as a dependency | `clockProvider`, `FileRevealer`, `ToolchainSource`, the actions' readers (`BuildOptions Function()`…) | A dependency with one call is a function type. One with two or more is an interface (`TaskRunner`, `ApkSink`, `ProfileRunProgress`). |
+| Function as a dependency | `clockProvider`, `FileRevealer`, `ToolchainSource`, `McpServerStarter`, the actions' readers (`BuildOptions Function()`…) and `ProfileMcpTools`'s | A dependency with one call is a function type. One with two or more is an interface (`TaskRunner`, `ApkSink`, `ProfileRunProgress`, `McpToolbox`). |
 | Closed set | `SettingsKey`; the sealed `SigningSetup` and `SplitAvailability`; enums such as `TargetStatus` | A new case doesn't compile until every `switch` handles it. |
 | Model owns its JSON | `fromJson`/`toJson` next to each other on each saved model | One place per field name. `settings_test` pins what this version saves. |
-| One report, every way out | `runReport` (`domain/profiles/run_report.dart`) | History's detail, Copy as text and Export say a run the same way: the text is `runReportText` of the same report. |
-| One rule, every screen | `targetProblems` (`domain/profiles/target_problems.dart`), through `targetProblemsProvider` and `profileProblemsProvider` | The run check, the import dialog, the Profiles list, the Targets table and Edit target say what's wrong with a target in the same words, so they can't disagree. |
+| One report, every way out | `runReport` (`domain/profiles/run_report.dart`) | History's detail, Copy as text, Export and `run_profile`'s answer say a run the same way: the text is `runReportText` of the same report. |
+| One rule, every screen | `targetProblems` (`domain/profiles/target_problems.dart`), through `targetProblemsProvider` and `profileProblemsProvider` | The run check, the import dialog, the Profiles list, the Targets table, Edit target and `list_profiles` say what's wrong with a target in the same words, so they can't disagree. |
 | Observer | Riverpod notifiers and providers | The UI rebuilds from the state; it shows rules, it doesn't hold them. |
 
-## 11. Every change
+## 12. Every change
 
 Check a change against this list before it's done, and say in the pull
 request which point it fails, if any:
@@ -450,15 +526,15 @@ request which point it fails, if any:
 - [ ] The docs that describe the change (README, this file, TESTING.md)
       changed with it.
 
-## 12. Changing the architecture
+## 13. Changing the architecture
 
 A change to the rules in this document is decided in an issue and approved
 by the owner. It lands with this document updated in the same pull
 request. Until then, code that can't follow a rule is listed under Known
 deviations, with the reason.
 
-## 13. Known deviations
+## 14. Known deviations
 
 | Since | Rule | Where | Why, and until when |
 |---|---|---|---|
-| 2026-10-19 (#11) | Feature-first folders, the default of the owner's mobile-app-architecture rules | `lib/` is layer-first (§1) | The app is small and its steps run in sequence. Layers split by area read better than features calling each other. Moving to features was left out of #11; it needs its own decision (§12). |
+| 2026-10-19 (#11) | Feature-first folders, the default of the owner's mobile-app-architecture rules | `lib/` is layer-first (§1) | The app is small and its steps run in sequence. Layers split by area read better than features calling each other. Moving to features was left out of #11; it needs its own decision (§13). |

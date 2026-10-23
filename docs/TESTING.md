@@ -10,9 +10,9 @@ boundaries and real tool output captured once.
 | Layer | Tested with | Where |
 |---|---|---|
 | `core/` | Unit tests: ZIP reading and copying on temporary files, formatting, the shell environment, when a command starts through the shell. | `test/core` |
-| `domain/` | Unit tests: parsers against real captured output, command builders, findings, comparisons, plans, the models' JSON. | `test/domain` |
-| `services/` | Each service over `FakeProcessRunner`, with real captured output as the tools' answers. | `test/services` |
-| `state/` | Each action built directly with fakes (`actions_test`). The notifiers and the providers' wiring through a `ProviderContainer` (`state_test`). What each setting saves (`settings_test`). | `test/state` |
+| `domain/` | Unit tests: parsers against real captured output, command builders, findings, comparisons, plans, the models' JSON. The MCP protocol: what each message gets, what the HTTP side refuses, and the tools' arguments and JSON (`mcp_test`). | `test/domain` |
+| `services/` | Each service over `FakeProcessRunner`, with real captured output as the tools' answers. `McpHttpServer` has no unit test: what it refuses and answers is decided in `domain/mcp` and tested there, and the listener itself was checked with `curl` (#10). | `test/services` |
+| `state/` | Each action built directly with fakes (`actions_test`). The MCP tools built with closures, and the server's notifier with its starter overridden (`mcp_test`). The notifiers and the providers' wiring through a `ProviderContainer` (`state_test`), the MCP tools included. What each setting saves (`settings_test`). | `test/state` |
 | `ui/` | Checked by hand on macOS, every screen a change touches. Widget tests only where one rule must show the same way on several screens: a target's problems in the Profiles list, the Targets step and table, and Edit target. | `test/ui` |
 | The real tools | `tool/smoke.dart`, end to end against a throwaway project and keystore (see the README's Development section). | `tool/` |
 
@@ -56,6 +56,9 @@ There is no mocking library: every double is a small fake, in
 | The OS file manager | An override of `fileRevealerProvider`, or a function given to the action. |
 | Creating a folder | An override of `folderCreatorProvider` that adds the path to a `FakeFileProbe`. |
 | A `key.properties` read | `keyFileSummaryProvider.overrideWith((ref, path) async => KeyFileSummary(…))`. |
+| The MCP server's port | An override of `mcpServerStarterProvider` that records the port and the token, and returns a stop that records too. `mcpTokenMakerProvider` gives known tokens. |
+| What the MCP tools call | Closures given to `ProfileMcpTools`, recording what they're asked, the user's Allow or Decline included (`_Tools` in `test/state/mcp_test.dart`). |
+| The user allowing an agent's run | `McpRunRequestNotifier.answer`, called by the test, or from a `container.listen` on `mcpRunRequestProvider` (`state_test`). |
 
 ## Recipes
 
@@ -86,6 +89,11 @@ There is no mocking library: every double is a small fake, in
   `find.descendant` and a `ValueKey` on that panel.
 - **A secret.** Assert that the password is in none of these: the log, the
   settings, the history or the error (`isNot(contains(secret))`).
+- **A new MCP tool.**
+  - Add it to `profileTools`, with its arguments read and its JSON built
+    in `domain/mcp`, and test both there.
+  - Test its handler in `ProfileMcpTools` with closures: what it calls, what
+    it refuses, and that its answer holds no password.
 
 ## Running
 
