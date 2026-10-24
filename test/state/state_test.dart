@@ -203,6 +203,51 @@ void main() {
     expect(form.isReady, isTrue);
   });
 
+  test('Clear empties the key and its passwords, keeps the output folder, '
+      'and saves it', () {
+    final notifier = container.read(signingFormProvider.notifier);
+    loadTestKey();
+    notifier.update(
+      (f) => f.copyWith(
+        keyUsesStorePassword: false,
+        keyPassword: 'k3y',
+        outputDir: '/out',
+      ),
+    );
+    expect(container.read(signingFormProvider).canClear, isTrue);
+
+    notifier.clear();
+
+    final form = container.read(signingFormProvider);
+    expect(form.keystorePath, isEmpty);
+    expect(form.storePassword, isEmpty);
+    expect(form.entries, isEmpty);
+    expect(form.alias, isNull);
+    expect(form.keyPassword, isEmpty);
+    expect(form.keyUsesStorePassword, isTrue);
+    expect(form.outputDir, '/out');
+    expect(form.problem, 'Choose a keystore.');
+    expect(form.canClear, isFalse);
+    expect(store.values[SettingsKey.signing], {
+      'keystorePath': '',
+      'alias': null,
+      'keyUsesStorePassword': true,
+      'outputDir': '/out',
+    });
+  });
+
+  test('nothing to clear in a first launch\'s Sign, or with only an output '
+      'folder', () {
+    final notifier = container.read(signingFormProvider.notifier);
+    expect(container.read(signingFormProvider).canClear, isFalse);
+
+    notifier.update((f) => f.copyWith(outputDir: '/out'));
+    expect(container.read(signingFormProvider).canClear, isFalse);
+
+    notifier.update((f) => f.copyWith(keyUsesStorePassword: false));
+    expect(container.read(signingFormProvider).canClear, isTrue);
+  });
+
   test('the saved settings never hold a password', () {
     loadTestKey();
     container

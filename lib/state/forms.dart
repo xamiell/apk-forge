@@ -219,6 +219,16 @@ class SigningForm {
   bool get canLoadKeys =>
       keystorePath.trim().isNotEmpty && storePassword.isNotEmpty;
 
+  /// Whether Clear has something to empty: a keystore, a password, keys, an
+  /// alias, or a key password of its own.
+  bool get canClear =>
+      keystorePath.isNotEmpty ||
+      storePassword.isNotEmpty ||
+      entries.isNotEmpty ||
+      alias != null ||
+      !keyUsesStorePassword ||
+      keyPassword.isNotEmpty;
+
   /// Why signing can't happen yet, or `null` when it can.
   String? get problem {
     if (keystorePath.trim().isEmpty) return 'Choose a keystore.';
@@ -298,6 +308,11 @@ class SigningFormNotifier extends Notifier<SigningForm> {
       clearAlias: true,
     ),
   );
+
+  /// Sign as on a first launch, but for the output folder: the keystore,
+  /// its password, the keys read, the alias and the key password go, and the
+  /// key uses the keystore password again. Nothing on disk changes.
+  void clear() => update((form) => SigningForm(outputDir: form.outputDir));
 
   /// A new password invalidates the keys read with the old one.
   void setStorePassword(String password) {
