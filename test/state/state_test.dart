@@ -1409,8 +1409,8 @@ void main() {
           '2 signed · 1 skipped',
         );
         for (final path in [
-          'out/phone/app-release-Phone.apk',
-          'out/kiosk/app-release-Kiosk.apk',
+          'out/phone/sample_app-Phone-signed.apk',
+          'out/kiosk/sample_app-Kiosk-signed.apk',
         ]) {
           expect(File(p.join(temp.path, path)).existsSync(), isTrue);
         }
