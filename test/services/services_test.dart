@@ -1774,7 +1774,7 @@ void main() {
         final phone = File(results.first.outputPath!);
         expect(
           phone.path,
-          p.join(temp.path, 'out', 'phone', 'app-release-Phone.apk'),
+          p.join(temp.path, 'out', 'phone', 'app-release-Phone-signed.apk'),
         );
         expect(phone.readAsStringSync(), 'signed app-release-arm64-v8a.apk');
         expect(

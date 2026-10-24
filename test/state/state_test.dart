@@ -1261,8 +1261,8 @@ void main() {
               .where((r) => r.status == TargetStatus.signed)
               .map((r) => p.relative(r.outputPath!, from: temp.path)),
           [
-            'out/phone/app-release-Phone.apk',
-            'out/kiosk/app-release-Kiosk.apk',
+            'out/phone/sample_app-Phone-signed.apk',
+            'out/kiosk/sample_app-Kiosk-signed.apk',
           ],
         );
         expect(
@@ -1275,15 +1275,18 @@ void main() {
         final list = container.read(apkListProvider);
         expect(
           list.items.map((i) => p.basename(i.path)),
-          containsAll(['app-release-Phone.apk', 'app-release-Kiosk.apk']),
+          containsAll([
+            'sample_app-Phone-signed.apk',
+            'sample_app-Kiosk-signed.apk',
+          ]),
         );
         // The list had nothing selected: the panel needs one selected once
         // it has APKs.
         expect(list.selectedPath, isNotNull);
         // The profile opens its output folders.
         expect(revealed.map(p.basename), [
-          'app-release-Phone.apk',
-          'app-release-Kiosk.apk',
+          'sample_app-Phone-signed.apk',
+          'sample_app-Kiosk-signed.apk',
         ]);
         // The settings (profiles and history) and the log never saw a
         // password.

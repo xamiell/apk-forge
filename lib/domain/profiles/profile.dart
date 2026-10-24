@@ -212,15 +212,32 @@ const fileNameTokens = [
   '{date}',
 ];
 
-/// [pattern] with its tokens filled, plus `.apk`:
+/// What `{name}` stands for: the app's [label] in lowercase, with `-` for
+/// spaces ("My App" is `my-app`); without one, the last part of its
+/// [packageName] (`com.example.app` is `app`); without either, [fileName],
+/// the input's name without its extension.
+String profileAppName({
+  String? label,
+  String? packageName,
+  required String fileName,
+}) {
+  final fromLabel = label?.trim().toLowerCase().replaceAll(RegExp(r'\s+'), '-');
+  if (fromLabel != null && fromLabel.isNotEmpty) return fromLabel;
+  final fromPackage = packageName?.trim().split('.').last.toLowerCase();
+  if (fromPackage != null && fromPackage.isNotEmpty) return fromPackage;
+  return fileName;
+}
+
+/// [pattern] with its tokens filled, as a signed APK's file name:
 ///
-/// - `{name}`: the input APK's name without `.apk`;
+/// - `{name}`: the app's name ([profileAppName]);
 /// - `{target}`: the target's name;
 /// - `{abi}`: its ABI, or `universal`;
 /// - `{versionName}`, `{versionCode}`: from the input's manifest;
 /// - `{date}`: [date] as `yyyyMMdd`.
 ///
-/// A character a file name can't hold on any OS becomes `_`.
+/// A character a file name can't hold on any OS becomes `_`. The name ends
+/// in `-signed.apk`, as Sign's do, unless [pattern] already says "signed".
 String profileFileName(
   String pattern, {
   required String name,
@@ -238,8 +255,27 @@ String profileFileName(
       .replaceAll('{versionName}', versionName ?? 'unknown')
       .replaceAll('{versionCode}', versionCode ?? 'unknown')
       .replaceAll('{date}', '${date.year}${two(date.month)}${two(date.day)}');
-  final safe = safeFileName(filled);
-  return safe.toLowerCase().endsWith('.apk') ? safe : '$safe.apk';
+  return _signedApkName(safeFileName(filled), pattern);
+}
+
+/// [pattern] as the file names it makes, its tokens unfilled:
+/// `{name}-{target}` makes `{name}-{target}-signed.apk`.
+String signedFileNamePattern(String pattern) =>
+    _signedApkName(pattern.trim(), pattern);
+
+final _token = RegExp(r'\{[^}]*\}');
+
+/// "signed" as a word, so `unsigned` doesn't count.
+final _signedWord = RegExp(r'(?<![a-z])signed(?![a-z])', caseSensitive: false);
+
+/// [name] without `.apk`, then `-signed` unless the text of [pattern]
+/// outside its tokens says "signed", then `.apk`.
+String _signedApkName(String name, String pattern) {
+  final stem = name.toLowerCase().endsWith('.apk')
+      ? name.substring(0, name.length - '.apk'.length)
+      : name;
+  final saysSigned = _signedWord.hasMatch(pattern.replaceAll(_token, ' '));
+  return saysSigned ? '$stem.apk' : '$stem-signed.apk';
 }
 
 /// [name] with each character a file name can't hold on any OS turned
@@ -274,7 +310,7 @@ SigningProfile importProfile(String text) {
 /// What's wrong with a file name pattern: empty, or an unknown `{token}`.
 List<String> fileNamePatternProblems(String pattern) {
   if (pattern.trim().isEmpty) return const ['The file name pattern is empty.'];
-  final unknown = RegExp(r'\{[^}]*\}')
+  final unknown = _token
       .allMatches(pattern)
       .map((match) => match.group(0)!)
       .where((token) => !fileNameTokens.contains(token))

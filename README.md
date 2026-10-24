@@ -234,6 +234,12 @@ Open **Profiles** in the left rail, or **Run profile…** in **Sign**.
 2. **Targets**: **Add target** for each one.
 3. **File name**: the tokens are `{name}`, `{target}`, `{abi}`,
    `{versionName}`, `{versionCode}` and `{date}`, with a preview.
+   - `{name}` is the app's name: its label in lowercase, with `-` for
+     spaces, or else the last part of its package (`com.example.myapp`
+     gives `myapp`). The input file's name is used only when the APK's
+     manifest can't be read.
+   - The name ends in `-signed.apk`, as Sign's do, unless the pattern
+     already says `signed`.
 4. **After**: what to do once the run is done.
 
 Targets with the same ABI, key and schemes are signed once and copied to

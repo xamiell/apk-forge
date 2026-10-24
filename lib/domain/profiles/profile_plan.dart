@@ -90,8 +90,8 @@ class ProfileRunPlan {
 /// - A target without schemes of its own uses [defaultSchemes].
 /// - Targets that share the input, the ABI, the key and the schemes are
 ///   signed once and copied to each folder.
-/// - Two targets writing the same file, or a target writing over its input,
-///   is a problem.
+/// - Two targets writing the same file, two inputs that give the same file
+///   name, or a target writing over its input, is a problem.
 ProfileRunPlan planProfileRun(
   SigningProfile profile,
   List<ApkReport> inputs, {
@@ -136,7 +136,11 @@ ProfileRunPlan planProfileRun(
           target.outputDir.trim(),
           profileFileName(
             profile.fileNamePattern,
-            name: path.basenameWithoutExtension(input.path),
+            name: profileAppName(
+              label: input.badging?.label,
+              packageName: input.badging?.packageName,
+              fileName: path.basenameWithoutExtension(input.path),
+            ),
             target: target.name,
             abi: target.abiName,
             versionName: input.badging?.versionName,
@@ -165,24 +169,21 @@ ProfileRunPlan planProfileRun(
     }
   }
 
-  final written = <String, String>{};
+  final written = <String, _Writer>{};
   final inputPaths = {for (final input in inputs) path.normalize(input.path)};
   for (final job in jobs.values) {
     for (final output in job.outputs) {
       final file = path.normalize(output.path);
-      final other = written[file];
-      if (other != null) {
-        problems.add(
-          '$other and ${output.target.name} would both write ${output.path}. '
-          'Put {target} in the file name, or give them different folders.',
-        );
+      final writer = (target: output.target.name, input: job.input.path);
+      if (written[file] case final other?) {
+        problems.add(_sameFile(other, writer, output.path, host));
       }
       if (inputPaths.contains(file)) {
         problems.add(
           '${output.target.name} would write over its input, ${output.path}.',
         );
       }
-      written[file] = output.target.name;
+      written[file] = writer;
     }
   }
 
@@ -191,6 +192,26 @@ ProfileRunPlan planProfileRun(
     jobs: jobs.values.toList(),
     skipped: skipped,
   );
+}
+
+/// A target and the input it signs, as a file name collision names them.
+typedef _Writer = ({String target, String input});
+
+/// Why [first] and [second] can't both write [file]: two targets, or two
+/// inputs that give the same file name through one target.
+String _sameFile(_Writer first, _Writer second, String file, Host host) {
+  String name(String input) => host.path.basename(input);
+  if (first.target != second.target) {
+    final who = first.input == second.input
+        ? '${first.target} and ${second.target}'
+        : '${first.target} for ${name(first.input)} and '
+              '${second.target} for ${name(second.input)}';
+    return '$who would both write $file. '
+        'Put {target} in the file name, or give them different folders.';
+  }
+  return '${name(first.input)} and ${name(second.input)} would both write '
+      '$file for ${first.target}. Put {versionCode} in the file name if '
+      'their versions differ, or run them one at a time.';
 }
 
 List<String> _inputProblems(InputChecks checks, ApkReport input, Host host) {
