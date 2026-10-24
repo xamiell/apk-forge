@@ -145,6 +145,11 @@ such as a bundle from CI. Each one is written next to the original as
 `<name>-signed.apk` or `<name>-signed.aab`, or to the output folder if you
 set one.
 
+**Clear**, next to **New key…**, empties Sign in one go: the keystore, its
+password, the keys loaded and the key password. The output folder stays,
+and the keystore and its `key.properties` stay on disk. Analyze APK then
+stops comparing APKs with the cleared key.
+
 ### Make a new upload key
 
 To publish a new app you need an upload key. **New key…** at the top of
