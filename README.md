@@ -255,7 +255,10 @@ target that fails doesn't stop the others. The signed APKs join the list in
 **Analyze APK**.
 
 **The history.** The **History** tab keeps every run, newest first, with
-its outcome, versions and targets. A run's report says, for each target:
+its outcome, versions and targets. A robot marks a run an agent started.
+A run's report says who started it: **In the app**, or the agent, by its
+name and version, and whether you allowed it or it ran without asking.
+Then, for each target:
 - the ABI, and whether the input was cut;
 - the key: its alias and its `key.properties`;
 - the schemes asked, next to the ones apksigner verified;
@@ -291,7 +294,7 @@ build/app/outputs/flutter-apk/app-release.apk". Any agent works, with any
 model, as long as its client speaks [MCP](https://modelcontextprotocol.io)
 over HTTP. APK Forge has the MCP server inside the app. A run goes through
 the Run dialog's check, shows in the log while it runs, and is kept in the
-profile's History.
+profile's History, which names the agent.
 
 **Turn it on.** Press the robot in the top bar (**Agent access**) and turn
 on **MCP server**:
@@ -332,8 +335,9 @@ connected, and its last request and tool. It shows the three most recent;
 **Show all** shows the rest. The log says when an agent
 connects and disconnects. An agent that quits without disconnecting stays
 listed, with the time of its last request, until the server stops. One
-that connected before APK Forge restarted keeps working, and shows as such
-until it connects again.
+that connected before APK Forge restarted connects again on its own: the
+server tells it its session is gone, as MCP has it, and its client starts
+another one.
 
 **The tools:**
 

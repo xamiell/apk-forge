@@ -38,12 +38,11 @@ class McpAgentsNotifier extends Notifier<List<McpAgent>>
   }
 
   @override
-  void request(String sessionId, {String? tool}) {
-    final now = ref.read(clockProvider)();
-    _first(
-      _find(sessionId)?.requested(now, tool: tool) ??
-          McpAgent(sessionId: sessionId, lastRequestAt: now, lastTool: tool),
-    );
+  McpAgent? request(String sessionId, {String? tool}) {
+    final agent = _find(sessionId)
+        ?.requested(ref.read(clockProvider)(), tool: tool);
+    if (agent != null) _first(agent);
+    return agent;
   }
 
   @override

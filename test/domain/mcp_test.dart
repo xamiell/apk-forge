@@ -24,6 +24,9 @@ import '../helpers/fakes.dart';
 class _EchoToolbox implements McpToolbox {
   final calls = <(String, Map<String, Object?>)>[];
 
+  /// The agent each call was for.
+  final agents = <String>[];
+
   @override
   List<McpTool> get tools => const [
     McpTool(
@@ -38,9 +41,11 @@ class _EchoToolbox implements McpToolbox {
   @override
   Future<McpToolResult> call(
     String name,
-    Map<String, Object?> arguments,
-  ) async {
+    Map<String, Object?> arguments, {
+    required String agent,
+  }) async {
     calls.add((name, arguments));
+    agents.add(agent);
     if (arguments['fail'] == true) throw StateError('it broke');
     return McpToolResult({'said': arguments['text']});
   }
@@ -49,25 +54,35 @@ class _EchoToolbox implements McpToolbox {
 /// Records what the protocol tells it, and opens `session-1`, `session-2`…
 class _Sessions implements McpSessions {
   final events = <String>[];
-  final ids = <String>{};
+  final clients = <String, McpClientInfo>{};
   var _opened = 0;
 
   @override
   String open(McpClientInfo client) {
     final id = 'session-${++_opened}';
-    ids.add(id);
+    clients[id] = client;
     events.add('open ${client.label}');
     return id;
   }
 
   @override
-  void request(String sessionId, {String? tool}) =>
-      events.add('request $sessionId ${tool ?? '-'}');
+  McpAgent? request(String sessionId, {String? tool}) {
+    events.add('request $sessionId ${tool ?? '-'}');
+    return switch (clients[sessionId]) {
+      final client? => McpAgent(
+        sessionId: sessionId,
+        client: client,
+        connectedAt: DateTime(2026, 10, 24),
+        lastRequestAt: DateTime(2026, 10, 24),
+      ),
+      null => null,
+    };
+  }
 
   @override
   bool close(String sessionId) {
     events.add('close $sessionId');
-    return ids.remove(sessionId);
+    return clients.remove(sessionId) != null;
   }
 }
 
@@ -353,6 +368,8 @@ void main() {
             sessionId: sessionId,
           );
 
+      final id = sessions.open(const McpClientInfo(name: 'claude-code'));
+
       final call = await post(
         _request(
           'tools/call',
@@ -361,20 +378,57 @@ void main() {
             'arguments': {'text': 'hi'},
           },
         ),
-        sessionId: 'session-7',
+        sessionId: id,
       );
       await post({
         'jsonrpc': '2.0',
         'method': 'notifications/initialized',
-      }, sessionId: 'session-7');
+      }, sessionId: id);
       final ping = await post(_request('ping'));
 
       expect(_toolData(call.body), {'said': 'hi'});
       expect(ping.status, 200);
       expect(sessions.events, [
-        'request session-7 echo',
-        'request session-7 -',
+        'open claude-code',
+        'request session-1 echo',
+        'request session-1 -',
       ]);
+    });
+
+    test('a session it does not have is 404, so the client initializes '
+        'again, and nothing is called', () async {
+      final answered = await answerMcpBody(
+        jsonEncode(
+          _request('tools/call', params: {'name': 'echo', 'arguments': {}}),
+        ),
+        toolbox: toolbox,
+        sessions: sessions,
+        sessionId: 'from-before-a-restart',
+      );
+
+      expect(answered.status, 404);
+      expect(toolbox.calls, isEmpty);
+    });
+
+    test('a tool call is told its session\'s agent, or "Agent" in no '
+        'session', () async {
+      final call = jsonEncode(
+        _request('tools/call', params: {'name': 'echo', 'arguments': {}}),
+      );
+
+      final id = sessions.open(
+        const McpClientInfo(name: 'claude-code', version: '2.1.0'),
+      );
+
+      await answerMcpBody(
+        call,
+        toolbox: toolbox,
+        sessions: sessions,
+        sessionId: id,
+      );
+      await answerMcpBody(call, toolbox: toolbox, sessions: sessions);
+
+      expect(toolbox.agents, ['claude-code 2.1.0', 'Agent']);
     });
 
     test('DELETE ends a session: 204, or 404 for one it does not have, or '
@@ -404,10 +458,10 @@ void main() {
         McpClientInfo.fromJson({'name': 'x', 'title': ' Claude\nCode\t'}).label,
         'Claude Code',
       );
-      expect(McpClientInfo.fromJson(null).label, 'An unnamed agent');
+      expect(McpClientInfo.fromJson(null).label, 'Agent');
       expect(
         McpClientInfo.fromJson({'name': 42, 'version': '  '}).label,
-        'An unnamed agent',
+        'Agent',
       );
       final long = McpClientInfo.fromJson({'name': 'a' * 100}).name!;
       expect(long, hasLength(60));
@@ -423,20 +477,16 @@ void main() {
         lastRequestAt: DateTime(2026, 10, 24, 14, 9),
         lastTool: 'list_profiles',
       );
-      final fromBefore = McpAgent(
-        sessionId: 's',
-        lastRequestAt: DateTime(2026, 10, 23, 9, 5),
-      );
 
       expect(
         agent.activity(now),
         'Connected 14:05 · last request 14:09 · last tool list_profiles',
       );
       expect(
-        fromBefore.label,
-        'An agent connected before the server restarted',
+        agent.activity(DateTime(2026, 10, 25)),
+        'Connected 2026-10-24 14:05 · last request 2026-10-24 14:09 · '
+        'last tool list_profiles',
       );
-      expect(fromBefore.activity(now), 'Last request 2026-10-23 09:05');
       expect(
         agent.requested(DateTime(2026, 10, 24, 14, 12)).activity(now),
         'Connected 14:05 · last request 14:12 · last tool list_profiles',

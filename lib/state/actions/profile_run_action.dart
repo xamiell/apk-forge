@@ -34,13 +34,14 @@ class ProfileRunAction {
   final DateTime Function() clock;
   final Host host;
 
-  /// The progress goes to [progress], the record to the history, and each
-  /// signed APK to the list. `null` when [check] can't run, another task is
-  /// running, or the run failed.
+  /// The progress goes to [progress], the record to the history, saying
+  /// who [startedBy] it, and each signed APK to the list. `null` when
+  /// [check] can't run, another task is running, or the run failed.
   Future<ProfileRunRecord?> run(
     SigningProfile profile,
-    ProfileRunCheck check,
-  ) async {
+    ProfileRunCheck check, {
+    required RunStarter startedBy,
+  }) async {
     if (!check.canRun || task.isRunning) return null;
     progress.start(profile.id, check.plan, host);
     final startedAt = clock();
@@ -68,6 +69,7 @@ class ProfileRunAction {
         fileNamePattern: profile.fileNamePattern,
         inputChecks: profile.input,
         buildToolsVersion: tools.buildToolsVersion,
+        startedBy: startedBy,
       );
       addToHistory(record);
       progress.finish(record);

@@ -146,6 +146,11 @@ Map<SettingsKey, Map<String, Object?>> savedByThisVersion() => {
           'mustBeUnsigned': true,
         },
         'buildToolsVersion': '36.0.0',
+        'startedBy': {
+          'by': 'agent',
+          'agent': 'Claude Code 2.1.0',
+          'allowedInApp': true,
+        },
       },
     ],
   },
@@ -223,6 +228,12 @@ void main() {
     expect(run.results.last.setup!.schemesFromDefaults, isTrue);
     expect(run.inputChecks!.mustBeUnsigned, isTrue);
     expect(run.buildToolsVersion, '36.0.0');
+    expect(
+      run.startedBy,
+      isA<StartedByAgent>()
+          .having((by) => by.agent, 'agent', 'Claude Code 2.1.0')
+          .having((by) => by.allowedInApp, 'allowedInApp', isTrue),
+    );
 
     final mcp = container.read(mcpServerProvider).settings;
     expect(mcp.enabled, isTrue);

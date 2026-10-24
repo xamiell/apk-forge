@@ -137,6 +137,9 @@ class _Tools {
   TaskState? taskAfterRun;
   ProfileRunState? lastRun;
 
+  /// Who the last run was recorded as started by.
+  StartedByAgent? startedBy;
+
   final asked = <String>[];
   final log = RecordingLog();
 
@@ -165,8 +168,9 @@ class _Tools {
       asked.add('approve ${profile.id}');
       return approval;
     },
-    run: (profile, check) async {
+    run: (profile, check, by) async {
       asked.add('run ${profile.id}');
+      startedBy = by;
       task = taskAfterRun ?? task;
       return ran;
     },
@@ -180,8 +184,11 @@ class _Tools {
   Future<McpToolResult> call(
     String name, [
     Map<String, Object?> arguments = const {},
-  ]) => tools.call(name, arguments);
+  ]) => tools.call(name, arguments, agent: _agent);
 }
+
+/// The agent the tests' calls come from.
+const _agent = 'Claude Code 2.1.0';
 
 const _runArguments = {
   'profile': 'universal',
@@ -246,7 +253,7 @@ void main() {
         );
         expect(tools.asked, ['reread $_apk', 'check u $_apk']);
         expect(tools.log.lines, [
-          'info: An agent checks "Universal" on app-release.apk.',
+          'info: Claude Code 2.1.0 checks "Universal" on app-release.apk.',
         ]);
       },
     );
@@ -295,7 +302,7 @@ void main() {
             throw const ToolFailure('aapt2 failed', details: ['bad APK']),
         askToRun: () => true,
         approve: (_, _) async => fail('Nothing is asked.'),
-        run: (_, _) async => fail('Nothing runs.'),
+        run: (_, _, _) async => fail('Nothing runs.'),
         task: () => const TaskState(),
         lastRun: () => null,
         log: tools.log,
@@ -303,7 +310,11 @@ void main() {
         host: macHost,
       );
 
-      final result = await failing.call('check_profile_run', _runArguments);
+      final result = await failing.call(
+        'check_profile_run',
+        _runArguments,
+        agent: _agent,
+      );
 
       expect(result.isError, isTrue);
       expect(result.data, {
@@ -325,8 +336,11 @@ void main() {
       expect(result.data['report'], contains('APK Forge run: '));
       expect(tools.asked, ['reread $_apk', 'check u $_apk', 'run u']);
       expect(tools.log.lines, [
-        'info: An agent runs "Universal" on app-release.apk.',
+        'info: Claude Code 2.1.0 runs "Universal" on app-release.apk.',
       ]);
+      // Ask before was off: the record says it ran without asking.
+      expect(tools.startedBy?.agent, _agent);
+      expect(tools.startedBy?.allowedInApp, isFalse);
     });
 
     test('run_profile is refused while another task runs, before any '
@@ -409,10 +423,12 @@ void main() {
         'run u',
       ]);
       expect(tools.log.lines, [
-        'info: An agent runs "Universal" on app-release.apk.',
+        'info: Claude Code 2.1.0 runs "Universal" on app-release.apk.',
         'info: Waiting for Allow in APK Forge.',
         'info: The run was allowed.',
       ]);
+      expect(tools.startedBy?.agent, _agent);
+      expect(tools.startedBy?.allowedInApp, isTrue);
     });
 
     test('declined: a clear error, and nothing runs', () async {
@@ -464,7 +480,7 @@ void main() {
             tools.task = const TaskState(running: 'Build');
             return RunApproval.allowed;
           },
-          run: (_, _) async => fail('Nothing runs.'),
+          run: (_, _, _) async => fail('Nothing runs.'),
           task: () => tools.task,
           lastRun: () => null,
           log: tools.log,
@@ -472,7 +488,11 @@ void main() {
           host: macHost,
         );
 
-        final result = await approving.call('run_profile', _runArguments);
+        final result = await approving.call(
+          'run_profile',
+          _runArguments,
+          agent: _agent,
+        );
 
         expect(
           result.data['error'],
@@ -775,7 +795,7 @@ void main() {
       agents().open(const McpClientInfo(name: 'second'));
       now = now.add(const Duration(minutes: 3));
 
-      agents().request(first, tool: 'list_profiles');
+      expect(agents().request(first, tool: 'list_profiles')?.label, 'first');
       // A ping keeps the last tool.
       agents().request(first);
 
@@ -785,18 +805,12 @@ void main() {
       expect(listed().first.lastTool, 'list_profiles');
     });
 
-    test(
-      'a session it did not open is an agent from before a restart',
-      () async {
-        await server().turnOn();
+    test('a session it did not open is none, and lists nothing', () async {
+      await server().turnOn();
 
-        agents().request('from-before', tool: 'list_runs');
-
-        expect(listed().single.client, isNull);
-        expect(listed().single.connectedAt, isNull);
-        expect(listed().single.lastTool, 'list_runs');
-      },
-    );
+      expect(agents().request('from-before', tool: 'list_runs'), isNull);
+      expect(listed(), isEmpty);
+    });
 
     test(
       'ending a session takes its agent off the list, and logs it',

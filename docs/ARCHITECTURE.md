@@ -371,7 +371,10 @@ keeps:
 - the signer and the output's SHA-256.
 
 `ProfileRunAction` adds the inputs, the file name pattern, the input
-checks and the build-tools version, and saves the record.
+checks, the build-tools version and who started the run (`RunStarter`):
+the app, or an agent by the name Agent access shows and whether its user
+allowed the run (§9). It never keeps the agent's session ID. Then it saves
+the record.
 
 The record is the only account of a run: the profile can change or go
 after it. `runReport` (`domain/profiles/run_report.dart`) turns it into
@@ -433,6 +436,10 @@ headless app.
   - `run_profile` passes that check to `ProfileRunAction.run`. So the run
     is the one task (§5), its progress goes to `ProfileRunNotifier`, and
     its record goes to the History.
+  - A tool call is told its session's agent (`McpToolbox.call`'s `agent`,
+    #44): the log names it, and `run_profile` records it in the run as
+    `StartedByAgent`, with whether its user allowed the run. A run from
+    the Run dialog is `StartedInApp`.
   - With **Ask before an agent runs a profile** on (`McpSettings.askToRun`,
     the default), a run whose check passed waits for the user first:
     `McpRunRequestNotifier.ask` holds it, `HomeScreen` shows it with the
@@ -478,11 +485,13 @@ headless app.
     (`mcpSessionIdMakerProvider`) and never shown or logged.
   - A request with the header marks its agent's last request, and the tool
     it called. `DELETE /mcp` with it ends the session.
-  - An ID the server doesn't know is an agent that connected before a
-    restart. It's answered, not refused with 404, so the agent keeps
-    working, and it's listed as such. A request without the header is
-    answered too: sessions say who's connected, they don't guard anything.
-    The token does.
+  - An ID the server doesn't know, such as one from before the app
+    restarted, is 404: MCP's rule for the client to send `initialize`
+    again, with its name (#44, 2026-10-24; Claude Code 2.1.310 does it on
+    its own). So a run is never recorded for an agent the server can't
+    name. A request without the header is answered, from "Agent":
+    sessions say who's connected, they don't guard anything. The token
+    does.
   - `McpAgentsNotifier` keeps the 20 most recent, and empties when the
     server stops.
 - **It names no client.** The app shows what any MCP client needs: the

@@ -318,6 +318,7 @@ Map<String, Object?> runSummaryJson(ProfileRunRecord record) => {
   'finishedAt': record.finishedAt.toIso8601String(),
   'outcome': record.outcome.label,
   'summary': record.summary,
+  'startedBy': record.startedBy?.toJson(),
   'inputs': [for (final input in record.inputs) input.toJson()],
   'results': [for (final result in record.results) result.toJson()],
 };

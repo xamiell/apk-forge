@@ -127,11 +127,12 @@ class ProfileMcpTools implements McpToolbox {
   )
   approve;
 
-  /// Runs a checked profile as the Run dialog does; `null` when it didn't
-  /// finish.
+  /// Runs a checked profile as the Run dialog does, recording that
+  /// [startedBy] started it; `null` when it didn't finish.
   final Future<ProfileRunRecord?> Function(
     SigningProfile profile,
     ProfileRunCheck check,
+    StartedByAgent startedBy,
   )
   run;
 
@@ -148,10 +149,14 @@ class ProfileMcpTools implements McpToolbox {
   List<McpTool> get tools => profileTools;
 
   @override
-  Future<McpToolResult> call(String name, Map<String, Object?> arguments) {
+  Future<McpToolResult> call(
+    String name,
+    Map<String, Object?> arguments, {
+    required String agent,
+  }) {
     if (name == listProfilesTool.name) return _listProfiles();
-    if (name == checkProfileRunTool.name) return _check(arguments);
-    if (name == runProfileTool.name) return _run(arguments);
+    if (name == checkProfileRunTool.name) return _check(arguments, agent);
+    if (name == runProfileTool.name) return _run(arguments, agent);
     if (name == listRunsTool.name) return _listRuns(arguments);
     throw ArgumentError.value(name, 'name', 'No such tool');
   }
@@ -187,10 +192,13 @@ class ProfileMcpTools implements McpToolbox {
     });
   }
 
-  Future<McpToolResult> _check(Map<String, Object?> arguments) async {
+  Future<McpToolResult> _check(
+    Map<String, Object?> arguments,
+    String agent,
+  ) async {
     final (profile, apks, problem) = _runArguments(arguments);
     if (problem != null) return McpToolResult.error(problem);
-    log.info('An agent checks "${profile!.name}" on ${_names(apks)}.');
+    log.info('$agent checks "${profile!.name}" on ${_names(apks)}.');
     try {
       final checked = await _checked(profile, apks);
       return McpToolResult(_checkJson(profile, checked));
@@ -199,11 +207,14 @@ class ProfileMcpTools implements McpToolbox {
     }
   }
 
-  Future<McpToolResult> _run(Map<String, Object?> arguments) async {
+  Future<McpToolResult> _run(
+    Map<String, Object?> arguments,
+    String agent,
+  ) async {
     final (profile, apks, problem) = _runArguments(arguments);
     if (problem != null) return McpToolResult.error(problem);
     if (_busy() case final busy?) return busy;
-    log.info('An agent runs "${profile!.name}" on ${_names(apks)}.');
+    log.info('$agent runs "${profile!.name}" on ${_names(apks)}.');
 
     final ProfileRunCheck checked;
     try {
@@ -217,7 +228,8 @@ class ProfileMcpTools implements McpToolbox {
         data: _checkJson(profile, checked),
       );
     }
-    if (askToRun()) {
+    final asks = askToRun();
+    if (asks) {
       log.info('Waiting for Allow in APK Forge.');
       switch (await approve(profile, checked)) {
         case RunApproval.allowed:
@@ -237,7 +249,8 @@ class ProfileMcpTools implements McpToolbox {
       if (_busy() case final busy?) return busy;
     }
 
-    if (await run(profile, checked) case final record?) {
+    final startedBy = StartedByAgent(agent, allowedInApp: asks);
+    if (await run(profile, checked, startedBy) case final record?) {
       return McpToolResult(runResultJson(record));
     }
     if (_busy() case final busy?) return busy;
@@ -335,8 +348,9 @@ final mcpToolboxProvider = Provider<McpToolbox>(
     askToRun: () => ref.read(mcpServerProvider).settings.askToRun,
     approve: (profile, check) =>
         ref.read(mcpRunRequestProvider.notifier).ask(profile, check),
-    run: (profile, check) =>
-        ref.read(profileRunActionProvider).run(profile, check),
+    run: (profile, check, startedBy) => ref
+        .read(profileRunActionProvider)
+        .run(profile, check, startedBy: startedBy),
     task: () => ref.read(taskProvider),
     lastRun: () => ref.read(profileRunProvider),
     log: ref.read(logProvider.notifier),

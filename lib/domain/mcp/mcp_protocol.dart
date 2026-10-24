@@ -98,8 +98,13 @@ const _pretty = JsonEncoder.withIndent('  ');
 abstract interface class McpToolbox {
   List<McpTool> get tools;
 
-  /// Runs the tool [name], one of [tools], with [arguments].
-  Future<McpToolResult> call(String name, Map<String, Object?> arguments);
+  /// Runs the tool [name], one of [tools], with [arguments], for [agent]:
+  /// the calling session's agent as Agent access names it.
+  Future<McpToolResult> call(
+    String name,
+    Map<String, Object?> arguments, {
+    required String agent,
+  });
 }
 
 /// JSON-RPC's error codes.
@@ -209,8 +214,11 @@ bool _sameText(String a, String b) {
 /// - `initialize` opens a session in [sessions] with the client's
 ///   `clientInfo`, and its answer carries the session's ID in
 ///   [mcpSessionHeader].
-/// - Any other message with a [sessionId] is a request in that session. One
-///   with none is answered the same, in no session.
+/// - Any other message with a [sessionId] is a request in that session, and
+///   a tool it calls is told the session's agent. A session [sessions]
+///   doesn't have, such as one from before a restart, is 404: MCP's rule
+///   for the client to send `initialize` again, and its name with it. A
+///   message with no [sessionId] is answered, from [mcpUnnamedAgent].
 /// - A notification, or a client's response, gets 202 with no body. A batch
 ///   isn't supported: MCP dropped them in 2025-06-18.
 Future<McpHttpAnswer> answerMcpBody(
@@ -243,16 +251,24 @@ Future<McpHttpAnswer> answerMcpBody(
     {'method': final String method} => (method, null),
     _ => (null, null),
   };
+  McpAgent? agent;
   if (method != null && method != 'initialize' && sessionId != null) {
-    sessions.request(
+    agent = sessions.request(
       sessionId,
       tool: switch ((method, params)) {
         ('tools/call', {'name': final String tool}) => tool,
         _ => null,
       },
     );
+    if (agent == null) {
+      return _refusal(404, 'There is no such session: send initialize again.');
+    }
   }
-  final answer = await answerMcpMessage(message, toolbox: toolbox);
+  final answer = await answerMcpMessage(
+    message,
+    toolbox: toolbox,
+    agent: agent?.label ?? mcpUnnamedAgent,
+  );
   if (answer == null) return const McpHttpAnswer(202);
   if (method == 'initialize' && answer.containsKey('result')) {
     final client = McpClientInfo.fromJson(switch (params) {
@@ -284,10 +300,11 @@ McpHttpAnswer answerMcpDelete(
 }
 
 /// The answer to one JSON-RPC [message] from an MCP client, or `null` when
-/// it needs none.
+/// it needs none. A tool it calls is told it comes from [agent].
 Future<Map<String, Object?>?> answerMcpMessage(
   Object? message, {
   required McpToolbox toolbox,
+  String agent = mcpUnnamedAgent,
 }) async {
   if (message is! Map<String, Object?>) {
     return _error(
@@ -360,7 +377,7 @@ Future<Map<String, Object?>?> answerMcpMessage(
       }
       final McpToolResult result;
       try {
-        result = await toolbox.call(name, arguments);
+        result = await toolbox.call(name, arguments, agent: agent);
       } catch (error) {
         return _result(
           id,

@@ -1256,9 +1256,10 @@ void main() {
         final profile = container.read(profilesProvider).byId(profileId)!;
         final record = await container
             .read(profileRunActionProvider)
-            .run(profile, checked);
+            .run(profile, checked, startedBy: const StartedInApp());
 
         expect(record!.summary, '2 signed · 1 skipped');
+        expect(record.startedBy, isA<StartedInApp>());
         expect(
           record.results
               .where((r) => r.status == TargetStatus.signed)
@@ -1393,7 +1394,9 @@ void main() {
         );
         final profile = container.read(profilesProvider).byId(profileId)!;
         expect(
-          await container.read(profileRunActionProvider).run(profile, checked),
+          await container
+              .read(profileRunActionProvider)
+              .run(profile, checked, startedBy: const StartedInApp()),
           isNull,
         );
         expect(runner.callsWithFirstArg('sign'), isEmpty);

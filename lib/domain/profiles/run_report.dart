@@ -75,6 +75,7 @@ RunReport runReport(ProfileRunRecord record) {
       ReportLine('Outcome', record.outcome.label),
       ReportLine('Results', record.summary),
       ReportLine('Started', formatDateTime(record.startedAt)),
+      ReportLine('Started by', describeRunStarter(record.startedBy)),
       ReportLine(
         'Took',
         formatDuration(record.finishedAt.difference(record.startedAt)),
@@ -247,3 +248,14 @@ String runReportFileName(ProfileRunRecord record) {
   final moment = formatDateTime(record.startedAt).replaceAll(':', '');
   return safeFileName('${record.profileName} run $moment.txt');
 }
+
+/// `In the app`, or `Claude Code 2.1.0, allowed in the app`, or
+/// [notRecorded] for a record saved before it was kept.
+String describeRunStarter(RunStarter? starter) => switch (starter) {
+  null => notRecorded,
+  StartedInApp() => 'In the app',
+  StartedByAgent(:final agent, allowedInApp: true) =>
+    '$agent, allowed in the app',
+  StartedByAgent(:final agent, allowedInApp: false) =>
+    '$agent, without asking: Ask before an agent runs a profile was off',
+};
