@@ -839,9 +839,9 @@ void main() {
       expect(progress.events.first, 'start p');
       expect(progress.events.last, 'finish');
       expect(list.added.map((a) => '${p.basename(a.path)} ${a.select}'), [
-        'app-release-Phone.apk false',
-        'app-release-Tablet.apk false',
-        'app-release-Kiosk.apk false',
+        'app-release-Phone-signed.apk false',
+        'app-release-Tablet-signed.apk false',
+        'app-release-Kiosk-signed.apk false',
       ]);
       expect(revealed.map((path) => p.basename(p.dirname(path))), [
         'phones',
