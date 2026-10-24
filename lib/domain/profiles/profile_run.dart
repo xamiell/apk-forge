@@ -270,7 +270,7 @@ enum RunOutcome {
   final String label;
 }
 
-/// Who started a run: **Run…** in the app, or an agent through the MCP
+/// Who started a run: **Run** in the app, or an agent through the MCP
 /// server.
 sealed class RunStarter {
   const RunStarter();

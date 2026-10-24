@@ -252,7 +252,7 @@ Targets with the same ABI, key and schemes are signed once and copied to
 each folder. **Duplicate** copies a profile ("Release copy"). A name
 already in the list gets a number ("New profile 2").
 
-**Run it.** **Run…** opens the run dialog. Add the APK, or use the one
+**Run it.** **Run** opens the run dialog. Add the APK, or use the one
 selected in **Analyze APK**. Before anything is signed, the dialog:
 - reads the APK and checks it against the input checks;
 - opens every key. A wrong keystore or key password, or an alias the
@@ -282,10 +282,10 @@ release note or a ticket. Editing the profile later doesn't change its
 history; deleting the profile deletes it. A run saved by an older version
 says "Not recorded" for what that version didn't keep.
 
-**Share one.** **Export…** writes the profile to a `.json` file, with
-paths and choices only. **Import profile…** reads one, and a name already
-in the list gets a number. The paths come from the machine that exported
-it:
+**Share one.** **Export profile**, the icon next to **Duplicate**, writes
+the profile to a `.json` file, with paths and choices only. **Import
+profile…** reads one, and a name already in the list gets a number. The
+paths come from the machine that exported it:
 - A `key.properties` or output folder that doesn't exist on this machine is
   flagged in the import dialog, in the Profiles list and on the target.
 - It stops the run until you pick another file or folder in **Edit
