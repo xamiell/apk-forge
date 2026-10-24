@@ -7,17 +7,18 @@ import '../../state/mcp_notifier.dart';
 import '../common/widgets.dart';
 import '../theme.dart';
 
-/// The MCP server in the top bar: whether it's on, and the button that
-/// opens its dialog.
-class McpButton extends ConsumerWidget {
-  const McpButton({super.key});
+void _openMcpDialog(BuildContext context) =>
+    showDialog<void>(context: context, builder: (_) => const McpDialog());
+
+/// The MCP server's pill in the top bar, after the tools': green when it's
+/// on, red when it couldn't start, and nothing while it's off or starting.
+class McpPill extends ConsumerWidget {
+  const McpPill({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final server = ref.watch(mcpServerProvider);
     final colors = context.status;
-    void open() =>
-        showDialog<void>(context: context, builder: (_) => const McpDialog());
     final pill = switch (server.status) {
       McpServerStatus.on => Tooltip(
         message: 'MCP server on at ${server.url}',
@@ -29,26 +30,28 @@ class McpButton extends ConsumerWidget {
       ),
       McpServerStatus.starting || McpServerStatus.off => null,
     };
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        if (pill != null)
-          Padding(
-            padding: const EdgeInsets.only(left: 6),
-            child: InkWell(
-              onTap: open,
-              borderRadius: BorderRadius.circular(999),
-              child: pill,
-            ),
-          ),
-        IconButton(
-          tooltip: 'Agent access (MCP)',
-          icon: const Icon(Icons.smart_toy_outlined, size: 20),
-          onPressed: open,
-        ),
-      ],
+    if (pill == null) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(left: 6),
+      child: InkWell(
+        onTap: () => _openMcpDialog(context),
+        borderRadius: BorderRadius.circular(999),
+        child: pill,
+      ),
     );
   }
+}
+
+/// The robot in the top bar: opens Agent access, the MCP server's dialog.
+class McpButton extends StatelessWidget {
+  const McpButton({super.key});
+
+  @override
+  Widget build(BuildContext context) => IconButton(
+    tooltip: 'Agent access (MCP)',
+    icon: const Icon(Icons.smart_toy_outlined, size: 20),
+    onPressed: () => _openMcpDialog(context),
+  );
 }
 
 /// Turns the MCP server on or off, says how to connect an agent, and

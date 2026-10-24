@@ -74,7 +74,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     ),
                   ),
                 ),
+                // Every pill first, then the buttons.
                 const ToolchainBar(),
+                const McpPill(),
+                const SizedBox(width: 4),
+                const ToolsButton(),
                 const McpButton(),
               ],
             ),
