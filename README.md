@@ -20,6 +20,7 @@ the tool's own reason, not a generic error.
 | **Build** | Runs `flutter build apk`, or `flutter build appbundle` for a store such as Google Play, on any Flutter project, for the architectures in Defaults. Choose release or debug, and one universal APK, one APK per ABI (`--split-per-abi`, offered with two or more architectures), or an App Bundle (`.aab`). Optional Dart obfuscation keeps the symbols you need to read crash traces. The command is previewed before you run it. |
 | **Sign** | Signs the APK selected in Analyze APK, the APKs a build just produced, or any APK you pick (from CI, another machine, a store), with your `.jks`, `.keystore` or `.p12` and the schemes in Defaults. It checks the alignment first and fixes it if needed, writes `<name>-signed.apk` without touching the original, and verifies that the result carries exactly the key you chose. An App Bundle, built or picked, is signed with `jarsigner` to `<name>-signed.aab`, without the debug signature Flutter gave it. **Split per ABI and sign** turns a universal APK (one from CI, say) into one signed APK per architecture in Defaults. **New key…** makes an upload key, a keystore and the `key.properties` Gradle reads, in the folder you choose, and loads it. |
 | **Signing profiles** | Saves the steps to turn one APK into a signed APK per device, each with its ABI, its key (a `key.properties` file) and its folder, and runs them in one go. Every run is kept as a report you can copy or export. |
+| **Agent access (MCP)** | Lets an agent (any MCP client) list the signing profiles, check a run and run one, through an MCP server inside the app. It's off until you turn it on, it needs a token, it asks you before each run unless you turn that off, and no password leaves the app. |
 | **Analyze APK** | For any APK: whether the signature verifies; the schemes it carries (v1 to v4); the signer certificate (DN, SHA-256, SHA-1), a rotated key's lineage, and whether it is **your key** or the Android debug key; release or debug (`debuggable`); package, version and SDK levels; native code per ABI, flagging an ABI with no Flutter engine; size, MD5 and SHA-256. An App Bundle (`.aab`) opens too: its files, its manifest and its JAR signature. **Compare with…** puts an APK next to another APK (a previous release, another build) or the app installed on the device, and lists every difference, worst first: another signer, a lower versionCode, a debug build, lost ABIs, new permissions. |
 | **Analyze device** | For the device on USB: maker, brand, model and codename; Android version, API level, security patch, build and build type; chip, ABIs, memory page size (16 KB pages are flagged), RAM, storage and screen; battery, locale and time zone. With an APK selected, it tells you which ABI the APK would run as, which version is installed, and whether installing would be a fresh install, an upgrade, a reinstall or a downgrade, or would be refused for another key. **Compare with the installed app** compares the two side by side. One click copies it all as text. |
 | **Install** | Installs the selected APK with `adb install -r` (optionally `-d` to allow a downgrade). It warns first when the APK has no native code for the device, or is signed with another key than the installed app, and explains the common install failures. An App Bundle is installed the way a store delivers it: `bundletool` makes the device's APKs from it, signed with the key in Sign, and installs them. |
@@ -254,7 +255,10 @@ target that fails doesn't stop the others. The signed APKs join the list in
 **Analyze APK**.
 
 **The history.** The **History** tab keeps every run, newest first, with
-its outcome, versions and targets. A run's report says, for each target:
+its outcome, versions and targets. A robot marks a run an agent started.
+A run's report says who started it: **In the app**, or the agent, by its
+name and version, and whether you allowed it or it ran without asking.
+Then, for each target:
 - the ABI, and whether the input was cut;
 - the key: its alias and its `key.properties`;
 - the schemes asked, next to the ones apksigner verified;
@@ -282,6 +286,83 @@ it:
 - they go to `keytool` and `apksigner` through environment variables;
 - they're never written to the settings, the history, an exported profile,
   the log or an error.
+
+### Let an agent run a profile (MCP)
+
+An agent can run a signing profile for you: "run the Universal profile on
+build/app/outputs/flutter-apk/app-release.apk". Any agent works, with any
+model, as long as its client speaks [MCP](https://modelcontextprotocol.io)
+over HTTP. APK Forge has the MCP server inside the app. A run goes through
+the Run dialog's check, shows in the log while it runs, and is kept in the
+profile's History, which names the agent.
+
+**Turn it on.** Press the robot in the top bar (**Agent access**) and turn
+on **MCP server**:
+- it listens on `127.0.0.1:7740`, on this computer only. You can change the
+  port there;
+- it makes a token the first time;
+- a green **MCP** pill in the top bar says it's on;
+- it comes back on at every launch until you turn it off.
+
+**Ask before an agent runs a profile** is on unless you turn it off:
+- On: once a run's check passes, APK Forge shows the plan (each target's
+  ABI, key and the file it writes, and what's skipped) with **Allow** and
+  **Decline**. The agent waits for your answer. **Decline** signs nothing,
+  and the agent is told so.
+- Off: a run starts as soon as its check passes.
+
+The app asks, not the agent's client, so it works the same with any agent.
+
+**Connect an agent.** In your agent's MCP settings, add an HTTP server
+(Streamable HTTP) with:
+- the **Address**, `http://127.0.0.1:7740/mcp`;
+- the **Authorization** header, `Bearer <token>`.
+
+Agent access has a copy button for each; the header's copy holds the token.
+How you add a server depends on the client. With Claude Code, for example,
+run this once in a terminal:
+
+```bash
+claude mcp add --scope user --transport http apk-forge http://127.0.0.1:7740/mcp --header "Authorization: Bearer <token>"
+```
+
+`--scope user` makes it available in every project, and `claude mcp list`
+shows it connected while the app is open.
+
+**See who's connected.** Agent access lists each agent connected since the
+server started: its name and version, as its client gives them, when it
+connected, and its last request and tool. It shows the three most recent;
+**Show all** shows the rest. The log says when an agent
+connects and disconnects. An agent that quits without disconnecting stays
+listed, with the time of its last request, until the server stops. One
+that connected before APK Forge restarted connects again on its own: the
+server tells it its session is gone, as MCP has it, and its client starts
+another one.
+
+**The tools:**
+
+| Tool | What it does | Writes? |
+|---|---|---|
+| `list_profiles` | Each profile: its targets (ABI, key and alias, folder, schemes), its input checks, its file name pattern, and what stops a target on this machine. | No |
+| `check_profile_run` | The Run dialog's check, for a profile and some APKs: reads them, plans the run and opens the keys. | No |
+| `run_profile` | Checks, then runs. Returns each target's result (status, output, size, signer SHA-256, or the reason) and the run's report. | The signed APKs, in each target's folder |
+| `list_runs` | A profile's History, newest first. | No |
+
+- A profile is named as in the app, ignoring case.
+- The APKs are absolute paths, and the agent must give them. It never signs
+  whatever APK is selected in **Analyze APK**.
+- `run_profile` is refused while another task runs (a build, an install),
+  while another agent's run waits for **Allow**, and when the check finds
+  a problem. The answer says why.
+
+**It does nothing else:** no build, no install, no change to a profile.
+Passwords never leave the app: they're in no tool's answer, error, log line
+or History entry.
+
+**New token** replaces the token: give your agent the new header.
+Turning the server off, changing its port or making a new token cuts the
+open connections, ends the agents' sessions and declines a run waiting for
+**Allow**. A run already started still finishes in the app.
 
 ### Check an APK
 
@@ -376,7 +457,19 @@ no MD5 or SHA-256 to compare, and it's never "the same file" as an APK.
 - **The app saves only paths and choices** (project folder, keystore path,
   key alias, architectures…), in the OS's standard app preferences. A
   signing profile saves the path of each `key.properties`; the passwords
-  stay in the file.
+  stay in the file. The one secret saved there is the MCP server's token
+  (below).
+- **The MCP server is off until you turn it on**, and listens on
+  `127.0.0.1` only:
+  - every request needs its token. It's saved with the preferences, so the
+    registered command keeps working, and **New token** replaces it;
+  - a request from a web page (an `Origin` other than the server's own) is
+    refused, token or not;
+  - **Ask before an agent runs a profile** (on unless you turn it off)
+    makes every run wait for your **Allow**, whatever the agent was told;
+  - no tool answers with a password, and the token never goes to the log.
+    Don't paste the copied header in an issue or a screenshot: **New
+    token** replaces one that got out.
 - **Reading a device changes nothing on it.** It runs `getprop`, `wm size`,
   `dumpsys battery`, `pm path` and similar read-only commands. A package name
   taken from an APK is validated before it goes into a device shell command.
@@ -458,9 +551,9 @@ flutter test tool/app_icon.dart
 ```
 lib/
   core/       process running, host OS, ZIP reading and copying, file digests, formatting, log types
-  domain/     models, command builders, output parsers, checks (pure Dart)
-  services/   one class per tool job, through a ProcessRunner
-  state/      Riverpod notifiers (forms, the current task, the log) and the actions
+  domain/     models, command builders, output parsers, checks, the MCP protocol (pure Dart)
+  services/   one class per tool job, through a ProcessRunner; the MCP server's HTTP listener
+  state/      Riverpod notifiers (forms, the current task, the log, the MCP server), the actions and the MCP tools
   ui/         the screen and its panels
 tool/         the end-to-end smoke test, and the app icon's drawing
 test/         unit tests and the captured tool output

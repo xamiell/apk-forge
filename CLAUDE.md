@@ -4,8 +4,8 @@
   [docs/TESTING.md](docs/TESTING.md) before a change. The dependency rule
   (`ui → state → services → domain → core`) and the secrets rules (§3) are
   not optional.
-- Check every change against ARCHITECTURE's "Every change" list (§11). A
-  rule the code can't follow yet goes under its Known deviations (§13), with
+- Check every change against ARCHITECTURE's "Every change" list (§12). A
+  rule the code can't follow yet goes under its Known deviations (§14), with
   the reason.
 - Plain classes take their dependencies in the constructor, never `ref`;
   rules live in `domain/` or `state/`, never in a widget.

@@ -353,6 +353,13 @@ void main() {
       );
     });
 
+    test('formatMoment leaves out the day when it is today', () {
+      final now = DateTime(2026, 3, 7, 18);
+
+      expect(formatMoment(DateTime(2026, 3, 7, 9, 5), now), '09:05');
+      expect(formatMoment(DateTime(2026, 3, 6, 9, 5), now), '2026-03-06 09:05');
+    });
+
     test('formatDuration counts seconds, then minutes, then hours', () {
       expect(formatDuration(const Duration(seconds: 42)), '42 s');
       expect(

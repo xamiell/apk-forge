@@ -48,6 +48,12 @@ String shortDigest(String digest) {
 String formatDateTime(DateTime time) =>
     '${formatDate(time)} ${_two(time.hour)}:${_two(time.minute)}';
 
+/// `09:05` for a moment on [now]'s day, else `2026-10-19 09:05`.
+String formatMoment(DateTime time, DateTime now) =>
+    formatDate(time) == formatDate(now)
+    ? '${_two(time.hour)}:${_two(time.minute)}'
+    : formatDateTime(time);
+
 /// `2026-10-19`: a day.
 String formatDate(DateTime time) =>
     '${time.year}-${_two(time.month)}-${_two(time.day)}';

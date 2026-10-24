@@ -826,7 +826,11 @@ void main() {
         'each folder once', () async {
       final (profile, check) = checked();
 
-      final record = await action().run(profile, check);
+      final record = await action().run(
+        profile,
+        check,
+        startedBy: const StartedInApp(),
+      );
 
       expect(record!.summary, '3 signed');
       expect(record.finishedAt.difference(record.startedAt).inSeconds, 30);
@@ -846,16 +850,29 @@ void main() {
       expect(task.log.lines, contains('success: Release: 3 signed.'));
     });
 
-    test('the record keeps the file name pattern, the input checks, the '
-        'build-tools and each key, and no password', () async {
+    test('the record keeps who started it, the file name pattern, the input '
+        'checks, the build-tools and each key, and no password', () async {
       final (profile, check) = checked();
 
-      final record = await action().run(profile, check);
+      final record = await action().run(
+        profile,
+        check,
+        startedBy: const StartedByAgent(
+          'Claude Code 2.1.0',
+          allowedInApp: true,
+        ),
+      );
 
       expect(record!.fileNamePattern, SigningProfile.defaultFileNamePattern);
       expect(record.inputChecks, same(profile.input));
       expect(record.buildToolsVersion, '36.0.0');
       expect(record.results.first.setup!.keyAlias, 'forge-test');
+      expect(record.startedBy, isA<StartedByAgent>());
+      expect(record.toJson()['startedBy'], {
+        'by': 'agent',
+        'agent': 'Claude Code 2.1.0',
+        'allowedInApp': true,
+      });
       final saved = jsonEncode(record.toJson());
       expect(saved, isNot(contains('hunter2')));
       expect(saved, isNot(contains('hunter3')));
@@ -864,7 +881,7 @@ void main() {
     test('a profile that does nothing after the run opens no folder', () async {
       final (profile, check) = checked(afterRun: AfterRun.nothing);
 
-      await action().run(profile, check);
+      await action().run(profile, check, startedBy: const StartedInApp());
 
       expect(list.added, hasLength(3));
       expect(revealed, isEmpty);
@@ -874,11 +891,21 @@ void main() {
       'a check that cannot run, or another task running, runs nothing',
       () async {
         final (profile, notOpened) = checked(keysOpened: false);
-        expect(await action().run(profile, notOpened), isNull);
+        expect(
+          await action().run(
+            profile,
+            notOpened,
+            startedBy: const StartedInApp(),
+          ),
+          isNull,
+        );
 
         task.isRunning = true;
         final (_, check) = checked();
-        expect(await action().run(profile, check), isNull);
+        expect(
+          await action().run(profile, check, startedBy: const StartedInApp()),
+          isNull,
+        );
 
         expect(runner.calls, isEmpty);
         expect(progress.events, isEmpty);

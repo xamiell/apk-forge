@@ -270,6 +270,53 @@ enum RunOutcome {
   final String label;
 }
 
+/// Who started a run: **Run…** in the app, or an agent through the MCP
+/// server.
+sealed class RunStarter {
+  const RunStarter();
+
+  /// What [toJson] saved; `null` for anything else.
+  static RunStarter? fromJson(Object? json) => switch (json) {
+    {'by': 'app'} => const StartedInApp(),
+    {
+      'by': 'agent',
+      'agent': final String agent,
+      'allowedInApp': final bool allowed,
+    } =>
+      StartedByAgent(agent, allowedInApp: allowed),
+    _ => null,
+  };
+
+  Map<String, Object?> toJson();
+}
+
+final class StartedInApp extends RunStarter {
+  const StartedInApp();
+
+  @override
+  Map<String, Object?> toJson() => const {'by': 'app'};
+}
+
+/// An agent's run.
+final class StartedByAgent extends RunStarter {
+  const StartedByAgent(this.agent, {required this.allowedInApp});
+
+  /// The agent as Agent access named it: its name and version. Never its
+  /// session's ID.
+  final String agent;
+
+  /// Whether its user allowed it in the app; `false` when it ran without
+  /// asking, because Ask before an agent runs a profile was off.
+  final bool allowedInApp;
+
+  @override
+  Map<String, Object?> toJson() => {
+    'by': 'agent',
+    'agent': agent,
+    'allowedInApp': allowedInApp,
+  };
+}
+
 /// One run of a profile, for its history. Paths, versions and digests;
 /// never a password.
 class ProfileRunRecord {
@@ -284,6 +331,7 @@ class ProfileRunRecord {
     this.fileNamePattern,
     this.inputChecks,
     this.buildToolsVersion,
+    this.startedBy,
   });
 
   factory ProfileRunRecord.fromJson(Map<String, Object?> json) =>
@@ -311,6 +359,7 @@ class ProfileRunRecord {
           _ => null,
         },
         buildToolsVersion: json['buildToolsVersion'] as String?,
+        startedBy: RunStarter.fromJson(json['startedBy']),
       );
 
   final String profileId;
@@ -328,6 +377,9 @@ class ProfileRunRecord {
 
   /// The build-tools whose apksigner and zipalign signed.
   final String? buildToolsVersion;
+
+  /// `null` in a record saved before #44.
+  final RunStarter? startedBy;
 
   /// Whether it keeps how each target was signed. A record saved before
   /// #14 has only the names, outputs and digests.
@@ -378,5 +430,6 @@ class ProfileRunRecord {
     'fileNamePattern': fileNamePattern,
     'inputChecks': inputChecks?.toJson(),
     'buildToolsVersion': buildToolsVersion,
+    'startedBy': startedBy?.toJson(),
   };
 }

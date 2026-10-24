@@ -186,6 +186,7 @@ ProfileRunRecord _run() => ProfileRunRecord(
     mustBeUnsigned: true,
   ),
   buildToolsVersion: '36.0.0',
+  startedBy: const StartedByAgent('Claude Code 2.1.0', allowedInApp: true),
 );
 
 /// A run as it was saved before #14.
@@ -964,6 +965,7 @@ void main() {
         'Outcome: Some failed',
         'Results: 1 signed · 1 failed · 1 skipped',
         'Started: 2026-10-18 11:52',
+        'Started by: Claude Code 2.1.0, allowed in the app',
         'Took: 9 s',
         'Profile: Release',
         'Build-tools: 36.0.0',
@@ -1012,7 +1014,8 @@ void main() {
         'guesses nothing from the profile', () {
       final report = runReport(ProfileRunRecord.fromJson(_oldRun()));
 
-      expect(lines(report.run).skip(5), [
+      expect(lines(report.run).skip(3).first, 'Started by: Not recorded');
+      expect(lines(report.run).skip(6), [
         'Build-tools: Not recorded',
         'File names: Not recorded',
         'Input checks: Not recorded',
@@ -1036,6 +1039,30 @@ void main() {
         'Size: 1.0 KB',
         'Output SHA-256: Not recorded',
       ]);
+    });
+
+    test('who started a run: the app, an agent allowed in the app, or one '
+        'that ran without asking', () {
+      expect(describeRunStarter(const StartedInApp()), 'In the app');
+      expect(
+        describeRunStarter(
+          const StartedByAgent('Claude Code 2.1.0', allowedInApp: false),
+        ),
+        'Claude Code 2.1.0, without asking: Ask before an agent runs a '
+        'profile was off',
+      );
+      expect(describeRunStarter(null), notRecorded);
+      for (final starter in [
+        const StartedInApp(),
+        const StartedByAgent('Claude Code 2.1.0', allowedInApp: false),
+      ]) {
+        expect(
+          describeRunStarter(RunStarter.fromJson(starter.toJson())),
+          describeRunStarter(starter),
+        );
+      }
+      expect(RunStarter.fromJson({'by': 'someone'}), isNull);
+      expect(ProfileRunRecord.fromJson(_oldRun()).startedBy, isNull);
     });
 
     test('several inputs: each target says which one it was', () {
