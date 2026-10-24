@@ -1,11 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../domain/mcp/mcp_agents.dart';
 import '../../domain/mcp/mcp_protocol.dart';
 import '../../domain/mcp/profile_tools.dart';
+import '../../state/mcp_agents.dart';
 import '../../state/mcp_notifier.dart';
+import '../../state/providers.dart';
 import '../common/widgets.dart';
 import '../theme.dart';
+
+/// The agents Agent access shows before **Show all**: the most recent.
+const _agentsShown = 3;
 
 void _openMcpDialog(BuildContext context) =>
     showDialog<void>(context: context, builder: (_) => const McpDialog());
@@ -54,8 +60,8 @@ class McpButton extends StatelessWidget {
   );
 }
 
-/// Turns the MCP server on or off, says how to connect an agent, and
-/// whether an agent's run waits for Allow.
+/// Turns the MCP server on or off, says how to connect an agent and which
+/// agents are connected, and whether an agent's run waits for Allow.
 class McpDialog extends ConsumerStatefulWidget {
   const McpDialog({super.key});
 
@@ -64,6 +70,9 @@ class McpDialog extends ConsumerStatefulWidget {
 }
 
 class _McpDialogState extends ConsumerState<McpDialog> {
+  /// Whether every agent shows, or only the [_agentsShown] most recent.
+  var _allAgents = false;
+
   late final _port = TextEditingController(
     text: '${ref.read(mcpServerProvider).settings.port}',
   );
@@ -89,6 +98,8 @@ class _McpDialogState extends ConsumerState<McpDialog> {
     final portChanged =
         portProblem == null && int.parse(_port.text.trim()) != settings.port;
     final authorization = server.authorization;
+    final agents = ref.watch(mcpAgentsProvider);
+    final now = ref.watch(clockProvider)();
 
     return AlertDialog(
       title: const Text('Agent access (MCP)'),
@@ -207,6 +218,34 @@ class _McpDialogState extends ConsumerState<McpDialog> {
               const SizedBox(height: 4),
               for (final tool in profileTools)
                 InfoRow(tool.name, tool.title, mono: false),
+              if (server.status == McpServerStatus.on) ...[
+                const SizedBox(height: 16),
+                Text('Agents', style: Theme.of(context).textTheme.titleSmall),
+                const SizedBox(height: 6),
+                if (agents.isEmpty)
+                  Text(
+                    'No agent has connected since the server started.',
+                    style: TextStyle(fontSize: 12.5, color: colors.muted),
+                  )
+                else ...[
+                  for (final agent
+                      in _allAgents ? agents : agents.take(_agentsShown))
+                    _AgentRow(agent, now: now),
+                  if (agents.length > _agentsShown)
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: TextButton(
+                        onPressed: () =>
+                            setState(() => _allAgents = !_allAgents),
+                        child: Text(
+                          _allAgents
+                              ? 'Show the latest $_agentsShown'
+                              : 'Show all ${agents.length}',
+                        ),
+                      ),
+                    ),
+                ],
+              ],
             ],
           ),
         ),
@@ -223,4 +262,43 @@ class _McpDialogState extends ConsumerState<McpDialog> {
       ],
     );
   }
+}
+
+/// An agent with a session: who it is, and when it last asked something.
+class _AgentRow extends StatelessWidget {
+  const _AgentRow(this.agent, {required this.now});
+
+  final McpAgent agent;
+  final DateTime now;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 4),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(top: 2),
+          child: Icon(
+            Icons.smart_toy_outlined,
+            size: 16,
+            color: context.status.ok,
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(agent.label, style: const TextStyle(fontSize: 13)),
+              Text(
+                agent.activity(now),
+                style: TextStyle(fontSize: 12, color: context.status.muted),
+              ),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
 }

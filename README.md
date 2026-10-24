@@ -326,6 +326,15 @@ claude mcp add --scope user --transport http apk-forge http://127.0.0.1:7740/mcp
 `--scope user` makes it available in every project, and `claude mcp list`
 shows it connected while the app is open.
 
+**See who's connected.** Agent access lists each agent connected since the
+server started: its name and version, as its client gives them, when it
+connected, and its last request and tool. It shows the three most recent;
+**Show all** shows the rest. The log says when an agent
+connects and disconnects. An agent that quits without disconnecting stays
+listed, with the time of its last request, until the server stops. One
+that connected before APK Forge restarted keeps working, and shows as such
+until it connects again.
+
 **The tools:**
 
 | Tool | What it does | Writes? |
@@ -348,8 +357,8 @@ or History entry.
 
 **New token** replaces the token: give your agent the new header.
 Turning the server off, changing its port or making a new token cuts the
-open connections and declines a run waiting for **Allow**. A run already
-started still finishes in the app.
+open connections, ends the agents' sessions and declines a run waiting for
+**Allow**. A run already started still finishes in the app.
 
 ### Check an APK
 

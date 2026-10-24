@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import '../domain/failure.dart';
+import '../domain/mcp/mcp_agents.dart';
 import '../domain/mcp/mcp_protocol.dart';
 
 /// Stops a running MCP server. Open requests are cut; a run they started
@@ -12,18 +13,21 @@ typedef McpServerStop = Future<void> Function();
 /// The MCP server over HTTP, on the loopback address only.
 ///
 /// Thin on purpose: what it refuses ([refuseMcpRequest]) and what it
-/// answers ([answerMcpBody]) are decided in `domain/mcp`.
+/// answers ([answerMcpBody], [answerMcpDelete]) are decided in
+/// `domain/mcp`.
 abstract final class McpHttpServer {
   /// A request body larger than this is refused: a tool call is a few
   /// hundred bytes.
   static const maxBodyBytes = 1 << 20;
 
-  /// Listens on 127.0.0.1:[port] until the returned function is called.
-  /// Throws [ToolFailure] when it can't, such as a port in use.
+  /// Listens on 127.0.0.1:[port] until the returned function is called,
+  /// keeping its agents' sessions in [sessions]. Throws [ToolFailure] when
+  /// it can't, such as a port in use.
   static Future<McpServerStop> start({
     required int port,
     required String token,
     required McpToolbox toolbox,
+    required McpSessions sessions,
   }) async {
     final HttpServer server;
     try {
@@ -38,7 +42,13 @@ abstract final class McpHttpServer {
       );
     }
     server.listen(
-      (request) => _answer(request, port: port, token: token, toolbox: toolbox),
+      (request) => _answer(
+        request,
+        port: port,
+        token: token,
+        toolbox: toolbox,
+        sessions: sessions,
+      ),
     );
     return () => server.close(force: true);
   }
@@ -48,10 +58,12 @@ abstract final class McpHttpServer {
     required int port,
     required String token,
     required McpToolbox toolbox,
+    required McpSessions sessions,
   }) async {
     McpHttpAnswer answer;
     try {
       final headers = request.headers;
+      final sessionId = headers.value(mcpSessionHeader);
       answer =
           refuseMcpRequest(
             method: request.method,
@@ -62,10 +74,17 @@ abstract final class McpHttpServer {
             port: port,
             token: token,
           ) ??
-          switch (await _body(request)) {
-            final body? => await answerMcpBody(body, toolbox: toolbox),
-            null => const McpHttpAnswer(413),
-          };
+          (request.method == 'DELETE'
+              ? answerMcpDelete(sessionId, sessions: sessions)
+              : switch (await _body(request)) {
+                  final body? => await answerMcpBody(
+                    body,
+                    toolbox: toolbox,
+                    sessions: sessions,
+                    sessionId: sessionId,
+                  ),
+                  null => const McpHttpAnswer(413),
+                });
     } on Object {
       // The tools answer their own failures: this is a request that broke
       // off, or a bug.

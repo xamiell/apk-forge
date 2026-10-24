@@ -422,10 +422,10 @@ headless app.
 
 | Layer | What | Where |
 |---|---|---|
-| `domain/mcp/` | JSON-RPC and MCP, answered over a `McpToolbox` (`answerMcpMessage`, `answerMcpBody`); what the HTTP side refuses (`refuseMcpRequest`); the four tools, how their arguments are read, and the JSON they answer with. | `mcp_protocol.dart`, `profile_tools.dart` |
-| `services/` | `McpHttpServer`: binds `127.0.0.1`, reads a request, writes what `domain/mcp` decided. | `mcp_server.dart` |
-| `state/` | `ProfileMcpTools`, the toolbox: plain, built from closures over the profiles, the History, the check, the approval and `ProfileRunAction`. `McpRunRequestNotifier`: the run waiting for Allow. `McpServerNotifier`: on, off, the port, the token and Ask before an agent runs, saved under `SettingsKey.mcp`. | `mcp_tools.dart`, `mcp_notifier.dart` |
-| `ui/mcp/` | The top bar's **MCP** pill, the Agent access dialog, and the dialog that asks to allow a run. | `mcp_dialog.dart`, `run_request_dialog.dart` |
+| `domain/mcp/` | JSON-RPC and MCP, answered over a `McpToolbox` (`answerMcpMessage`, `answerMcpBody`, `answerMcpDelete`); what the HTTP side refuses (`refuseMcpRequest`); the four tools, how their arguments are read, and the JSON they answer with. Who an agent says it is (`McpClientInfo`), its session (`McpAgent`), and where sessions are kept (`McpSessions`). | `mcp_protocol.dart`, `profile_tools.dart`, `mcp_agents.dart` |
+| `services/` | `McpHttpServer`: binds `127.0.0.1`, reads a request and its `Mcp-Session-Id`, writes what `domain/mcp` decided. | `mcp_server.dart` |
+| `state/` | `ProfileMcpTools`, the toolbox: plain, built from closures over the profiles, the History, the check, the approval and `ProfileRunAction`. `McpRunRequestNotifier`: the run waiting for Allow. `McpServerNotifier`: on, off, the port, the token and Ask before an agent runs, saved under `SettingsKey.mcp`. `McpAgentsNotifier`: the server's `McpSessions`, the agents connected. | `mcp_tools.dart`, `mcp_notifier.dart`, `mcp_agents.dart` |
+| `ui/mcp/` | The top bar's **MCP** pill, the Agent access dialog with its agents, and the dialog that asks to allow a run. | `mcp_dialog.dart`, `run_request_dialog.dart` |
 
 - **The tools do what the Profiles view does.**
   - `check_profile_run` reads the `profileRunCheckProvider` the Run dialog
@@ -453,7 +453,7 @@ headless app.
 - **The protocol, kept small.**
   - It speaks MCP 2025-03-26 to 2025-11-25 over Streamable HTTP, answering
     each `POST /mcp` with `application/json`.
-  - There's no event stream (a `GET` is 405) and no session.
+  - There's no event stream: a `GET` is 405.
   - It handles `initialize`, `ping`, `tools/list` and `tools/call`; a
     notification gets 202.
   - `package:dart_mcp` (0.5.2) only has a stdio transport, so the handler
@@ -469,8 +469,22 @@ headless app.
 - **Its life.** It's off until it's turned on. Then it starts again at
   every launch (`HomeScreen` calls `resume`) until it's turned off.
   Turning it off, moving its port or making a new token closes the open
-  connections and declines a run waiting for Allow; a run already started
-  finishes as a task.
+  connections, ends the agents' sessions and declines a run waiting for
+  Allow; a run already started finishes as a task.
+- **Sessions say who's connected** (#43, 2026-10-24). HTTP keeps no
+  connection open between requests, so the server keeps MCP sessions.
+  - `initialize` opens one in `McpSessions` with the client's `clientInfo`,
+    and its answer carries the ID in `Mcp-Session-Id`. The ID is random
+    (`mcpSessionIdMakerProvider`) and never shown or logged.
+  - A request with the header marks its agent's last request, and the tool
+    it called. `DELETE /mcp` with it ends the session.
+  - An ID the server doesn't know is an agent that connected before a
+    restart. It's answered, not refused with 404, so the agent keeps
+    working, and it's listed as such. A request without the header is
+    answered too: sessions say who's connected, they don't guard anything.
+    The token does.
+  - `McpAgentsNotifier` keeps the 20 most recent, and empties when the
+    server stops.
 - **It names no client.** The app shows what any MCP client needs: the
   address (`mcpUrl`) and the `Authorization` header (`mcpAuthorization`).
   The README gives one client's command as an example.
@@ -489,7 +503,7 @@ test follows are in [TESTING.md](TESTING.md).
 | Pure builder and parser | `domain/`: the `…Arguments` builders and the `parse…` functions | What to run and what its output means, tested without the tools (§2, `test/fixtures`). |
 | Service per tool job | `services/` | Runs one job's commands through a `ToolExecutor`, and throws `ToolFailure`. |
 | Action per job | `state/actions/` | What a button does: read the forms, run the services as one task, put the results in the state (§5). |
-| Function as a dependency | `clockProvider`, `FileRevealer`, `ToolchainSource`, `McpServerStarter`, the actions' readers (`BuildOptions Function()`…) and `ProfileMcpTools`'s | A dependency with one call is a function type. One with two or more is an interface (`TaskRunner`, `ApkSink`, `ProfileRunProgress`, `McpToolbox`). |
+| Function as a dependency | `clockProvider`, `FileRevealer`, `ToolchainSource`, `McpServerStarter`, the actions' readers (`BuildOptions Function()`…) and `ProfileMcpTools`'s | A dependency with one call is a function type. One with two or more is an interface (`TaskRunner`, `ApkSink`, `ProfileRunProgress`, `McpToolbox`, `McpSessions`). |
 | Closed set | `SettingsKey`; the sealed `SigningSetup` and `SplitAvailability`; enums such as `TargetStatus` | A new case doesn't compile until every `switch` handles it. |
 | Model owns its JSON | `fromJson`/`toJson` next to each other on each saved model | One place per field name. `settings_test` pins what this version saves. |
 | One report, every way out | `runReport` (`domain/profiles/run_report.dart`) | History's detail, Copy as text, Export and `run_profile`'s answer say a run the same way: the text is `runReportText` of the same report. |

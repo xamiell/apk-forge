@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/process/process_runner.dart';
 import '../core/system/host.dart';
+import '../domain/mcp/mcp_agents.dart';
 import '../domain/mcp/mcp_protocol.dart';
 import '../services/adb_service.dart';
 import '../services/apk_analyzer.dart';
@@ -61,11 +62,13 @@ final folderCreatorProvider = Provider<FolderCreator>(
       (path) => Directory(path).create(recursive: true),
 );
 
-/// Starts the MCP server on 127.0.0.1:[port] with [toolbox]'s tools.
+/// Starts the MCP server on 127.0.0.1:[port] with [toolbox]'s tools, keeping
+/// its agents' sessions in [sessions].
 typedef McpServerStarter = Future<McpServerStop> Function({
   required int port,
   required String token,
   required McpToolbox toolbox,
+  required McpSessions sessions,
 });
 
 /// Overridden in tests, so they open no port.
@@ -75,6 +78,13 @@ final mcpServerStarterProvider = Provider<McpServerStarter>(
 
 /// Makes a new token for the MCP server. Overridden in tests.
 final mcpTokenMakerProvider = Provider<String Function()>(
+  (ref) =>
+      () => newMcpToken(Random.secure()),
+);
+
+/// Makes the ID of a new MCP session: random like a token, so one session
+/// can't guess another's. Overridden in tests.
+final mcpSessionIdMakerProvider = Provider<String Function()>(
   (ref) =>
       () => newMcpToken(Random.secure()),
 );

@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:math';
 
+import 'mcp_agents.dart';
+
 /// The MCP versions the server speaks, newest first. A client that asks for
 /// another one gets the newest, and decides whether to go on.
 const mcpProtocolVersions = ['2025-11-25', '2025-06-18', '2025-03-26'];
@@ -135,8 +137,8 @@ class McpHttpAnswer {
 /// - An `Origin` other than the server's own is a web page reaching it
 ///   through the browser (DNS rebinding): 403.
 /// - A missing or wrong token: 401.
-/// - Only `POST /mcp`: the server has no event stream to `GET`, and keeps
-///   no session to `DELETE`.
+/// - Only `POST /mcp`, and `DELETE /mcp` to end a session: the server has
+///   no event stream to `GET`.
 /// - A protocol version it doesn't speak: 400.
 McpHttpAnswer? refuseMcpRequest({
   required String method,
@@ -160,11 +162,12 @@ McpHttpAnswer? refuseMcpRequest({
     );
   }
   if (path != '/mcp') return _refusal(404, 'The MCP endpoint is /mcp.');
-  if (method != 'POST') {
+  if (method != 'POST' && method != 'DELETE') {
     return _refusal(
       405,
-      'Only POST: this server has no event stream and keeps no session.',
-      headers: const {'Allow': 'POST'},
+      'Only POST, and DELETE to end a session: this server has no event '
+      'stream.',
+      headers: const {'Allow': 'POST, DELETE'},
     );
   }
   if (protocolVersion != null &&
@@ -203,11 +206,18 @@ bool _sameText(String a, String b) {
 /// The HTTP answer to the body of a `POST /mcp` that passed
 /// [refuseMcpRequest]: one JSON-RPC message, answered with JSON.
 ///
-/// A notification, or a client's response, gets 202 with no body. A batch
-/// isn't supported: MCP dropped them in 2025-06-18.
+/// - `initialize` opens a session in [sessions] with the client's
+///   `clientInfo`, and its answer carries the session's ID in
+///   [mcpSessionHeader].
+/// - Any other message with a [sessionId] is a request in that session. One
+///   with none is answered the same, in no session.
+/// - A notification, or a client's response, gets 202 with no body. A batch
+///   isn't supported: MCP dropped them in 2025-06-18.
 Future<McpHttpAnswer> answerMcpBody(
   String body, {
   required McpToolbox toolbox,
+  required McpSessions sessions,
+  String? sessionId,
 }) async {
   final Object? message;
   try {
@@ -228,10 +238,49 @@ Future<McpHttpAnswer> answerMcpBody(
       ),
     );
   }
+  final (method, params) = switch (message) {
+    {'method': final String method, 'params': final params} => (method, params),
+    {'method': final String method} => (method, null),
+    _ => (null, null),
+  };
+  if (method != null && method != 'initialize' && sessionId != null) {
+    sessions.request(
+      sessionId,
+      tool: switch ((method, params)) {
+        ('tools/call', {'name': final String tool}) => tool,
+        _ => null,
+      },
+    );
+  }
   final answer = await answerMcpMessage(message, toolbox: toolbox);
-  return answer == null
-      ? const McpHttpAnswer(202)
-      : McpHttpAnswer(200, body: answer);
+  if (answer == null) return const McpHttpAnswer(202);
+  if (method == 'initialize' && answer.containsKey('result')) {
+    final client = McpClientInfo.fromJson(switch (params) {
+      {'clientInfo': final info} => info,
+      _ => null,
+    });
+    return McpHttpAnswer(
+      200,
+      body: answer,
+      headers: {mcpSessionHeader: sessions.open(client)},
+    );
+  }
+  return McpHttpAnswer(200, body: answer);
+}
+
+/// The HTTP answer to a `DELETE /mcp` that passed [refuseMcpRequest]: the
+/// client ends its session [sessionId]. 404 for one [sessions] doesn't
+/// have.
+McpHttpAnswer answerMcpDelete(
+  String? sessionId, {
+  required McpSessions sessions,
+}) {
+  if (sessionId == null) {
+    return _refusal(400, 'DELETE ends a session: send its $mcpSessionHeader.');
+  }
+  return sessions.close(sessionId)
+      ? const McpHttpAnswer(204)
+      : _refusal(404, 'There is no such session.');
 }
 
 /// The answer to one JSON-RPC [message] from an MCP client, or `null` when

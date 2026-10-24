@@ -7,6 +7,7 @@ import 'package:apk_forge/domain/analysis/badging.dart';
 import 'package:apk_forge/domain/analysis/signature.dart';
 import 'package:apk_forge/domain/build/build_options.dart';
 import 'package:apk_forge/domain/failure.dart';
+import 'package:apk_forge/domain/mcp/mcp_agents.dart';
 import 'package:apk_forge/domain/mcp/mcp_protocol.dart';
 import 'package:apk_forge/domain/mcp/profile_tools.dart';
 import 'package:apk_forge/domain/profiles/key_properties.dart';
@@ -42,6 +43,31 @@ class _EchoToolbox implements McpToolbox {
     calls.add((name, arguments));
     if (arguments['fail'] == true) throw StateError('it broke');
     return McpToolResult({'said': arguments['text']});
+  }
+}
+
+/// Records what the protocol tells it, and opens `session-1`, `session-2`…
+class _Sessions implements McpSessions {
+  final events = <String>[];
+  final ids = <String>{};
+  var _opened = 0;
+
+  @override
+  String open(McpClientInfo client) {
+    final id = 'session-${++_opened}';
+    ids.add(id);
+    events.add('open ${client.label}');
+    return id;
+  }
+
+  @override
+  void request(String sessionId, {String? tool}) =>
+      events.add('request $sessionId ${tool ?? '-'}');
+
+  @override
+  bool close(String sessionId) {
+    events.add('close $sessionId');
+    return ids.remove(sessionId);
   }
 }
 
@@ -100,8 +126,12 @@ SigningProfile _profile(
 void main() {
   group('the protocol', () {
     late _EchoToolbox toolbox;
+    late _Sessions sessions;
 
-    setUp(() => toolbox = _EchoToolbox());
+    setUp(() {
+      toolbox = _EchoToolbox();
+      sessions = _Sessions();
+    });
 
     Future<Map<String, Object?>?> answer(Object? message) =>
         answerMcpMessage(message, toolbox: toolbox);
@@ -263,7 +293,7 @@ void main() {
     test('a body: not JSON is 400, a batch is 400, a notification is 202 '
         'and a request is 200', () async {
       Future<McpHttpAnswer> body(String text) =>
-          answerMcpBody(text, toolbox: toolbox);
+          answerMcpBody(text, toolbox: toolbox, sessions: sessions);
 
       final notJson = await body('{not json');
       final batch = await body(jsonEncode([_request('ping')]));
@@ -280,6 +310,137 @@ void main() {
       expect(notification.body, isNull);
       expect(request.status, 200);
       expect(request.body!['result'], <String, Object?>{});
+    });
+
+    test('initialize opens a session for who the client says it is, and '
+        'answers with its ID', () async {
+      final answered = await answerMcpBody(
+        jsonEncode(
+          _request(
+            'initialize',
+            params: {
+              'protocolVersion': '2025-11-25',
+              'clientInfo': {
+                'name': 'claude-code',
+                'title': 'Claude Code',
+                'version': '2.1.0',
+              },
+            },
+          ),
+        ),
+        toolbox: toolbox,
+        sessions: sessions,
+      );
+      final refused = await answerMcpBody(
+        jsonEncode({'jsonrpc': '1.0', 'id': 2, 'method': 'initialize'}),
+        toolbox: toolbox,
+        sessions: sessions,
+      );
+
+      expect(answered.status, 200);
+      expect(answered.headers, {mcpSessionHeader: 'session-1'});
+      expect(refused.headers, isEmpty);
+      expect(sessions.events, ['open Claude Code 2.1.0']);
+    });
+
+    test('a request in a session marks it, with the tool it calls; one in '
+        'no session is answered the same', () async {
+      Future<McpHttpAnswer> post(Object message, {String? sessionId}) =>
+          answerMcpBody(
+            jsonEncode(message),
+            toolbox: toolbox,
+            sessions: sessions,
+            sessionId: sessionId,
+          );
+
+      final call = await post(
+        _request(
+          'tools/call',
+          params: {
+            'name': 'echo',
+            'arguments': {'text': 'hi'},
+          },
+        ),
+        sessionId: 'session-7',
+      );
+      await post({
+        'jsonrpc': '2.0',
+        'method': 'notifications/initialized',
+      }, sessionId: 'session-7');
+      final ping = await post(_request('ping'));
+
+      expect(_toolData(call.body), {'said': 'hi'});
+      expect(ping.status, 200);
+      expect(sessions.events, [
+        'request session-7 echo',
+        'request session-7 -',
+      ]);
+    });
+
+    test('DELETE ends a session: 204, or 404 for one it does not have, or '
+        '400 without the header', () {
+      final id = sessions.open(const McpClientInfo(name: 'agent'));
+
+      expect(answerMcpDelete(id, sessions: sessions).status, 204);
+      expect(answerMcpDelete(id, sessions: sessions).status, 404);
+      expect(answerMcpDelete(null, sessions: sessions).status, 400);
+      expect(sessions.events, [
+        'open agent',
+        'close session-1',
+        'close session-1',
+      ]);
+    });
+  });
+
+  group('agents', () {
+    test('a client is its title or name and its version, each one short '
+        'line', () {
+      expect(
+        McpClientInfo.fromJson({'name': 'claude-code', 'version': '2.1.0'})
+            .label,
+        'claude-code 2.1.0',
+      );
+      expect(
+        McpClientInfo.fromJson({'name': 'x', 'title': ' Claude\nCode\t'}).label,
+        'Claude Code',
+      );
+      expect(McpClientInfo.fromJson(null).label, 'An unnamed agent');
+      expect(
+        McpClientInfo.fromJson({'name': 42, 'version': '  '}).label,
+        'An unnamed agent',
+      );
+      final long = McpClientInfo.fromJson({'name': 'a' * 100}).name!;
+      expect(long, hasLength(60));
+      expect(long, endsWith('…'));
+    });
+
+    test('an agent says when it connected and what it last asked', () {
+      final now = DateTime(2026, 10, 24, 14, 10);
+      final agent = McpAgent(
+        sessionId: 's',
+        client: const McpClientInfo(name: 'claude-code'),
+        connectedAt: DateTime(2026, 10, 24, 14, 5),
+        lastRequestAt: DateTime(2026, 10, 24, 14, 9),
+        lastTool: 'list_profiles',
+      );
+      final fromBefore = McpAgent(
+        sessionId: 's',
+        lastRequestAt: DateTime(2026, 10, 23, 9, 5),
+      );
+
+      expect(
+        agent.activity(now),
+        'Connected 14:05 · last request 14:09 · last tool list_profiles',
+      );
+      expect(
+        fromBefore.label,
+        'An agent connected before the server restarted',
+      );
+      expect(fromBefore.activity(now), 'Last request 2026-10-23 09:05');
+      expect(
+        agent.requested(DateTime(2026, 10, 24, 14, 12)).activity(now),
+        'Connected 14:05 · last request 14:12 · last tool list_profiles',
+      );
     });
   });
 
@@ -332,13 +493,13 @@ void main() {
       }
     });
 
-    test('another path is 404; a GET or a DELETE is 405, POST only', () {
+    test('another path is 404; a GET is 405: POST, and DELETE to end a '
+        'session, only', () {
       expect(refuse(path: '/')!.status, 404);
-      for (final method in ['GET', 'DELETE']) {
-        final answer = refuse(method: method);
-        expect(answer!.status, 405);
-        expect(answer.headers, {'Allow': 'POST'});
-      }
+      final get = refuse(method: 'GET');
+      expect(get!.status, 405);
+      expect(get.headers, {'Allow': 'POST, DELETE'});
+      expect(refuse(method: 'DELETE'), isNull);
     });
 
     test('a protocol version it does not speak is 400', () {

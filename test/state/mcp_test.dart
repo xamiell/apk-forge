@@ -6,6 +6,7 @@ import 'package:apk_forge/domain/analysis/badging.dart';
 import 'package:apk_forge/domain/analysis/signature.dart';
 import 'package:apk_forge/domain/build/build_options.dart';
 import 'package:apk_forge/domain/failure.dart';
+import 'package:apk_forge/domain/mcp/mcp_agents.dart';
 import 'package:apk_forge/domain/mcp/mcp_protocol.dart';
 import 'package:apk_forge/domain/profiles/key_properties.dart';
 import 'package:apk_forge/domain/profiles/profile.dart';
@@ -14,6 +15,7 @@ import 'package:apk_forge/domain/profiles/profile_run.dart';
 import 'package:apk_forge/domain/signing/signing.dart';
 import 'package:apk_forge/services/profile_runner.dart';
 import 'package:apk_forge/state/log_notifier.dart';
+import 'package:apk_forge/state/mcp_agents.dart';
 import 'package:apk_forge/state/mcp_notifier.dart';
 import 'package:apk_forge/state/mcp_tools.dart';
 import 'package:apk_forge/state/profiles.dart';
@@ -597,25 +599,35 @@ void main() {
     late List<String> events;
     late ProviderContainer container;
     late int tokens;
+    late int sessionIds;
+    late DateTime now;
     ToolFailure? startFailure;
 
     setUp(() {
       store = MemorySettingsStore();
       events = [];
       tokens = 0;
+      sessionIds = 0;
+      now = DateTime(2026, 10, 24, 14, 5);
       startFailure = null;
       container = ProviderContainer.test(
         overrides: [
           environmentProvider.overrideWithValue(const {}),
           settingsStoreProvider.overrideWithValue(store),
+          clockProvider.overrideWithValue(() => now),
           mcpTokenMakerProvider.overrideWithValue(() => 'token-${++tokens}'),
+          mcpSessionIdMakerProvider.overrideWithValue(
+            () => 'session-${++sessionIds}',
+          ),
           mcpServerStarterProvider.overrideWithValue(({
             required port,
             required token,
             required toolbox,
+            required sessions,
           }) async {
             if (startFailure case final failure?) throw failure;
             expect(toolbox, isA<ProfileMcpTools>());
+            expect(sessions, isA<McpAgentsNotifier>());
             events.add('start $port $token');
             return () async => events.add('stop $port');
           }),
@@ -625,6 +637,11 @@ void main() {
 
     McpServerNotifier server() => container.read(mcpServerProvider.notifier);
     McpServerState state() => container.read(mcpServerProvider);
+
+    /// The sessions the server was given: the test calls them as the HTTP
+    /// server would.
+    McpSessions agents() => container.read(mcpAgentsProvider.notifier);
+    List<McpAgent> listed() => container.read(mcpAgentsProvider);
     String log() =>
         container.read(logProvider).entries.map((e) => e.text).join('\n');
 
@@ -733,6 +750,97 @@ void main() {
       container.dispose();
 
       expect(events, ['start 7740 token-1', 'stop 7740']);
+    });
+
+    test('an agent that opens a session is listed and logged, never its '
+        'session ID', () async {
+      await server().turnOn();
+
+      final id = agents().open(
+        const McpClientInfo(name: 'claude-code', version: '2.1.0'),
+      );
+
+      expect(id, 'session-1');
+      expect(listed().single.label, 'claude-code 2.1.0');
+      expect(listed().single.connectedAt, now);
+      expect(listed().single.lastRequestAt, now);
+      expect(log(), contains('claude-code 2.1.0 connected to the MCP server.'));
+      expect(log(), isNot(contains('session-1')));
+    });
+
+    test('a request puts its agent first, with its time and the tool it '
+        'called', () async {
+      await server().turnOn();
+      final first = agents().open(const McpClientInfo(name: 'first'));
+      agents().open(const McpClientInfo(name: 'second'));
+      now = now.add(const Duration(minutes: 3));
+
+      agents().request(first, tool: 'list_profiles');
+      // A ping keeps the last tool.
+      agents().request(first);
+
+      expect(listed().map((agent) => agent.label), ['first', 'second']);
+      expect(listed().first.lastRequestAt, DateTime(2026, 10, 24, 14, 8));
+      expect(listed().first.connectedAt, DateTime(2026, 10, 24, 14, 5));
+      expect(listed().first.lastTool, 'list_profiles');
+    });
+
+    test(
+      'a session it did not open is an agent from before a restart',
+      () async {
+        await server().turnOn();
+
+        agents().request('from-before', tool: 'list_runs');
+
+        expect(listed().single.client, isNull);
+        expect(listed().single.connectedAt, isNull);
+        expect(listed().single.lastTool, 'list_runs');
+      },
+    );
+
+    test(
+      'ending a session takes its agent off the list, and logs it',
+      () async {
+        await server().turnOn();
+        final id = agents().open(const McpClientInfo(name: 'claude-code'));
+
+        expect(agents().close(id), isTrue);
+        expect(agents().close(id), isFalse);
+        expect(listed(), isEmpty);
+        expect(
+          log(),
+          contains('claude-code disconnected from the MCP server.'),
+        );
+      },
+    );
+
+    test(
+      'another port, New token or turning it off ends every session',
+      () async {
+        Future<void> withAnAgent(Future<void> Function() change) async {
+          agents().open(const McpClientInfo(name: 'claude-code'));
+          expect(listed(), hasLength(1));
+          await change();
+          expect(listed(), isEmpty);
+        }
+
+        await server().turnOn();
+        await withAnAgent(() => server().setPort(7801));
+        await withAnAgent(server().newToken);
+        await withAnAgent(server().turnOff);
+      },
+    );
+
+    test('it keeps the most recent agents only', () async {
+      await server().turnOn();
+
+      for (var i = 1; i <= McpAgentsNotifier.maxAgents + 5; i++) {
+        agents().open(McpClientInfo(name: 'agent $i'));
+      }
+
+      expect(listed(), hasLength(McpAgentsNotifier.maxAgents));
+      expect(listed().first.label, 'agent 25');
+      expect(listed().last.label, 'agent 6');
     });
   });
 }

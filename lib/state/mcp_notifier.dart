@@ -4,6 +4,7 @@ import '../domain/failure.dart';
 import '../domain/mcp/mcp_protocol.dart';
 import '../services/mcp_server.dart';
 import 'log_notifier.dart';
+import 'mcp_agents.dart';
 import 'mcp_tools.dart';
 import 'providers.dart';
 
@@ -173,6 +174,7 @@ class McpServerNotifier extends Notifier<McpServerState> {
         port: settings.port,
         token: token,
         toolbox: ref.read(mcpToolboxProvider),
+        sessions: ref.read(mcpAgentsProvider.notifier),
       );
     } on ToolFailure catch (failure) {
       state = McpServerState(
@@ -195,12 +197,14 @@ class McpServerNotifier extends Notifier<McpServerState> {
     log.success('MCP server on at ${mcpUrl(settings.port)}.');
   }
 
-  /// A run waiting for Allow is declined: its request is cut.
+  /// A run waiting for Allow is declined: its request is cut. The agents'
+  /// sessions end with the server.
   Future<void> _stopServer() async {
     final stop = _stop;
     _stop = null;
     if (stop == null) return;
     ref.read(mcpRunRequestProvider.notifier).answer(allow: false);
     await stop();
+    ref.read(mcpAgentsProvider.notifier).clear();
   }
 }
