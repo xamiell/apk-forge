@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../domain/profiles/profile_run.dart';
 import '../../state/actions/profile_run_action.dart';
 import '../../state/profiles.dart';
 import 'run_check.dart';
@@ -50,7 +51,9 @@ class _RunProfileDialogState extends ConsumerState<_RunProfileDialog> {
                 }),
                 onRun: (check) {
                   setState(() => _started = true);
-                  ref.read(profileRunActionProvider).run(profile, check);
+                  ref
+                      .read(profileRunActionProvider)
+                      .run(profile, check, startedBy: const StartedInApp());
                 },
               ),
       ),

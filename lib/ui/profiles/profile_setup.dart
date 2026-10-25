@@ -76,7 +76,7 @@ class _ProfileSetupState extends ConsumerState<ProfileSetup> {
           _Step.fileName,
           3,
           'File name',
-          '${profile.fileNamePattern}.apk',
+          signedFileNamePattern(profile.fileNamePattern),
           _FileNameStep(profile: profile, onChanged: update),
         ),
         step(
@@ -260,6 +260,19 @@ class _FileNameStep extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final example = profile.targets.isEmpty ? null : profile.targets.first;
     final problems = fileNamePatternProblems(profile.fileNamePattern);
+    final preview = profileFileName(
+      profile.fileNamePattern,
+      name: profileAppName(
+        label: 'My App',
+        packageName: 'com.example.myapp',
+        fileName: 'app-release',
+      ),
+      target: example?.name ?? 'Phone',
+      abi: example?.abiName ?? ProfileTarget.universalAbiName,
+      versionName: '1.0.0',
+      versionCode: '1',
+      date: ref.watch(clockProvider)(),
+    );
     return ConstrainedBox(
       constraints: const BoxConstraints(maxWidth: 620),
       child: Column(
@@ -293,7 +306,7 @@ class _FileNameStep extends ConsumerWidget {
             ProblemText(problems)
           else
             Text(
-              'For app-release.apk 1.0.0: ${profileFileName(profile.fileNamePattern, name: 'app-release', target: example?.name ?? 'Phone', abi: example?.abiName ?? ProfileTarget.universalAbiName, versionName: '1.0.0', versionCode: '1', date: ref.watch(clockProvider)())}',
+              'For My App (com.example.myapp) 1.0.0 (1): $preview',
               style: TextStyle(fontSize: 12.5, color: context.status.muted),
             ),
         ],

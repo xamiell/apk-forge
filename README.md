@@ -20,6 +20,7 @@ the tool's own reason, not a generic error.
 | **Build** | Runs `flutter build apk`, or `flutter build appbundle` for a store such as Google Play, on any Flutter project, for the architectures in Defaults. Choose release or debug, and one universal APK, one APK per ABI (`--split-per-abi`, offered with two or more architectures), or an App Bundle (`.aab`). Optional Dart obfuscation keeps the symbols you need to read crash traces. The command is previewed before you run it. |
 | **Sign** | Signs the APK selected in Analyze APK, the APKs a build just produced, or any APK you pick (from CI, another machine, a store), with your `.jks`, `.keystore` or `.p12` and the schemes in Defaults. It checks the alignment first and fixes it if needed, writes `<name>-signed.apk` without touching the original, and verifies that the result carries exactly the key you chose. An App Bundle, built or picked, is signed with `jarsigner` to `<name>-signed.aab`, without the debug signature Flutter gave it. **Split per ABI and sign** turns a universal APK (one from CI, say) into one signed APK per architecture in Defaults. **New key…** makes an upload key, a keystore and the `key.properties` Gradle reads, in the folder you choose, and loads it. |
 | **Signing profiles** | Saves the steps to turn one APK into a signed APK per device, each with its ABI, its key (a `key.properties` file) and its folder, and runs them in one go. Every run is kept as a report you can copy or export. |
+| **Agent access (MCP)** | Lets an agent (any MCP client) list the signing profiles, check a run and run one, through an MCP server inside the app. It's off until you turn it on, it needs a token, it asks you before each run unless you turn that off, and no password leaves the app. |
 | **Analyze APK** | For any APK: whether the signature verifies; the schemes it carries (v1 to v4); the signer certificate (DN, SHA-256, SHA-1), a rotated key's lineage, and whether it is **your key** or the Android debug key; release or debug (`debuggable`); package, version and SDK levels; native code per ABI, flagging an ABI with no Flutter engine; size, MD5 and SHA-256. An App Bundle (`.aab`) opens too: its files, its manifest and its JAR signature. **Compare with…** puts an APK next to another APK (a previous release, another build) or the app installed on the device, and lists every difference, worst first: another signer, a lower versionCode, a debug build, lost ABIs, new permissions. |
 | **Analyze device** | For the device on USB: maker, brand, model and codename; Android version, API level, security patch, build and build type; chip, ABIs, memory page size (16 KB pages are flagged), RAM, storage and screen; battery, locale and time zone. With an APK selected, it tells you which ABI the APK would run as, which version is installed, and whether installing would be a fresh install, an upgrade, a reinstall or a downgrade, or would be refused for another key. **Compare with the installed app** compares the two side by side. One click copies it all as text. |
 | **Install** | Installs the selected APK with `adb install -r` (optionally `-d` to allow a downgrade). It warns first when the APK has no native code for the device, or is signed with another key than the installed app, and explains the common install failures. An App Bundle is installed the way a store delivers it: `bundletool` makes the device's APKs from it, signed with the key in Sign, and installs them. |
@@ -34,6 +35,8 @@ the tool's own reason, not a generic error.
 | Android SDK platform-tools: `adb` | Analyze device, Install, comparing with the installed app | Android Studio → SDK Manager |
 | A JDK: `keytool`, `jarsigner`, and `java` for `apksigner` and the bundletool jar | Sign, New key, signing profiles, App Bundles | Android Studio's bundled JDK works |
 | `bundletool` | Reading and installing App Bundles | Not in the SDK: the official jar from [github.com/google/bundletool](https://github.com/google/bundletool/releases), or `brew install bundletool` |
+
+[Set up](#set-up) installs them step by step.
 
 You don't configure paths by hand. At startup the app reads your login
 shell's environment, the same one your terminal has. An app opened from
@@ -73,7 +76,129 @@ away.
 | Windows | The code handles its paths and tool names (`apksigner.bat`, `adb.exe`, `%LOCALAPPDATA%`); not tried yet |
 | Linux | The code handles its paths and tool names; not tried yet |
 
+## Set up
+
+These steps take a Mac with nothing installed to APK Forge running. Each
+step installs one tool and ends with a check. Run the check first: if it
+already passes, skip the step.
+
+To set up with an agent, such as Claude Code, tell it: "Read README.md and
+follow Set up." Some steps are still yours to do, so the agent should ask
+you first: installing Xcode, accepting a license, and anything that asks
+for your password.
+
+The checks pass on macOS 27.0.1 (Apple silicon) with Xcode 27.1, Flutter
+3.47.5 (Dart 3.13.4), OpenJDK 21.0.10, build-tools 36.0.0, platform-tools
+37.0.1 and bundletool 1.18.3. On an Intel Mac, Homebrew is in
+`/usr/local`, not `/opt/homebrew`. [Windows and Linux](#windows-and-linux)
+come after the steps.
+
+**1. Homebrew**, from [brew.sh](https://brew.sh). Check:
+
+```bash
+brew --version
+```
+
+**2. Xcode**, to build the macOS app. Install it from the App Store, then:
+
+```bash
+sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer
+sudo xcodebuild -runFirstLaunch
+sudo xcodebuild -license    # read it and accept
+```
+
+Check: `xcodebuild -version` prints Xcode's version.
+
+**3. Flutter** builds APK Forge, and it's what **Build** runs. Use stable
+3.47.5 or newer (CI uses 3.47.5):
+
+```bash
+git clone --branch stable https://github.com/flutter/flutter.git ~/development/flutter
+echo 'export PATH="$HOME/development/flutter/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
+```
+
+Check: `flutter --version` prints Flutter 3.47.5 or newer and Dart 3.13.4
+or newer.
+
+**4. A JDK**, 17 or newer, gives `keytool`, `jarsigner` and `java`.
+APK Forge and Flutter also find Android Studio's own JDK, but step 5's
+commands need a `java` in your terminal.
+
+```bash
+brew install openjdk@21
+echo 'export JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home' >> ~/.zshrc
+echo 'export PATH="$JAVA_HOME/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
+```
+
+Check: `java -version` prints 17 or newer, and `command -v keytool
+jarsigner` prints both paths.
+
+**5. The Android SDK**: build-tools (`apksigner`, `zipalign`, `aapt2`) and
+platform-tools (`adb`). They go in `~/Library/Android/sdk`, the folder
+APK Forge and Flutter look in. The command-line tools install them, and
+need step 4's JDK. Accepting the SDK's licenses is yours to do. Newer
+command-line tools say `--licenses` is no longer needed; that's fine.
+
+```bash
+brew install --cask android-commandlinetools
+sdkmanager --sdk_root="$HOME/Library/Android/sdk" --licenses    # read them and accept
+sdkmanager --sdk_root="$HOME/Library/Android/sdk" "platform-tools" "build-tools;36.0.0" "cmdline-tools;latest"
+echo 'export ANDROID_HOME="$HOME/Library/Android/sdk"' >> ~/.zshrc
+echo 'export PATH="$ANDROID_HOME/platform-tools:$ANDROID_HOME/cmdline-tools/latest/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
+```
+
+With Android Studio, its SDK Manager does the same into the same folder
+(Settings → Languages & Frameworks → Android SDK → SDK Tools: Build-Tools,
+Platform-Tools and Command-line Tools). Check:
+
+```bash
+"$ANDROID_HOME/build-tools/36.0.0/apksigner" --version
+"$ANDROID_HOME/build-tools/36.0.0/aapt2" version
+adb --version
+```
+
+**6. bundletool**, only to open and install App Bundles (`.aab`). Skip it
+if you don't use them.
+
+```bash
+brew install bundletool
+```
+
+Check: `bundletool version`. You can use the jar from
+[its releases](https://github.com/google/bundletool/releases) instead, set
+in **Tools**.
+
+**7. Check them together.** In `flutter doctor`, the Flutter, Android
+toolchain and Xcode lines each get a ✓. A warning that the iOS Simulator
+isn't installed doesn't matter for APK Forge. If `flutter doctor -v` shows
+the Android toolchain on a JDK older than 17, point it at step 4's JDK:
+`flutter config --jdk-dir="$JAVA_HOME"`.
+
+Then [Getting started](#getting-started) clones APK Forge and runs it.
+Once it's open, the top bar shows a green pill, with a check, for every
+tool you installed.
+
+### Windows and Linux
+
+Not tried yet. They take the same tools, with these installers:
+
+| | Windows | Linux (Debian, Ubuntu) |
+|---|---|---|
+| To build the app | Visual Studio 2022 with **Desktop development with C++** | `sudo apt-get install clang cmake git ninja-build pkg-config libgtk-3-dev liblzma-dev libstdc++-12-dev` |
+| Flutter | [Flutter's install guide](https://docs.flutter.dev/get-started/install) | Step 3's `git clone`, with `~/.bashrc` instead of `~/.zshrc` |
+| A JDK | `winget install EclipseAdoptium.Temurin.21.JDK` | `sudo apt-get install openjdk-21-jdk` |
+| The Android SDK | Android Studio's SDK Manager, into `%LOCALAPPDATA%\Android\Sdk` | The [command-line tools](https://developer.android.com/studio#command-tools) unzipped to `~/Android/Sdk/cmdline-tools/latest`, then step 5's `sdkmanager` with `--sdk_root="$HOME/Android/Sdk"` |
+| bundletool | The jar, set in **Tools** | The jar, set in **Tools** |
+
+The checks are the same. On Windows the tools are `apksigner.bat` and
+`adb.exe`.
+
 ## Getting started
+
+With the tools from [Set up](#set-up) installed:
 
 ```bash
 git clone https://github.com/xamiell/apk-forge.git
@@ -144,6 +269,11 @@ other APK or AAB files…** picks one or more APKs or App Bundles instead,
 such as a bundle from CI. Each one is written next to the original as
 `<name>-signed.apk` or `<name>-signed.aab`, or to the output folder if you
 set one.
+
+**Clear**, next to **New key…**, empties Sign in one go: the keystore, its
+password, the keys loaded and the key password. The output folder stays,
+and the keystore and its `key.properties` stay on disk. Analyze APK then
+stops comparing APKs with the cleared key.
 
 ### Make a new upload key
 
@@ -234,13 +364,19 @@ Open **Profiles** in the left rail, or **Run profile…** in **Sign**.
 2. **Targets**: **Add target** for each one.
 3. **File name**: the tokens are `{name}`, `{target}`, `{abi}`,
    `{versionName}`, `{versionCode}` and `{date}`, with a preview.
+   - `{name}` is the app's name: its label in lowercase, with `-` for
+     spaces, or else the last part of its package (`com.example.myapp`
+     gives `myapp`). The input file's name is used only when the APK's
+     manifest can't be read.
+   - The name ends in `-signed.apk`, as Sign's do, unless the pattern
+     already says `signed`.
 4. **After**: what to do once the run is done.
 
 Targets with the same ABI, key and schemes are signed once and copied to
 each folder. **Duplicate** copies a profile ("Release copy"). A name
 already in the list gets a number ("New profile 2").
 
-**Run it.** **Run…** opens the run dialog. Add the APK, or use the one
+**Run it.** **Run** opens the run dialog. Add the APK, or use the one
 selected in **Analyze APK**. Before anything is signed, the dialog:
 - reads the APK and checks it against the input checks;
 - opens every key. A wrong keystore or key password, or an alias the
@@ -254,7 +390,10 @@ target that fails doesn't stop the others. The signed APKs join the list in
 **Analyze APK**.
 
 **The history.** The **History** tab keeps every run, newest first, with
-its outcome, versions and targets. A run's report says, for each target:
+its outcome, versions and targets. A robot marks a run an agent started.
+A run's report says who started it: **In the app**, or the agent, by its
+name and version, and whether you allowed it or it ran without asking.
+Then, for each target:
 - the ABI, and whether the input was cut;
 - the key: its alias and its `key.properties`;
 - the schemes asked, next to the ones apksigner verified;
@@ -267,10 +406,10 @@ release note or a ticket. Editing the profile later doesn't change its
 history; deleting the profile deletes it. A run saved by an older version
 says "Not recorded" for what that version didn't keep.
 
-**Share one.** **Export…** writes the profile to a `.json` file, with
-paths and choices only. **Import profile…** reads one, and a name already
-in the list gets a number. The paths come from the machine that exported
-it:
+**Share one.** **Export profile**, the icon next to **Duplicate**, writes
+the profile to a `.json` file, with paths and choices only. **Import
+profile…** reads one, and a name already in the list gets a number. The
+paths come from the machine that exported it:
 - A `key.properties` or output folder that doesn't exist on this machine is
   flagged in the import dialog, in the Profiles list and on the target.
 - It stops the run until you pick another file or folder in **Edit
@@ -282,6 +421,83 @@ it:
 - they go to `keytool` and `apksigner` through environment variables;
 - they're never written to the settings, the history, an exported profile,
   the log or an error.
+
+### Let an agent run a profile (MCP)
+
+An agent can run a signing profile for you: "run the Universal profile on
+build/app/outputs/flutter-apk/app-release.apk". Any agent works, with any
+model, as long as its client speaks [MCP](https://modelcontextprotocol.io)
+over HTTP. APK Forge has the MCP server inside the app. A run goes through
+the Run dialog's check, shows in the log while it runs, and is kept in the
+profile's History, which names the agent.
+
+**Turn it on.** Press the robot in the top bar (**Agent access**) and turn
+on **MCP server**:
+- it listens on `127.0.0.1:7740`, on this computer only. You can change the
+  port there;
+- it makes a token the first time;
+- a green **MCP** pill in the top bar says it's on;
+- it comes back on at every launch until you turn it off.
+
+**Ask before an agent runs a profile** is on unless you turn it off:
+- On: once a run's check passes, APK Forge shows the plan (each target's
+  ABI, key and the file it writes, and what's skipped) with **Allow** and
+  **Decline**. The agent waits for your answer. **Decline** signs nothing,
+  and the agent is told so.
+- Off: a run starts as soon as its check passes.
+
+The app asks, not the agent's client, so it works the same with any agent.
+
+**Connect an agent.** In your agent's MCP settings, add an HTTP server
+(Streamable HTTP) with:
+- the **Address**, `http://127.0.0.1:7740/mcp`;
+- the **Authorization** header, `Bearer <token>`.
+
+Agent access has a copy button for each; the header's copy holds the token.
+How you add a server depends on the client. With Claude Code, for example,
+run this once in a terminal:
+
+```bash
+claude mcp add --scope user --transport http apk-forge http://127.0.0.1:7740/mcp --header "Authorization: Bearer <token>"
+```
+
+`--scope user` makes it available in every project, and `claude mcp list`
+shows it connected while the app is open.
+
+**See who's connected.** Agent access lists each agent connected since the
+server started: its name and version, as its client gives them, when it
+connected, and its last request and tool. It shows the three most recent;
+**Show all** shows the rest. The log says when an agent
+connects and disconnects. An agent that quits without disconnecting stays
+listed, with the time of its last request, until the server stops. One
+that connected before APK Forge restarted connects again on its own: the
+server tells it its session is gone, as MCP has it, and its client starts
+another one.
+
+**The tools:**
+
+| Tool | What it does | Writes? |
+|---|---|---|
+| `list_profiles` | Each profile: its targets (ABI, key and alias, folder, schemes), its input checks, its file name pattern, and what stops a target on this machine. | No |
+| `check_profile_run` | The Run dialog's check, for a profile and some APKs: reads them, plans the run and opens the keys. | No |
+| `run_profile` | Checks, then runs. Returns each target's result (status, output, size, signer SHA-256, or the reason) and the run's report. | The signed APKs, in each target's folder |
+| `list_runs` | A profile's History, newest first. | No |
+
+- A profile is named as in the app, ignoring case.
+- The APKs are absolute paths, and the agent must give them. It never signs
+  whatever APK is selected in **Analyze APK**.
+- `run_profile` is refused while another task runs (a build, an install),
+  while another agent's run waits for **Allow**, and when the check finds
+  a problem. The answer says why.
+
+**It does nothing else:** no build, no install, no change to a profile.
+Passwords never leave the app: they're in no tool's answer, error, log line
+or History entry.
+
+**New token** replaces the token: give your agent the new header.
+Turning the server off, changing its port or making a new token cuts the
+open connections, ends the agents' sessions and declines a run waiting for
+**Allow**. A run already started still finishes in the app.
 
 ### Check an APK
 
@@ -376,7 +592,19 @@ no MD5 or SHA-256 to compare, and it's never "the same file" as an APK.
 - **The app saves only paths and choices** (project folder, keystore path,
   key alias, architectures…), in the OS's standard app preferences. A
   signing profile saves the path of each `key.properties`; the passwords
-  stay in the file.
+  stay in the file. The one secret saved there is the MCP server's token
+  (below).
+- **The MCP server is off until you turn it on**, and listens on
+  `127.0.0.1` only:
+  - every request needs its token. It's saved with the preferences, so the
+    registered command keeps working, and **New token** replaces it;
+  - a request from a web page (an `Origin` other than the server's own) is
+    refused, token or not;
+  - **Ask before an agent runs a profile** (on unless you turn it off)
+    makes every run wait for your **Allow**, whatever the agent was told;
+  - no tool answers with a password, and the token never goes to the log.
+    Don't paste the copied header in an issue or a screenshot: **New
+    token** replaces one that got out.
 - **Reading a device changes nothing on it.** It runs `getprop`, `wm size`,
   `dumpsys battery`, `pm path` and similar read-only commands. A package name
   taken from an APK is validated before it goes into a device shell command.
@@ -458,9 +686,9 @@ flutter test tool/app_icon.dart
 ```
 lib/
   core/       process running, host OS, ZIP reading and copying, file digests, formatting, log types
-  domain/     models, command builders, output parsers, checks (pure Dart)
-  services/   one class per tool job, through a ProcessRunner
-  state/      Riverpod notifiers (forms, the current task, the log) and the actions
+  domain/     models, command builders, output parsers, checks, the MCP protocol (pure Dart)
+  services/   one class per tool job, through a ProcessRunner; the MCP server's HTTP listener
+  state/      Riverpod notifiers (forms, the current task, the log, the MCP server), the actions and the MCP tools
   ui/         the screen and its panels
 tool/         the end-to-end smoke test, and the app icon's drawing
 test/         unit tests and the captured tool output

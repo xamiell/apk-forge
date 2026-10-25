@@ -124,7 +124,7 @@ Color _outcomeColor(RunOutcome outcome, StatusColors colors) =>
     };
 
 /// A run in the list: when, its outcome, the versions it signed and its
-/// targets.
+/// targets. A robot marks an agent's run.
 class _RunTile extends StatelessWidget {
   const _RunTile({
     required this.run,
@@ -146,6 +146,17 @@ class _RunTile extends StatelessWidget {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       title: Row(
         children: [
+          if (run.startedBy is StartedByAgent) ...[
+            Tooltip(
+              message: describeRunStarter(run.startedBy),
+              child: Icon(
+                Icons.smart_toy_outlined,
+                size: 16,
+                color: colors.muted,
+              ),
+            ),
+            const SizedBox(width: 6),
+          ],
           Expanded(
             child: Text(
               formatDateTime(run.startedAt),

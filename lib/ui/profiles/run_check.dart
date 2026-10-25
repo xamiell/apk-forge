@@ -202,13 +202,10 @@ class RunCheckView extends ConsumerWidget {
           if (value != null && value.plan.jobs.isNotEmpty) ...[
             const SizedBox(height: 18),
             const _Heading('Plan'),
-            _PlanTable(check: value),
+            RunPlanTable(check: value),
             const SizedBox(height: 8),
             Text(
-              '${value.plan.outputCount} '
-              'APK${value.plan.outputCount == 1 ? '' : 's'} to write'
-              '${value.plan.skipped.isEmpty ? '' : ', ${value.plan.skipped.length} skipped'}. '
-              'The input${inputs.length == 1 ? ' is' : 's are'} not modified.',
+              runPlanSummary(value),
               style: TextStyle(fontSize: 12.5, color: colors.muted),
             ),
           ],
@@ -326,8 +323,18 @@ class _InputCheck extends ConsumerWidget {
   }
 }
 
-class _PlanTable extends ConsumerWidget {
-  const _PlanTable({required this.check});
+/// "2 APKs to write, 1 skipped. The input is not modified."
+String runPlanSummary(ProfileRunCheck check) {
+  final plan = check.plan;
+  return '${plan.outputCount} APK${plan.outputCount == 1 ? '' : 's'} to write'
+      '${plan.skipped.isEmpty ? '' : ', ${plan.skipped.length} skipped'}. '
+      'The input${check.inputs.length == 1 ? ' is' : 's are'} not modified.';
+}
+
+/// What a checked run writes, target by target, and what it skips: in the
+/// Run dialog, and when an agent asks to run.
+class RunPlanTable extends ConsumerWidget {
+  const RunPlanTable({super.key, required this.check});
 
   final ProfileRunCheck check;
 

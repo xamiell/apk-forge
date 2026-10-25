@@ -39,10 +39,25 @@ class SigningCard extends ConsumerWidget {
     return SectionCard(
       title: 'Sign',
       icon: Icons.verified_user_outlined,
-      trailing: FilledButton.tonalIcon(
-        onPressed: () => showNewKeySheet(context),
-        icon: const Icon(Icons.key_outlined, size: 16),
-        label: const Text('New key…'),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Tooltip(
+            message:
+                'Empty the keystore, its password and the key. The output '
+                'folder stays, and nothing on disk changes.',
+            child: TextButton(
+              onPressed: form.canClear && !busy ? notifier.clear : null,
+              child: const Text('Clear'),
+            ),
+          ),
+          const SizedBox(width: 6),
+          FilledButton.tonalIcon(
+            onPressed: () => showNewKeySheet(context),
+            icon: const Icon(Icons.key_outlined, size: 16),
+            label: const Text('New key…'),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,

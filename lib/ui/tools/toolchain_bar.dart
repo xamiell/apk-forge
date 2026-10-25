@@ -7,70 +7,64 @@ import '../../state/toolchain_notifier.dart';
 import '../common/widgets.dart';
 import '../theme.dart';
 
-/// The tools the app found, in the top bar. A missing one is red, and the
-/// gear opens the folders to set by hand.
+/// The tools the app found, in the top bar. A missing one is red.
 class ToolchainBar extends ConsumerWidget {
   const ToolchainBar({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final toolchain = ref.watch(toolchainProvider);
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        switch (toolchain) {
-          AsyncData(:final value) => Wrap(
-            spacing: 6,
-            children: [
-              _ToolPill(
-                'Flutter',
-                value.flutter,
-                version: value.flutterVersion,
-              ),
-              _ToolPill(
-                'build-tools',
-                value.apksigner,
-                version: value.buildToolsVersion,
-              ),
-              _ToolPill('adb', value.adb),
-              _ToolPill('keytool', value.keytool),
-              _ToolPill(
-                'bundletool',
-                value.bundletool,
-                version: value.bundletoolVersion,
-                missing:
-                    'bundletool not found: set it in Tools (the gear) to '
-                    'read and install App Bundles',
-              ),
-            ],
+    return switch (ref.watch(toolchainProvider)) {
+      AsyncData(:final value) => Wrap(
+        spacing: 6,
+        children: [
+          _ToolPill('Flutter', value.flutter, version: value.flutterVersion),
+          _ToolPill(
+            'build-tools',
+            value.apksigner,
+            version: value.buildToolsVersion,
           ),
-          AsyncError(:final error) => Text(
-            '$error',
-            style: TextStyle(color: context.status.error),
+          _ToolPill('adb', value.adb),
+          _ToolPill('keytool', value.keytool),
+          _ToolPill(
+            'bundletool',
+            value.bundletool,
+            version: value.bundletoolVersion,
+            missing:
+                'bundletool not found: set it in Tools (the gear) to '
+                'read and install App Bundles',
           ),
-          _ => const Row(
-            children: [
-              SizedBox.square(
-                dimension: 14,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              ),
-              SizedBox(width: 8),
-              Text('Looking for tools…', style: TextStyle(fontSize: 12.5)),
-            ],
+        ],
+      ),
+      AsyncError(:final error) => Text(
+        '$error',
+        style: TextStyle(color: context.status.error),
+      ),
+      _ => const Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox.square(
+            dimension: 14,
+            child: CircularProgressIndicator(strokeWidth: 2),
           ),
-        },
-        const SizedBox(width: 4),
-        IconButton(
-          tooltip: 'Tools',
-          icon: const Icon(Icons.settings_outlined, size: 20),
-          onPressed: () => showDialog<void>(
-            context: context,
-            builder: (_) => const ToolsDialog(),
-          ),
-        ),
-      ],
-    );
+          SizedBox(width: 8),
+          Text('Looking for tools…', style: TextStyle(fontSize: 12.5)),
+        ],
+      ),
+    };
   }
+}
+
+/// The gear in the top bar: opens Tools, the folders to set by hand.
+class ToolsButton extends StatelessWidget {
+  const ToolsButton({super.key});
+
+  @override
+  Widget build(BuildContext context) => IconButton(
+    tooltip: 'Tools',
+    icon: const Icon(Icons.settings_outlined, size: 20),
+    onPressed: () =>
+        showDialog<void>(context: context, builder: (_) => const ToolsDialog()),
+  );
 }
 
 class _ToolPill extends StatelessWidget {

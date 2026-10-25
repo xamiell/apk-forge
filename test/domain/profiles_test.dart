@@ -186,6 +186,7 @@ ProfileRunRecord _run() => ProfileRunRecord(
     mustBeUnsigned: true,
   ),
   buildToolsVersion: '36.0.0',
+  startedBy: const StartedByAgent('Claude Code 2.1.0', allowedInApp: true),
 );
 
 /// A run as it was saved before #14.
@@ -410,7 +411,7 @@ void main() {
           versionCode: '140',
           date: _date,
         ),
-        'app-release-Phone-arm64-v8a-1.4.0-140-20261018.apk',
+        'app-release-Phone-arm64-v8a-1.4.0-140-20261018-signed.apk',
       );
     });
 
@@ -423,8 +424,50 @@ void main() {
           abi: 'universal',
           date: _date,
         ),
-        'Kiosk_Lobby_ 2.apk',
+        'Kiosk_Lobby_ 2-signed.apk',
       );
+    });
+
+    test('{name} is the app\'s label, else its package\'s last part, else '
+        'the file\'s name', () {
+      expect(
+        profileAppName(
+          label: ' My  App ',
+          packageName: 'com.example.myapp',
+          fileName: 'app-release',
+        ),
+        'my-app',
+      );
+      expect(
+        profileAppName(
+          label: ' ',
+          packageName: 'com.example.MyApp',
+          fileName: 'app-release',
+        ),
+        'myapp',
+      );
+      expect(profileAppName(fileName: 'app-release'), 'app-release');
+    });
+
+    test('a file name ends in -signed.apk unless the pattern says signed', () {
+      String name(String pattern) => profileFileName(
+        pattern,
+        name: 'myapp',
+        target: 'Phone',
+        abi: 'universal',
+        date: _date,
+      );
+
+      expect(name('{name}-{target}'), 'myapp-Phone-signed.apk');
+      expect(name('{name}-{target}.APK'), 'myapp-Phone-signed.apk');
+      expect(name('{name}-signed-{target}'), 'myapp-signed-Phone.apk');
+      expect(name('{name}_Signed.apk'), 'myapp_Signed.apk');
+      expect(name('{name}-unsigned'), 'myapp-unsigned-signed.apk');
+      expect(
+        signedFileNamePattern('{name}-{target}'),
+        '{name}-{target}-signed.apk',
+      );
+      expect(signedFileNamePattern('{name}-signed'), '{name}-signed.apk');
     });
 
     test('an empty pattern or an unknown token is a problem', () {
@@ -573,10 +616,33 @@ void main() {
         AndroidAbi.armeabiV7a,
       ]);
       expect(plan.jobs.map((job) => job.outputs.single.path), [
-        '/out/phone/app-release-Phone-1.0.0.apk',
-        '/out/kiosk/app-release-Kiosk-1.0.0.apk',
+        '/out/phone/sample_app-Phone-1.0.0-signed.apk',
+        '/out/kiosk/sample_app-Kiosk-1.0.0-signed.apk',
       ]);
       expect(plan.outputCount, 2);
+    });
+
+    test('the input\'s file name stays out of the signed file\'s name', () {
+      final plan = _plan(
+        [_target('Phone', abi: null)],
+        inputs: [
+          _input(
+            path: '/ci/myapp-2.5.0-17-unsigned.apk',
+            badging: const Badging(
+              packageName: 'com.example.myapp',
+              label: 'MyApp',
+              versionName: '2.5.0',
+              versionCode: '17',
+            ),
+          ),
+        ],
+        pattern: '{name}-{target}-{versionName}-{versionCode}',
+      );
+
+      expect(
+        plan.jobs.single.outputs.single.path,
+        '/out/phone/myapp-Phone-2.5.0-17-signed.apk',
+      );
     });
 
     test('targets that share the ABI, the key and the schemes sign once', () {
@@ -680,7 +746,7 @@ void main() {
       expect(universal.jobs.single.abi, isNull);
       expect(
         universal.jobs.single.outputs.single.path,
-        '/out/all/app-release-All.apk',
+        '/out/all/sample_app-All-signed.apk',
       );
     });
 
@@ -695,7 +761,7 @@ void main() {
           for (final job in plan.jobs)
             for (final output in job.outputs) p.basename(output.path),
         ],
-        ['Phone-arm64-v8a.apk', 'All-universal.apk'],
+        ['Phone-arm64-v8a-signed.apk', 'All-universal-signed.apk'],
       );
       expect(_target('All', abi: null).abiName, 'universal');
       expect(_target('Phone').abiName, 'arm64-v8a');
@@ -768,13 +834,42 @@ void main() {
       ], pattern: '{name}');
       expect(
         collide.problems.single,
-        contains('Phone and Tablet would both write /out/app-release.apk'),
+        'Phone and Tablet would both write /out/sample_app-signed.apk. '
+        'Put {target} in the file name, or give them different folders.',
       );
 
-      final overInput = _plan([
-        _target('Phone', abi: null, folder: '/ci'),
-      ], pattern: '{name}');
+      final overInput = _plan(
+        [_target('Phone', abi: null, folder: '/ci')],
+        inputs: [_input(path: '/ci/sample_app-signed.apk')],
+        pattern: '{name}',
+      );
       expect(overInput.problems.single, contains('would write over its input'));
+    });
+
+    test('two inputs that give one file name is a problem naming both', () {
+      final inputs = [_input(), _input(path: '/ci/app-beta.apk')];
+
+      final oneTarget = _plan([_target('Phone')], inputs: inputs);
+      expect(oneTarget.problems, [
+        'app-release.apk and app-beta.apk would both write '
+            '/out/phone/sample_app-Phone-signed.apk for Phone. Put '
+            '{versionCode} in the file name if their versions differ, or run '
+            'them one at a time.',
+      ]);
+
+      final twoTargets = _plan(
+        [_target('Phone', folder: '/out'), _target('Tablet', folder: '/out')],
+        inputs: inputs,
+        pattern: '{name}',
+      );
+      expect(
+        twoTargets.problems,
+        contains(
+          'Tablet for app-release.apk and Phone for app-beta.apk would both '
+          'write /out/sample_app-signed.apk. Put {target} in the file name, '
+          'or give them different folders.',
+        ),
+      );
     });
 
     test('a target without a key file or a folder, no target, no input', () {
@@ -814,13 +909,23 @@ void main() {
         [_target('Phone')],
         inputs: [
           _input(),
-          _input(path: '/ci/app-beta.apk'),
+          _input(
+            path: '/ci/app-next.apk',
+            badging: const Badging(
+              packageName: 'io.example.sample_app',
+              label: 'sample_app',
+              versionName: '1.0.1',
+              versionCode: '2002',
+            ),
+          ),
         ],
+        pattern: '{name}-{target}-{versionCode}',
       );
 
+      expect(plan.problems, isEmpty);
       expect(plan.jobs.map((job) => job.outputs.single.path), [
-        '/out/phone/app-release-Phone.apk',
-        '/out/phone/app-beta-Phone.apk',
+        '/out/phone/sample_app-Phone-2001-signed.apk',
+        '/out/phone/sample_app-Phone-2002-signed.apk',
       ]);
     });
   });
@@ -964,6 +1069,7 @@ void main() {
         'Outcome: Some failed',
         'Results: 1 signed · 1 failed · 1 skipped',
         'Started: 2026-10-18 11:52',
+        'Started by: Claude Code 2.1.0, allowed in the app',
         'Took: 9 s',
         'Profile: Release',
         'Build-tools: 36.0.0',
@@ -1012,7 +1118,8 @@ void main() {
         'guesses nothing from the profile', () {
       final report = runReport(ProfileRunRecord.fromJson(_oldRun()));
 
-      expect(lines(report.run).skip(5), [
+      expect(lines(report.run).skip(3).first, 'Started by: Not recorded');
+      expect(lines(report.run).skip(6), [
         'Build-tools: Not recorded',
         'File names: Not recorded',
         'Input checks: Not recorded',
@@ -1036,6 +1143,30 @@ void main() {
         'Size: 1.0 KB',
         'Output SHA-256: Not recorded',
       ]);
+    });
+
+    test('who started a run: the app, an agent allowed in the app, or one '
+        'that ran without asking', () {
+      expect(describeRunStarter(const StartedInApp()), 'In the app');
+      expect(
+        describeRunStarter(
+          const StartedByAgent('Claude Code 2.1.0', allowedInApp: false),
+        ),
+        'Claude Code 2.1.0, without asking: Ask before an agent runs a '
+        'profile was off',
+      );
+      expect(describeRunStarter(null), notRecorded);
+      for (final starter in [
+        const StartedInApp(),
+        const StartedByAgent('Claude Code 2.1.0', allowedInApp: false),
+      ]) {
+        expect(
+          describeRunStarter(RunStarter.fromJson(starter.toJson())),
+          describeRunStarter(starter),
+        );
+      }
+      expect(RunStarter.fromJson({'by': 'someone'}), isNull);
+      expect(ProfileRunRecord.fromJson(_oldRun()).startedBy, isNull);
     });
 
     test('several inputs: each target says which one it was', () {
