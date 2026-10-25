@@ -36,6 +36,8 @@ the tool's own reason, not a generic error.
 | A JDK: `keytool`, `jarsigner`, and `java` for `apksigner` and the bundletool jar | Sign, New key, signing profiles, App Bundles | Android Studio's bundled JDK works |
 | `bundletool` | Reading and installing App Bundles | Not in the SDK: the official jar from [github.com/google/bundletool](https://github.com/google/bundletool/releases), or `brew install bundletool` |
 
+[Set up](#set-up) installs them step by step.
+
 You don't configure paths by hand. At startup the app reads your login
 shell's environment, the same one your terminal has. An app opened from
 Finder or the Dock otherwise gets a bare `PATH`. It then looks at
@@ -74,7 +76,129 @@ away.
 | Windows | The code handles its paths and tool names (`apksigner.bat`, `adb.exe`, `%LOCALAPPDATA%`); not tried yet |
 | Linux | The code handles its paths and tool names; not tried yet |
 
+## Set up
+
+These steps take a Mac with nothing installed to APK Forge running. Each
+step installs one tool and ends with a check. Run the check first: if it
+already passes, skip the step.
+
+To set up with an agent, such as Claude Code, tell it: "Read README.md and
+follow Set up." Some steps are still yours to do, so the agent should ask
+you first: installing Xcode, accepting a license, and anything that asks
+for your password.
+
+The checks pass on macOS 27.0.1 (Apple silicon) with Xcode 27.1, Flutter
+3.47.5 (Dart 3.13.4), OpenJDK 21.0.10, build-tools 36.0.0, platform-tools
+37.0.1 and bundletool 1.18.3. On an Intel Mac, Homebrew is in
+`/usr/local`, not `/opt/homebrew`. [Windows and Linux](#windows-and-linux)
+come after the steps.
+
+**1. Homebrew**, from [brew.sh](https://brew.sh). Check:
+
+```bash
+brew --version
+```
+
+**2. Xcode**, to build the macOS app. Install it from the App Store, then:
+
+```bash
+sudo xcode-select --switch /Applications/Xcode.app/Contents/Developer
+sudo xcodebuild -runFirstLaunch
+sudo xcodebuild -license    # read it and accept
+```
+
+Check: `xcodebuild -version` prints Xcode's version.
+
+**3. Flutter** builds APK Forge, and it's what **Build** runs. Use stable
+3.47.5 or newer (CI uses 3.47.5):
+
+```bash
+git clone --branch stable https://github.com/flutter/flutter.git ~/development/flutter
+echo 'export PATH="$HOME/development/flutter/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
+```
+
+Check: `flutter --version` prints Flutter 3.47.5 or newer and Dart 3.13.4
+or newer.
+
+**4. A JDK**, 17 or newer, gives `keytool`, `jarsigner` and `java`.
+APK Forge and Flutter also find Android Studio's own JDK, but step 5's
+commands need a `java` in your terminal.
+
+```bash
+brew install openjdk@21
+echo 'export JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home' >> ~/.zshrc
+echo 'export PATH="$JAVA_HOME/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
+```
+
+Check: `java -version` prints 17 or newer, and `command -v keytool
+jarsigner` prints both paths.
+
+**5. The Android SDK**: build-tools (`apksigner`, `zipalign`, `aapt2`) and
+platform-tools (`adb`). They go in `~/Library/Android/sdk`, the folder
+APK Forge and Flutter look in. The command-line tools install them, and
+need step 4's JDK. Accepting the SDK's licenses is yours to do. Newer
+command-line tools say `--licenses` is no longer needed; that's fine.
+
+```bash
+brew install --cask android-commandlinetools
+sdkmanager --sdk_root="$HOME/Library/Android/sdk" --licenses    # read them and accept
+sdkmanager --sdk_root="$HOME/Library/Android/sdk" "platform-tools" "build-tools;36.0.0" "cmdline-tools;latest"
+echo 'export ANDROID_HOME="$HOME/Library/Android/sdk"' >> ~/.zshrc
+echo 'export PATH="$ANDROID_HOME/platform-tools:$ANDROID_HOME/cmdline-tools/latest/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
+```
+
+With Android Studio, its SDK Manager does the same into the same folder
+(Settings → Languages & Frameworks → Android SDK → SDK Tools: Build-Tools,
+Platform-Tools and Command-line Tools). Check:
+
+```bash
+"$ANDROID_HOME/build-tools/36.0.0/apksigner" --version
+"$ANDROID_HOME/build-tools/36.0.0/aapt2" version
+adb --version
+```
+
+**6. bundletool**, only to open and install App Bundles (`.aab`). Skip it
+if you don't use them.
+
+```bash
+brew install bundletool
+```
+
+Check: `bundletool version`. You can use the jar from
+[its releases](https://github.com/google/bundletool/releases) instead, set
+in **Tools**.
+
+**7. Check them together.** In `flutter doctor`, the Flutter, Android
+toolchain and Xcode lines each get a ✓. A warning that the iOS Simulator
+isn't installed doesn't matter for APK Forge. If `flutter doctor -v` shows
+the Android toolchain on a JDK older than 17, point it at step 4's JDK:
+`flutter config --jdk-dir="$JAVA_HOME"`.
+
+Then [Getting started](#getting-started) clones APK Forge and runs it.
+Once it's open, the top bar shows a green pill, with a check, for every
+tool you installed.
+
+### Windows and Linux
+
+Not tried yet. They take the same tools, with these installers:
+
+| | Windows | Linux (Debian, Ubuntu) |
+|---|---|---|
+| To build the app | Visual Studio 2022 with **Desktop development with C++** | `sudo apt-get install clang cmake git ninja-build pkg-config libgtk-3-dev liblzma-dev libstdc++-12-dev` |
+| Flutter | [Flutter's install guide](https://docs.flutter.dev/get-started/install) | Step 3's `git clone`, with `~/.bashrc` instead of `~/.zshrc` |
+| A JDK | `winget install EclipseAdoptium.Temurin.21.JDK` | `sudo apt-get install openjdk-21-jdk` |
+| The Android SDK | Android Studio's SDK Manager, into `%LOCALAPPDATA%\Android\Sdk` | The [command-line tools](https://developer.android.com/studio#command-tools) unzipped to `~/Android/Sdk/cmdline-tools/latest`, then step 5's `sdkmanager` with `--sdk_root="$HOME/Android/Sdk"` |
+| bundletool | The jar, set in **Tools** | The jar, set in **Tools** |
+
+The checks are the same. On Windows the tools are `apksigner.bat` and
+`adb.exe`.
+
 ## Getting started
+
+With the tools from [Set up](#set-up) installed:
 
 ```bash
 git clone https://github.com/xamiell/apk-forge.git
