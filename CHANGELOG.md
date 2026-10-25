@@ -4,6 +4,46 @@ What changed in each version of APK Forge. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions
 follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-10-25
+
+An agent can run signing profiles, and the README now shows how to set up
+APK Forge step by step.
+
+### Added
+
+- **Agent access (MCP)** puts an MCP server inside the app. Through it, an
+  agent (any MCP client over HTTP) can list the signing profiles, check a
+  run and run one, with `list_profiles`, `check_profile_run`,
+  `run_profile` and `list_runs`. The server is off until you turn it on,
+  and it listens on this computer only. An agent needs its token, and the
+  app asks you before each run unless you turn that off. A green **MCP**
+  pill in the top bar, before the Tools and Agent access icons, says it's
+  on. No password leaves the app. ([#10], [#40])
+- Agent access lists the agents connected since the server started: each
+  one's name and version, when it connected, and its last request and
+  tool. The log says when an agent connects and disconnects. An agent
+  connected before the app restarted connects again on its own. ([#43])
+- A profile's History says who started each run: **In the app**, or the
+  agent, by its name. A robot marks a run an agent started. ([#44])
+- **Clear**, next to **New key…** in Sign, empties the keystore, its
+  password, the loaded keys and the key password in one click. The output
+  folder stays, and nothing on disk changes. ([#42])
+- **Set up** in the README installs each tool APK Forge needs, step by
+  step, and checks it. A person can follow it, and so can an agent told to
+  read the README. ([#51])
+
+### Changed
+
+- A signing profile names its files after the app, not the input file.
+  `{name}` is the app's label in lowercase, with `-` for spaces. Without a
+  label it's the last part of the package, and without either, the input
+  file's name, as before. Every file a profile writes ends in
+  `-signed.apk`, unless the pattern already says `signed`. Profiles saved
+  with 1.1.0 write the new names too. ([#41])
+- The profile editor's header shows the profile's name, then **Run** and
+  its actions as icons: Duplicate, Export and Delete. **Setup | History**
+  sits at the right end of the header. ([#49])
+
 ## [1.1.0] - 2026-10-22
 
 Signing profiles, Compare, App Bundles and new upload keys.
@@ -110,6 +150,7 @@ as it runs.
 - Passwords stay in memory and reach the tools through environment
   variables, never arguments, settings or logs.
 
+[1.2.0]: https://github.com/xamiell/apk-forge/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/xamiell/apk-forge/compare/43ff62a...v1.1.0
 [1.0.0]: https://github.com/xamiell/apk-forge/commit/43ff62a
 [#1]: https://github.com/xamiell/apk-forge/issues/1
@@ -118,6 +159,7 @@ as it runs.
 [#7]: https://github.com/xamiell/apk-forge/issues/7
 [#8]: https://github.com/xamiell/apk-forge/issues/8
 [#9]: https://github.com/xamiell/apk-forge/issues/9
+[#10]: https://github.com/xamiell/apk-forge/issues/10
 [#11]: https://github.com/xamiell/apk-forge/issues/11
 [#13]: https://github.com/xamiell/apk-forge/issues/13
 [#14]: https://github.com/xamiell/apk-forge/issues/14
@@ -130,3 +172,10 @@ as it runs.
 [#30]: https://github.com/xamiell/apk-forge/issues/30
 [#33]: https://github.com/xamiell/apk-forge/issues/33
 [#35]: https://github.com/xamiell/apk-forge/issues/35
+[#40]: https://github.com/xamiell/apk-forge/issues/40
+[#41]: https://github.com/xamiell/apk-forge/issues/41
+[#42]: https://github.com/xamiell/apk-forge/issues/42
+[#43]: https://github.com/xamiell/apk-forge/issues/43
+[#44]: https://github.com/xamiell/apk-forge/issues/44
+[#49]: https://github.com/xamiell/apk-forge/issues/49
+[#51]: https://github.com/xamiell/apk-forge/issues/51
