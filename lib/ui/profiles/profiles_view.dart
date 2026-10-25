@@ -261,21 +261,55 @@ class _ProfileEditor extends ConsumerWidget {
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 10, 12, 10),
-            child: Wrap(
-              spacing: 10,
-              runSpacing: 8,
-              crossAxisAlignment: WrapCrossAlignment.center,
+            child: Row(
               children: [
-                SizedBox(
-                  width: 260,
-                  child: SyncedTextField(
-                    key: ValueKey('name-${profile.id}'),
-                    label: 'Profile',
-                    value: profile.name,
-                    onChanged: (name) =>
-                        notifier.update(profile.copyWith(name: name)),
+                // The profile and what can be done with it, then the view.
+                Expanded(
+                  child: Wrap(
+                    spacing: 10,
+                    runSpacing: 8,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      SizedBox(
+                        width: 260,
+                        child: SyncedTextField(
+                          key: ValueKey('name-${profile.id}'),
+                          label: 'Profile',
+                          value: profile.name,
+                          onChanged: (name) =>
+                              notifier.update(profile.copyWith(name: name)),
+                        ),
+                      ),
+                      FilledButton.icon(
+                        onPressed: busy
+                            ? null
+                            : () => showRunProfileDialog(context, profile.id),
+                        icon: const Icon(Icons.play_arrow_rounded),
+                        label: const Text('Run'),
+                      ),
+                      IconButton(
+                        tooltip: 'Duplicate profile',
+                        icon: const Icon(Icons.copy_rounded, size: 20),
+                        onPressed: () => notifier.duplicate(profile.id),
+                      ),
+                      IconButton(
+                        tooltip: 'Export profile',
+                        icon: const Icon(Icons.upload_rounded, size: 20),
+                        onPressed: export,
+                      ),
+                      IconButton(
+                        tooltip: 'Delete profile',
+                        icon: Icon(
+                          Icons.delete_outline_rounded,
+                          size: 20,
+                          color: context.status.error,
+                        ),
+                        onPressed: delete,
+                      ),
+                    ],
                   ),
                 ),
+                const SizedBox(width: 10),
                 SegmentedButton<ProfileTab>(
                   showSelectedIcon: false,
                   segments: const [
@@ -291,32 +325,6 @@ class _ProfileEditor extends ConsumerWidget {
                   selected: {tab},
                   onSelectionChanged: (choice) =>
                       ref.read(profileTabProvider.notifier).show(choice.single),
-                ),
-                IconButton(
-                  tooltip: 'Duplicate profile',
-                  icon: const Icon(Icons.copy_rounded, size: 20),
-                  onPressed: () => notifier.duplicate(profile.id),
-                ),
-                OutlinedButton.icon(
-                  onPressed: export,
-                  icon: const Icon(Icons.upload_rounded, size: 18),
-                  label: const Text('Export…'),
-                ),
-                IconButton(
-                  tooltip: 'Delete profile',
-                  icon: Icon(
-                    Icons.delete_outline_rounded,
-                    size: 20,
-                    color: context.status.error,
-                  ),
-                  onPressed: delete,
-                ),
-                FilledButton.icon(
-                  onPressed: busy
-                      ? null
-                      : () => showRunProfileDialog(context, profile.id),
-                  icon: const Icon(Icons.play_arrow_rounded),
-                  label: const Text('Run…'),
                 ),
               ],
             ),
